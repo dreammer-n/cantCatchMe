@@ -15,7 +15,8 @@ without touching gameplay.
 ## The method (hybrid, no 3D engine)
 
 1. **One camera** (`src/render/projection.js`). Fixed orthographic camera: the map is turned by
-   `azimuth` and tilted by `elevation`. It never rotates or moves closer; it only follows the car.
+   `azimuth` and tilted by `elevation`. It never rotates. It follows the car with look-ahead, widens
+   slightly at speed and shakes on impacts (`src/render/CameraRig.js`); drawings are not affected.
    `u = x·cos a − y·sin a`, `v = x·sin a + y·cos a`, `screenX = u`, `screenY = v·sin e − z·cos e`.
    Azimuth 0 + elevation 90 gives exactly the flat Milestone 1 view. Nothing else converts world → screen.
 2. **Real 3D shapes** (`src/render/lowpoly.js`). Cars and props are built from a few convex solids

@@ -10,7 +10,8 @@ import { createRng } from '../utils/math.js';
 //
 // Item: { kind, name, x, y, heading (radians, 0 = north), model (drawing cache key), params,
 //         band: 'objects' | 'raised' | 'wall', collider: null | {type:'circle', r} | {type:'box', hw, hl},
-//         breakable }
+//         breakable, curb }
+// layout.cones lists every breakable item (cones and lamp posts): they all get knocked away the same way.
 // A box collider's hw runs along the item's local x (right), hl along its local y (forward).
 // Paint: axis-aligned rectangles on the floor { x, y, w, h, alpha, color? } (x, y = top-left
 // corner; color 'lot' = the lighter surface of a city block, otherwise white paint).
@@ -38,7 +39,7 @@ export function buildLayout(seed = WORLD.seed) {
     }
   }
   addLaneLines(paint, cols, rows);
-  for (const item of items) if (item.kind === 'cone') cones.push(item);
+  for (const item of items) if (item.breakable) cones.push(item);
   return { items, paint, cones };
 }
 
@@ -132,7 +133,7 @@ function lamp(x, y, headingDeg) {
     params: {},
     band: 'objects',
     collider: { type: 'circle', r: COLLISION.lampRadius },
-    breakable: false,
+    breakable: true,
   };
 }
 
@@ -177,6 +178,7 @@ const BUILDERS = {
         band: 'raised',
         collider: { type: 'box', hw: ISLAND_WIDTH / 2, hl: halfL },
         breakable: false,
+        curb: true,
       },
       halfL,
     );

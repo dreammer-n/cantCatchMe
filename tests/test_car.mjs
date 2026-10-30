@@ -1,6 +1,6 @@
 // Unit checks for the shared driving model (runs in Node, no browser).
 import { Car } from '../src/entities/Car.js';
-import { ARENA, CRASH, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PHYSICS } from '../src/config/tuning.js';
+import { ARENA, CRASH, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PHYSICS, POLICE_HANDLING } from '../src/config/tuning.js';
 import { StaticWorld, collideWithWorld } from '../src/systems/CollisionSystem.js';
 const emptyWorld = new StaticWorld([]);
 const hit = { impact: 0, shape: null };
@@ -69,6 +69,88 @@ check('presets ordered grippy < balanced < drifty', drifts[0] < drifts[1] && dri
   for (let i = 0; i < 90; i++) car.stepFor(0, 1 / 60, PHYSICS.maxStepSeconds);
   check('drift fades after release (1.5 s)', car.driftAngleDeg < sliding * 0.15, `${fmt(sliding)} -> ${fmt(car.driftAngleDeg)} deg`);
 }
+
+// Slide state: sign of the slip, and the nose really does point away from the velocity.
+{
+  const car = new Car(HANDLING_PRESETS.balanced);
+  car.launch(300);
+  let peakSlip = 0;
+  for (let i = 0; i < 60; i++) {
+    car.stepFor(1, 1 / 60, PHYSICS.maxStepSeconds);
+    peakSlip = Math.min(peakSlip, car.slipAngle);
+  }
+  const moving = Math.atan2(car.vx, -car.vy);
+  const gap = Math.atan2(Math.sin(moving - car.heading), Math.cos(moving - car.heading));
+  check('turning right: car slides to the left of its nose (negative slip)', peakSlip < -0.2, `${fmt((peakSlip * 180) / Math.PI)} deg`);
+  check('slipAngle equals the real gap between nose and travel', Math.abs(gap - car.slipAngle) < 0.001, `${fmt((gap * 180) / Math.PI)} deg`);
+  check('body leans away from the turn (visual roll, within its limit)', car.chassisRoll < 0 && Math.abs(car.chassisRoll) <= (HANDLING_PRESETS.balanced.rollMaxDeg * Math.PI) / 180 + 1e-9, `${fmt((car.chassisRoll * 180) / Math.PI)} deg`);
+  for (let i = 0; i < 120; i++) car.stepFor(0, 1 / 60, PHYSICS.maxStepSeconds);
+  check('slip and roll settle back to zero on a straight', Math.abs(car.slipAngle) < 0.01 && Math.abs(car.chassisRoll) < 0.01);
+}
+
+// Grip: drops while sliding, on top of the drop from steering.
+{
+  const settle = (handling) => {
+    const car = new Car(handling);
+    car.launch(300);
+    car.peakDrift = 0;
+    for (let i = 0; i < 120; i++) {
+      car.stepFor(1, 1 / 60, PHYSICS.maxStepSeconds);
+      car.peakDrift = Math.max(car.peakDrift, car.driftAngleDeg);
+    }
+    return car;
+  };
+  const withLoss = settle(HANDLING_PRESETS.balanced);
+  const noLoss = settle({ ...HANDLING_PRESETS.balanced, slideGripLoss: 0 });
+  check('sliding lowers grip below the steering-only value', withLoss.grip < noLoss.grip - 0.2, `${withLoss.grip.toFixed(2)} vs ${noLoss.grip.toFixed(2)}`);
+  check('... so the slide is deeper', withLoss.peakDrift > noLoss.peakDrift, `${fmt(withLoss.peakDrift)} vs ${fmt(noLoss.peakDrift)} deg at its peak`);
+  const straight = new Car(HANDLING_PRESETS.balanced);
+  straight.launch(300);
+  for (let i = 0; i < 120; i++) straight.stepFor(0, 1 / 60, PHYSICS.maxStepSeconds);
+  check('driving straight: grip stays at its high value', Math.abs(straight.grip - HANDLING_PRESETS.balanced.gripStraight) < 1e-6);
+}
+
+// Counter-steer: flicking from a right slide to the left turns the nose back faster with the bonus.
+{
+  const flick = (handling) => {
+    const car = new Car(handling);
+    car.launch(300);
+    for (let i = 0; i < 60; i++) car.stepFor(1, 1 / 60, PHYSICS.maxStepSeconds);
+    const before = car.heading;
+    for (let i = 0; i < 15; i++) car.stepFor(-1, 1 / 60, PHYSICS.maxStepSeconds);
+    return before - car.heading;
+  };
+  const helped = flick(HANDLING_PRESETS.balanced);
+  const plain = flick({ ...HANDLING_PRESETS.balanced, counterSteerBonus: 0 });
+  check('counter-steering turns the nose back faster', helped > plain * 1.1, `${fmt((helped * 180) / Math.PI)} vs ${fmt((plain * 180) / Math.PI)} deg in 0.25 s`);
+  const entering = (handling) => {
+    const car = new Car(handling);
+    car.launch(300);
+    for (let i = 0; i < 15; i++) car.stepFor(1, 1 / 60, PHYSICS.maxStepSeconds);
+    return car.heading;
+  };
+  check('no bonus when turning into the corner', Math.abs(entering(HANDLING_PRESETS.balanced) - entering({ ...HANDLING_PRESETS.balanced, counterSteerBonus: 0, slideGripLoss: 0, deepSlideScrub: 0 })) < 0.02);
+}
+
+// Deep slides cost extra speed; shallow driving does not.
+{
+  const deep = (handling) => {
+    const car = new Car(handling);
+    car.launch(300);
+    let slowest = Infinity;
+    for (let i = 0; i < 150; i++) {
+      car.stepFor(1, 1 / 60, PHYSICS.maxStepSeconds);
+      slowest = Math.min(slowest, car.speed);
+    }
+    return slowest;
+  };
+  const scrubbed = deep(HANDLING_PRESETS.drifty);
+  const free = deep({ ...HANDLING_PRESETS.drifty, deepSlideScrub: 0 });
+  check('a deep slide scrubs a little more speed, not a lot', scrubbed <= free && free - scrubbed < 40, `${fmt(scrubbed)} vs ${fmt(free)}`);
+}
+
+// Police keep their handling: none of the player's slide extras.
+check('police have no slide extras', POLICE_HANDLING.slideGripLoss === 0 && POLICE_HANDLING.counterSteerBonus === 0 && POLICE_HANDLING.deepSlideScrub === 0);
 
 // Wall: head-on into the top wall at full speed is a crash-strength impact; the car stays inside.
 {

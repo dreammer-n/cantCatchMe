@@ -2,7 +2,6 @@ import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
 import {
   AUDIO,
-  CAMERA,
   CRASH,
   DEFAULT_HANDLING_PRESET,
   DEPTH,
@@ -14,12 +13,13 @@ import {
   PALETTE,
   POWERUP,
   RENDER,
-  START,
+  TRAUMA,
   VIEW,
   WRECK,
 } from '../config/tuning.js';
 import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
+import { CameraRig } from '../render/CameraRig.js';
 import { ensureCarAtlas } from '../render/carAtlas.js';
 import { carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
@@ -31,7 +31,7 @@ import { Scenery } from '../render/Scenery.js';
 import { ChaseSimulation } from '../systems/ChaseSimulation.js';
 import { Records } from '../systems/ScoreSystem.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
-import { degToRad, smoothFactor, wrapAngle } from '../utils/math.js';
+import { degToRad, wrapAngle } from '../utils/math.js';
 
 const screenPoint = { x: 0, y: 0 };
 const ATTRACT_HEADING = degToRad(150); // a flattering three-quarter view on the title screen
@@ -67,7 +67,8 @@ export class GameScene extends Phaser.Scene {
       { x: 0, y: 0 },
       { x: 0, y: 0 },
     ];
-    this.cameraTarget = { x: START.x, y: START.y }; // world units
+    this.rig = new CameraRig();
+    this.rig.reset(this.sim.player.x, this.sim.player.y);
     this.view = { x: 0, y: 0, right: 0, bottom: 0 }; // visible screen rectangle
     this.simView = { cx: 0, cy: 0, halfW: 0, halfH: 0 };
     this.smokeClock = new Map();
@@ -207,14 +208,14 @@ export class GameScene extends Phaser.Scene {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
           this.effects.explosion(e.x, e.y, e.player);
           this.audio.play('explosion', 1 - distance / AUDIO.explosionRange);
-          if (!e.player) this.effects.shake(this.cameras.main, distance, EXPLOSION.shakeDistance);
+          if (!e.player && distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.explosion * (1 - distance / EXPLOSION.shakeDistance));
           break;
         }
         case 'crash':
           this.mode = 'crashed';
           this.playerView.setLook(this.looks.wreck);
           this.audio.play('crash');
-          this.cameras.main.shake(EFFECTS.shakeMs * 2, EFFECTS.crashShake);
+          this.rig.addTrauma(TRAUMA.crash);
           this.controls.releaseHeld();
           PlatformManager.runFailed();
           this.game.events.emit('run-crashed', e.cause);
@@ -230,6 +231,7 @@ export class GameScene extends Phaser.Scene {
         case 'nearMiss':
           this.toast('CLOSE CALL!', 'near');
           this.audio.play('nearMiss');
+          this.rig.addTrauma(TRAUMA.nearMiss);
           break;
         case 'pickup':
           this.toast('SHOCKWAVE READY!', 'power');
@@ -238,13 +240,22 @@ export class GameScene extends Phaser.Scene {
         case 'pulse':
           this.effects.shockwave(e.x, e.y, e.radius, POWERUP.pulseSeconds);
           this.audio.play('pulse');
-          this.cameras.main.shake(EFFECTS.shakeMs, EFFECTS.shakeNear * 1.5);
+          this.rig.addTrauma(TRAUMA.pulse);
           break;
         case 'bump':
           this.audio.play('bump', e.impact / 250);
+          this.rig.addTrauma(TRAUMA.bump);
+          break;
+        case 'scrape':
+          this.rig.addTrauma(TRAUMA.scrape);
+          break;
+        case 'curb':
+          this.audio.play('bump', 0.3);
+          this.rig.addTrauma(TRAUMA.curb);
           break;
         case 'cone':
           this.audio.play('cone', 0.8);
+          if (e.player) this.rig.addTrauma(TRAUMA.knock);
           break;
         default:
           break;
@@ -392,37 +403,29 @@ export class GameScene extends Phaser.Scene {
     const camera = this.cameras.main;
     const { width, height } = this.scale;
     camera.setSize(width, height);
-    camera.setZoom(Math.min(width, height) / VIEW.shortSideWorldUnits);
+    this.baseZoom = Math.min(width, height) / VIEW.shortSideWorldUnits;
+    camera.setZoom(this.baseZoom * this.rig.zoom);
     this.centerCamera();
   }
 
-  // Smoothly follows a point slightly ahead of the car (in world units), then projects it.
+  // Look-ahead, speed zoom and shake are worked out by the rig; this applies them to the camera.
   followCar(dt) {
-    const car = this.sim.player;
-    const maxLead = VIEW.shortSideWorldUnits * CAMERA.maxLookAheadFraction;
-    let leadX = car.vx * CAMERA.lookAheadSeconds;
-    let leadY = car.vy * CAMERA.lookAheadSeconds;
-    const leadLength = Math.hypot(leadX, leadY);
-    if (leadLength > maxLead) {
-      leadX *= maxLead / leadLength;
-      leadY *= maxLead / leadLength;
-    }
-    const k = smoothFactor(CAMERA.followSharpness, dt);
-    this.cameraTarget.x += (car.x + leadX - this.cameraTarget.x) * k;
-    this.cameraTarget.y += (car.y + leadY - this.cameraTarget.y) * k;
+    const camera = this.cameras.main;
+    this.rig.update(this.sim.player, dt, camera.width / this.baseZoom / 2, camera.height / this.baseZoom / 2);
+    camera.setZoom(this.baseZoom * this.rig.zoom);
     this.centerCamera();
   }
 
   snapCamera() {
-    this.cameraTarget.x = this.sim.player.x;
-    this.cameraTarget.y = this.sim.player.y;
+    this.rig.reset(this.sim.player.x, this.sim.player.y);
+    this.cameras.main.setZoom(this.baseZoom);
     this.centerCamera();
   }
 
   centerCamera() {
     const camera = this.cameras.main;
-    projection.toScreen(this.cameraTarget.x, this.cameraTarget.y, 0, screenPoint);
-    camera.centerOn(screenPoint.x, screenPoint.y);
+    projection.toScreen(this.rig.x, this.rig.y, 0, screenPoint);
+    camera.centerOn(screenPoint.x + this.rig.shakeX, screenPoint.y + this.rig.shakeY);
     const halfW = camera.width / camera.zoom / 2;
     const halfH = camera.height / camera.zoom / 2;
     Object.assign(this.simView, { cx: screenPoint.x, cy: screenPoint.y, halfW, halfH });
@@ -497,6 +500,9 @@ export class GameScene extends Phaser.Scene {
       heading: car.heading,
       speed: car.speed,
       driftDeg: car.driftAngleDeg,
+      slipAngle: car.slipAngle,
+      chassisRoll: car.chassisRoll,
+      trauma: this.rig.trauma,
       mode: this.mode,
       runState: this.sim.state,
       runTime: this.sim.time,

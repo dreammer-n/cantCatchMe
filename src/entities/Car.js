@@ -26,6 +26,9 @@ export class Car {
     this.grip = this.handling.gripStraight;
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
+    this.slipAngle = 0; // radians, signed: + = moving to the right of where the nose points
+    this.chassisRoll = 0; // radians, visual only: nothing in the physics reads it
+    this.onCurb = false; // set by the collision system
   }
 
   setHandling(handling) {
@@ -36,10 +39,14 @@ export class Car {
   // dt in seconds (keep it small, see stepFor).
   step(steer, dt) {
     const h = this.handling;
+    const slide = Math.min(1, Math.abs(this.lateralSpeed) / h.slideFullSlip);
+
+    // Steering toward the direction of the slide (counter-steering) turns the nose faster.
+    const counterSteer = steer * this.lateralSpeed > 0 ? slide * Math.abs(steer) : 0;
 
     // Turning needs speed: no spinning on the spot at the start.
     const turnAuthority = Math.min(1, Math.max(0, this.forwardSpeed) / h.fullTurnSpeed);
-    const targetTurn = steer * degToRad(h.maxTurnRateDeg) * turnAuthority;
+    const targetTurn = steer * degToRad(h.maxTurnRateDeg) * turnAuthority * (1 + h.counterSteerBonus * counterSteer);
     this.angularVelocity += (targetTurn - this.angularVelocity) * smoothFactor(h.steerResponse, dt);
     this.heading = wrapAngle(this.heading + this.angularVelocity * dt);
 
@@ -51,18 +58,21 @@ export class Car {
     let forward = this.vx * fx + this.vy * fy;
     let lateral = this.vx * rx + this.vy * ry;
 
-    // Grip drops while steering (lets the car slide) and recovers gradually when released.
+    // Grip drops while steering and while already sliding, and recovers gradually afterwards.
     // Part-steering (police) blends between the two; for the player (-1/0/1) it is one or the other.
     const lock = Math.min(1, Math.abs(steer));
-    const targetGrip = h.gripStraight + (h.gripTurning - h.gripStraight) * lock;
+    const targetGrip = (h.gripStraight + (h.gripTurning - h.gripStraight) * lock) * (1 - h.slideGripLoss * slide);
     this.grip += (targetGrip - this.grip) * smoothFactor(h.gripChangeRate, dt);
 
-    // Tyres kill sideways motion; sliding also scrubs a little forward speed.
+    // Tyres kill sideways motion; sliding scrubs a little forward speed, deep slides a bit more.
     lateral *= Math.exp(-this.grip * dt);
-    forward -= h.slideScrub * Math.abs(lateral) * dt;
+    const slip = Math.atan2(Math.abs(lateral), Math.max(1, Math.abs(forward)));
+    const deepSlide = Math.min(1, Math.max(0, (slip - degToRad(h.deepSlideStartDeg)) / degToRad(h.deepSlideRangeDeg)));
+    forward -= (h.slideScrub * Math.abs(lateral) + h.deepSlideScrub * deepSlide) * dt;
 
-    // Engine always drives toward top speed (no brake, no reverse).
-    if (forward < h.topSpeed) forward = Math.min(h.topSpeed, forward + h.acceleration * dt);
+    // Engine always drives toward top speed (no brake, no reverse). Tyres on a curb find little traction.
+    const drive = this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration;
+    if (forward < h.topSpeed) forward = Math.min(h.topSpeed, forward + drive * dt);
     else forward = h.topSpeed + (forward - h.topSpeed) * Math.exp(-h.overspeedDrag * dt);
 
     this.vx = fx * forward + rx * lateral;
@@ -71,6 +81,9 @@ export class Car {
     this.y += this.vy * dt;
     this.forwardSpeed = forward;
     this.lateralSpeed = lateral;
+    this.slipAngle = Math.atan2(lateral, forward);
+    const targetRoll = Math.max(-1, Math.min(1, lateral / h.slideFullSlip)) * degToRad(h.rollMaxDeg);
+    this.chassisRoll += (targetRoll - this.chassisRoll) * smoothFactor(h.rollResponse, dt);
   }
 
   // Advances by any frame time using equal small steps, so results barely depend on frame rate.
@@ -100,6 +113,8 @@ export class Car {
     this.y += this.vy * dt;
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
+    this.slipAngle = 0;
+    this.chassisRoll = 0;
   }
 
   // Starts moving at `speed` straight ahead.

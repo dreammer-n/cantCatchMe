@@ -85,6 +85,16 @@ const SHARED_HANDLING = {
   acceleration: 420, // reaches top speed in ~0.7 s from a standstill
   fullTurnSpeed: 140, // below this speed steering is weaker (no spinning on the spot)
   overspeedDrag: 2,
+  curbEngineShare: 0.15, // share of the acceleration available while on a curb (above 0, so a car can't stall on one)
+  slideFullSlip: 170, // sideways speed (units/s) that counts as a full slide for the settings below
+  deepSlideStartDeg: 30, // slip angle where the extra speed loss of a deep slide starts ...
+  deepSlideRangeDeg: 20, // ... and how many degrees later it is at full strength
+  rollMaxDeg: 5, // visual body lean in a full slide
+  rollResponse: 8,
+  // The extras below are the player's advantage: police keep these at zero (see the presets).
+  slideGripLoss: 0, // share of grip lost in a full slide
+  counterSteerBonus: 0, // extra turn rate when steering into a full slide (0.5 = 50% faster)
+  deepSlideScrub: 0, // extra speed loss (units/s per second) in a deep slide
 };
 
 export const HANDLING_PRESETS = {
@@ -97,6 +107,9 @@ export const HANDLING_PRESETS = {
     gripTurning: 11, // sideways grip while steering (lower = more slide)
     gripChangeRate: 10, // how fast grip switches between the two
     slideScrub: 0.3, // forward speed lost while sliding
+    slideGripLoss: 0.1,
+    counterSteerBonus: 0.3,
+    deepSlideScrub: 30,
   },
   balanced: {
     ...SHARED_HANDLING,
@@ -107,6 +120,9 @@ export const HANDLING_PRESETS = {
     gripTurning: 5.5,
     gripChangeRate: 4,
     slideScrub: 0.45,
+    slideGripLoss: 0.12,
+    counterSteerBonus: 0.5,
+    deepSlideScrub: 40,
   },
   drifty: {
     ...SHARED_HANDLING,
@@ -117,6 +133,9 @@ export const HANDLING_PRESETS = {
     gripTurning: 3.8,
     gripChangeRate: 3,
     slideScrub: 0.35,
+    slideGripLoss: 0.05,
+    counterSteerBonus: 0.7,
+    deepSlideScrub: 20,
   },
 };
 
@@ -158,7 +177,7 @@ export const POLICE = {
   lookAheadSeconds: 0.25,
   swerveAngle: 0.6, // radians: where it looks for a way around
   probeRadius: 26,
-  despawnDistance: 2100, // police this far away (and off screen) are recycled
+  despawnDistance: 2900, // police this far away (and off screen) are recycled; must stay beyond the furthest spawn point
   stuckSpeed: 40,
   stuckSeconds: 2.2,
   maxActive: 28, // performance cap
@@ -214,6 +233,7 @@ export const CRASH = {
   playerImpact: 215, // the player's car is wrecked above this (police, wrecks, walls, props)
   policeObstacleImpact: 150, // police wreck against props / walls above this
   policeCarImpact: 145, // police wreck against other police / wrecks / the player above this
+  scrapeImpact: 20, // a touch above this (and too small to be a bump) is reported as a scrape
   pinnedSpeed: 45, // the player is "busted" when held below this speed ...
   pinnedSeconds: 1.4, // ... for this long (boxed in by police)
   pinnedGrace: 2, // not during the first seconds of a run (the car starts from a standstill)
@@ -251,6 +271,16 @@ export const CONES = {
   flySeconds: 1.1,
   respawnSeconds: 25,
   slowdown: 0.97, // a cone barely slows the car down
+  lampSlowdown: 0.88, // a lamp post costs a little more
+  spin: 18, // how fast a knocked cone can spin (radians per second)
+  lampSpin: 5, // a long post tips over rather than whirls
+};
+
+// Drive-over curbs (parking islands). The penalty applies once each time a car climbs on.
+export const CURB = {
+  speedKeep: 0.82, // share of speed kept when climbing on
+  bumpDeflect: 0.3, // share of the speed INTO the curb edge removed, so the car is nudged along it
+  noseDeflect: 0.12, // how much the bump turns the nose toward "along the edge"
 };
 
 // One original power-up: the Shockwave crate. Pick it up, then press the button to wreck
@@ -271,9 +301,30 @@ export const POWERUP = {
 
 // [TUNE] Camera.
 export const CAMERA = {
-  followSharpness: 6, // how quickly the camera catches up (per second)
-  lookAheadSeconds: 0.45, // camera aims where the car will be this far ahead
-  maxLookAheadFraction: 0.22, // ...but never more than this share of the narrow view
+  followSharpness: 8, // how quickly the camera catches up (per second)
+  leadSeconds: 2.2, // camera aims where the car will be this far ahead ...
+  leadViewFraction: 0.21, // ... limited to this share of the view, so at speed the car sits in the rear third
+  leadSharpness: 1.6, // how quickly the aim point swings round: low, so hard turns don't whip the view
+  zoomOut: 0.9, // zoom at top speed, compared with the zoom at low speed
+  zoomStartSpeed: 150, // the view starts widening above this speed ...
+  zoomFullSpeed: 300, // ... and is fully widened here
+  zoomSharpness: 1.5,
+};
+
+// [TUNE] Screen shake: events add "trauma" (0..1), which drains over time. The shake's size is
+// trauma squared, so small knocks stay subtle and big hits feel much bigger.
+export const TRAUMA = {
+  decayPerSecond: 1.3,
+  maxOffset: 36, // screen units of shake at trauma 1
+  shakeSpeed: 40, // how fast the shake moves
+  scrape: 0.25,
+  knock: 0.2, // cones and lamp posts
+  curb: 0.3,
+  bump: 0.35,
+  nearMiss: 0.4,
+  explosion: 0.55, // right next to the player; fades with distance
+  pulse: 0.6,
+  crash: 1,
 };
 
 // [TUNE] Skid marks.
@@ -418,9 +469,6 @@ export const EFFECTS = {
   wreckSmokeEveryMs: 160,
   maxScorch: 24,
   scorchSeconds: 14,
-  shakeMs: 220,
-  shakeNear: 0.008,
-  crashShake: 0.016,
   lightFlashMs: 220, // police light bar alternates red / blue this often
 };
 

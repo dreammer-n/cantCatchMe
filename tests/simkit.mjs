@@ -5,6 +5,7 @@ export const { buildLayout } = await import(`${SRC}/systems/WorldLayout.js`);
 export const { Car } = await import(`${SRC}/entities/Car.js`);
 export const T = await import(`${SRC}/config/tuning.js`);
 export const { projection } = await import(`${SRC}/render/projection.js`);
+export const { CameraRig } = await import(`${SRC}/render/CameraRig.js`);
 export const { isOnScreen, difficultyAt } = await import(`${SRC}/systems/SpawnSystem.js`);
 export const CS = await import(`${SRC}/systems/CollisionSystem.js`);
 export const { createRng } = await import(`${SRC}/utils/math.js`);
@@ -15,32 +16,27 @@ export const SCREENS = {
   desktop: { w: 1600, h: 900 },
 };
 
-// Camera stand-in: follows the car with the same look-ahead rule as GameScene.followCar.
+// Camera stand-in: the game's own CameraRig, without the drawing.
 export class Camera {
   constructor(screen) {
     const zoom = Math.min(screen.w, screen.h) / T.VIEW.shortSideWorldUnits;
-    this.halfW = screen.w / zoom / 2;
-    this.halfH = screen.h / zoom / 2;
-    this.x = T.START.x;
-    this.y = T.START.y;
-    this.view = { cx: 0, cy: 0, halfW: this.halfW, halfH: this.halfH };
+    this.baseHalfW = screen.w / zoom / 2;
+    this.baseHalfH = screen.h / zoom / 2;
+    this.rig = new CameraRig();
+    this.rig.reset(T.START.x, T.START.y);
+    this.view = { cx: 0, cy: 0, halfW: this.baseHalfW, halfH: this.baseHalfH };
     this.p = { x: 0, y: 0 };
   }
+  snap(car) {
+    this.rig.reset(car.x, car.y);
+  }
   follow(car, dt) {
-    const maxLead = T.VIEW.shortSideWorldUnits * T.CAMERA.maxLookAheadFraction;
-    let lx = car.vx * T.CAMERA.lookAheadSeconds;
-    let ly = car.vy * T.CAMERA.lookAheadSeconds;
-    const l = Math.hypot(lx, ly);
-    if (l > maxLead) {
-      lx *= maxLead / l;
-      ly *= maxLead / l;
-    }
-    const k = 1 - Math.exp(-T.CAMERA.followSharpness * dt);
-    this.x += (car.x + lx - this.x) * k;
-    this.y += (car.y + ly - this.y) * k;
-    projection.toScreen(this.x, this.y, 0, this.p);
+    this.rig.update(car, dt, this.baseHalfW, this.baseHalfH);
+    projection.toScreen(this.rig.x, this.rig.y, 0, this.p);
     this.view.cx = this.p.x;
     this.view.cy = this.p.y;
+    this.view.halfW = this.baseHalfW / this.rig.zoom;
+    this.view.halfH = this.baseHalfH / this.rig.zoom;
     return this.view;
   }
 }

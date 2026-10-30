@@ -182,12 +182,6 @@ export class Effects {
     if (t >= 1) this.pulse = null;
   }
 
-  // Camera shake that fades with distance from the player.
-  shake(camera, distance, maxDistance, strength = EFFECTS.shakeNear) {
-    if (distance > maxDistance) return;
-    camera.shake(EFFECTS.shakeMs, strength * (1 - distance / maxDistance));
-  }
-
   clear() {
     for (const emitter of [this.smoke, this.darkSmoke, this.fire, this.debris, this.flames]) emitter.killAll();
     for (const flash of this.flashes) flash.setVisible(false);

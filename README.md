@@ -10,8 +10,10 @@ files), so the whole game is well under 1 MB compressed.
 - Your car always drives forward. You only steer.
 - Police cars spawn off screen and chase you. More of them join the longer you survive, and from
   about 12 seconds some try to cut you off from the front.
-- A hard hit from a police car, a wreck, a wall or a prop wrecks your car. Scrapes and bumps from
-  behind are fine. Getting boxed in (held almost still for 1.4 s) also ends the run.
+- A hard hit from a police car, a wreck, a wall or a solid prop wrecks your car. Scrapes and bumps
+  from behind are fine. Getting boxed in (held almost still for 1.4 s) also ends the run.
+- Parking islands can be driven over (they slow you a little, and the trees on them are still
+  solid). Cones and lamp posts get knocked away.
 - Police are not careful drivers: make them hit trees, blocks, barriers, each other and burning
   wrecks. Several in quick succession is a combo.
 - Passing very close to a police car at speed is a **close call**.

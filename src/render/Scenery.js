@@ -15,7 +15,7 @@ const CULL_MARGIN = 40;
 //           squares off screen are skipped;
 //   props   low-poly models drawn once per camera setup into images, depth-sorted by where they
 //           stand, hidden while off screen.
-// Cones are the only props that move (knocked flying); the simulation tells us where they are.
+// Cones and lamp posts are the only props that move (knocked flying); the simulation tells us where they are.
 export class Scenery {
   constructor(scene, layers, layout) {
     this.scene = scene;

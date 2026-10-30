@@ -49,6 +49,7 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Generated city layout (data shared by drawing and collisions) | `src/systems/WorldLayout.js` |
 | Car drawing (reads physics, never writes it), skid/tyre helpers | `src/entities/CarView.js` |
 | Camera (world → screen), visible-ground helper | `src/render/projection.js` |
+| Camera behaviour: look-ahead, speed zoom, trauma shake (pure maths) | `src/render/CameraRig.js` |
 | Ground/shadow layers, depth sorting | `src/render/layers.js` |
 | Low-poly renderer (solids, flat shading, shadows, baking) | `src/render/lowpoly.js` |
 | Car models (player, police, wreck) / car drawing sheets | `src/render/carModels.js`, `src/render/carAtlas.js` |

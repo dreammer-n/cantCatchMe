@@ -32,7 +32,7 @@ export class ChaseSimulation {
     this.touchingCar = null;
     this.onConeTouch = (shape) => this.knockCone(shape, this.touchingCar);
 
-    const coneShapes = new Map(this.world.shapes.filter((s) => !s.solid).map((s) => [s.item, s]));
+    const coneShapes = new Map(this.world.shapes.filter((s) => s.item.breakable).map((s) => [s.item, s]));
     this.cones = layout.cones.map((item) => ({ item, shape: coneShapes.get(item), x: item.x, y: item.y, angle: 0 }));
     this.reset(1);
   }
@@ -106,6 +106,8 @@ export class ChaseSimulation {
     if (running) {
       if (this.result.impact > CRASH.playerImpact) this.crashPlayer(this.result.shape === 'wall' ? 'wall' : 'obstacle');
       else if (this.result.impact > 60) this.emit('bump', { x: player.x, y: player.y, impact: this.result.impact, player: true });
+      else if (this.result.impact > CRASH.scrapeImpact) this.emit('scrape', { x: player.x, y: player.y, impact: this.result.impact });
+      if (this.result.curbHit) this.emit('curb', { x: player.x, y: player.y });
     }
     for (const police of this.police) {
       if (!police.active) continue;
@@ -130,7 +132,7 @@ export class ChaseSimulation {
     }
     this.stats.update(dt);
     this.updatePoliceLife(dt, view);
-    this.updateCones(dt);
+    this.updateCones(dt, view);
   }
 
   collideBodies() {
@@ -335,7 +337,7 @@ export class ChaseSimulation {
     return false;
   }
 
-  // Cones: knocked flying when a car touches them; back in place a while later, out of sight.
+  // Cones and lamp posts: knocked flying when a car touches them; back in place a while later, out of sight.
   resetCone(cone) {
     cone.state = 'standing';
     cone.x = cone.item.x;
@@ -355,13 +357,15 @@ export class ChaseSimulation {
     const jitter = (this.rng() - 0.5) * 80;
     cone.vx = car.vx * CONES.knockSpeed + jitter;
     cone.vy = car.vy * CONES.knockSpeed - jitter;
-    cone.spin = (this.rng() - 0.5) * 18;
-    car.vx *= CONES.slowdown;
-    car.vy *= CONES.slowdown;
-    this.emit('cone', { cone, x: cone.x, y: cone.y });
+    const lamp = cone.item.kind === 'lamp';
+    cone.spin = (this.rng() - 0.5) * (lamp ? CONES.lampSpin : CONES.spin);
+    const slowdown = lamp ? CONES.lampSlowdown : CONES.slowdown;
+    car.vx *= slowdown;
+    car.vy *= slowdown;
+    this.emit('cone', { cone, x: cone.x, y: cone.y, player: car === this.player });
   }
 
-  updateCones(dt) {
+  updateCones(dt, view) {
     for (const cone of this.cones) {
       if (cone.state === 'standing') continue;
       cone.timer += dt;
@@ -376,9 +380,8 @@ export class ChaseSimulation {
           cone.state = 'gone';
           cone.timer = 0;
         }
-      } else if (cone.timer > CONES.respawnSeconds) {
-        const d = Math.hypot(cone.item.x - this.player.x, cone.item.y - this.player.y);
-        if (d > 1100) this.resetCone(cone);
+      } else if (cone.timer > CONES.respawnSeconds && !isOnScreen(cone.item.x, cone.item.y, view, 100)) {
+        this.resetCone(cone);
       }
     }
   }

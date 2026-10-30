@@ -1,10 +1,14 @@
-import { ARENA, COLLISION } from '../config/tuning.js';
+import { ARENA, COLLISION, CURB } from '../config/tuning.js';
 
 // Collisions for the flat physics world. Pure maths, no Phaser.
 //
 // Shapes: every car is two circles (front and back); props are circles (trees, lamps, cones)
 // or rotated boxes (islands, blocks, barriers); the arena edge is four straight walls.
-// Results: "impact" = how fast the car was moving INTO the surface (units/s). A glancing scrape
+// Props come in three kinds:
+//   solid     (trees, blocks, barriers, the arena edge): the car bounces off.
+//   breakable (cones, lamp posts): knocked away, reported through onTouch.
+//   curb      (parking islands): driven over, with a speed penalty and a bump on the way on.
+// Results: "impact" = how fast the car was moving INTO a solid surface (units/s). A glancing scrape
 // gives a small impact, a head-on hit a big one; the crash rules compare it to thresholds.
 
 const CIRCLE = 0;
@@ -38,7 +42,8 @@ export class StaticWorld {
       cos: Math.cos(item.heading),
       sin: Math.sin(item.heading),
       bound: c.type === 'circle' ? c.r : Math.hypot(c.hw, c.hl),
-      solid: !item.breakable,
+      solid: !item.breakable && !item.curb,
+      curb: Boolean(item.curb),
       item,
       seen: 0,
     };
@@ -197,21 +202,48 @@ export function bounceOffSurface(car, nx, ny, depth) {
   return -vn;
 }
 
+// The car climbs onto a curb: it loses a fixed share of its speed and is nudged along the edge
+// it crossed. The nudge only changes direction, so the speed penalty is the same at every angle.
+function climbCurb(car, nx, ny) {
+  const speed = Math.hypot(car.vx, car.vy);
+  const vn = car.vx * nx + car.vy * ny;
+  if (vn < 0) {
+    car.vx -= nx * vn * CURB.bumpDeflect;
+    car.vy -= ny * vn * CURB.bumpDeflect;
+    deflectNose(car, nx, ny, -vn, CURB.noseDeflect);
+  }
+  const scale = (speed * CURB.speedKeep) / Math.max(1e-6, Math.hypot(car.vx, car.vy));
+  car.vx *= scale;
+  car.vy *= scale;
+}
+
 const circles = [
   { x: 0, y: 0 },
   { x: 0, y: 0 },
 ];
 
 // Car against props and the arena edge. Returns the strongest impact; the prop involved (or
-// 'wall') is written into result.shape. Breakable props (cones) are reported through onTouch.
+// 'wall') is written into result.shape, and result.curbHit says the car just climbed onto a curb.
+// Breakable props are reported through onTouch.
 export function collideWithWorld(car, world, result, onTouch) {
   result.impact = 0;
   result.shape = null;
+  result.curbHit = false;
+  let onCurb = false;
   for (let i = 0; i < 2; i += 1) {
     carCircles(car, circles);
     const c = circles[i];
     world.forEachNear(c.x, c.y, R, (shape) => {
       if (!circleVsShape(c.x, c.y, R, shape, hit)) return;
+      if (shape.curb) {
+        // Only the first touch of a crossing counts, however long the car stays on.
+        if (!onCurb && !car.onCurb) {
+          climbCurb(car, hit.nx, hit.ny);
+          result.curbHit = true;
+        }
+        onCurb = true;
+        return;
+      }
       if (!shape.solid) {
         if (onTouch) onTouch(shape);
         return;
@@ -236,6 +268,7 @@ export function collideWithWorld(car, world, result, onTouch) {
       result.shape = 'wall';
     }
   }
+  car.onCurb = onCurb;
   return result.impact;
 }
 
