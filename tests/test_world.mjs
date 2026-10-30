@@ -77,7 +77,7 @@ check('road lines match across every chunk border', badSeams === 0 && seams > 0,
 const catalogue = new Set(propCatalogue().map((e) => `${e.model}:${Math.round((e.heading * 180) / Math.PI)}`));
 const unknown = new Set(sample.flatMap((c) => c.items.map((i) => `${i.model}:${Math.round((i.heading * 180) / Math.PI)}`)).filter((k) => !catalogue.has(k)));
 check('every prop in the world is drawn at startup, none during play', unknown.size === 0, [...unknown].slice(0, 4).join(' '));
-check('few distinct prop drawings', catalogue.size < 80, `${catalogue.size} drawings`);
+check('few distinct prop drawings', catalogue.size < 110, `${catalogue.size} drawings`);
 const fullest = Math.max(...sample.map((c) => c.items.length));
 const worstGrid = fullest * (T.CHUNKS.activeRadius * 2 + 1) ** 2;
 check('the prop pool covers even a grid of the fullest chunk', worstGrid <= T.CHUNKS.propPool, `fullest chunk ${fullest} props, 9 of them ${worstGrid}, pool ${T.CHUNKS.propPool}`);

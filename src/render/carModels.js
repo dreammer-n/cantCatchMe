@@ -4,7 +4,9 @@ import { box, decal, frustum, hexa, shadeColor } from './lowpoly.js';
 // Low-poly car models built from a handful of solids. Original designs:
 //   player  red compact muscle coupe with cream racing stripes and a spoiler
 //   police  white patrol car with a blue side stripe, push bar and red / blue light bar
+//   interceptor  the same patrol car in black and white: dark hood and boot, no stripes
 //   wreck   the same body burnt out (used for destroyed police cars and the player's crash)
+//   wreckRoof  that wreck lying upside down, wheels in the air
 
 const STYLES = {
   player: {
@@ -23,6 +25,21 @@ const STYLES = {
     body: PALETTE.policeBody,
     sideStripe: PALETTE.policeStripe,
     roofStripe: PALETTE.policeStripe,
+    glass: PALETTE.glass,
+    glassShine: PALETTE.glassShine,
+    trim: PALETTE.trim,
+    hub: PALETTE.hub,
+    tyre: PALETTE.tyre,
+    headlight: PALETTE.headlight,
+    taillight: PALETTE.taillight,
+    pushBar: true,
+    lightBar: true,
+  },
+  interceptor: {
+    body: PALETTE.policeBody,
+    hood: PALETTE.interceptorDark,
+    boot: PALETTE.interceptorDark,
+    roofStripe: PALETTE.interceptorDark,
     glass: PALETTE.glass,
     glassShine: PALETTE.glassShine,
     trim: PALETTE.trim,
@@ -183,10 +200,29 @@ export const LIGHT_BAR = {
   },
 };
 
+// The same model turned upside down, sitting on the road. The models are open underneath (nothing ever
+// sees that side of a car on its wheels), so this adds the underside: painted after the body, before the
+// wheels, which stick up past it.
+function flipOver(parts) {
+  const height = Math.max(...parts.flatMap((part) => part.verts.map((v) => v[2])));
+  const top = Math.max(...parts.map((part) => part.layer));
+  const flip = ([x, y, z]) => [x, y, height - z];
+  const flipped = parts.map((part) => ({
+    ...part,
+    layer: top - part.layer,
+    verts: part.verts.map(flip),
+    faces: part.faces.map((face) => ({ ...face, decals: face.decals.map((d) => ({ ...d, pts: d.pts.map(flip) })) })),
+  }));
+  // Built right way up, because a solid here only has a top face: flipped, it would face the road.
+  const z = height - CAR_MODEL.sillBottom;
+  flipped.push(box(-CAR_MODEL.bodyHalfWidth, CAR_MODEL.bodyHalfWidth, -CAR_SIZE.length / 2, CAR_SIZE.length / 2, z, z + 2, PALETTE.chunkMetal, top - 0.5));
+  return flipped;
+}
+
 const meshes = new Map();
 
 export function carMesh(name) {
-  if (!meshes.has(name)) meshes.set(name, buildCar(STYLES[name]));
+  if (!meshes.has(name)) meshes.set(name, name === 'wreckRoof' ? flipOver(buildCar(STYLES.wreck)) : buildCar(STYLES[name]));
   return meshes.get(name);
 }
 

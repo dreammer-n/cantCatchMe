@@ -10,10 +10,12 @@ import {
   EFFECTS,
   EXPLOSION,
   HANDLING_PRESETS,
+  HITSTOP,
   PALETTE,
   POWERUP,
   RENDER,
   TRAUMA,
+  TUMBLE,
   VIEW,
   VOID,
   WRECK,
@@ -29,8 +31,11 @@ import { bakeMesh, releaseOtherViews } from '../render/lowpoly.js';
 import { projection } from '../render/projection.js';
 import { crate as crateModel } from '../render/propModels.js';
 import { Scenery } from '../render/Scenery.js';
+import { SirenBeams } from '../render/SirenBeams.js';
 import { ChaseSimulation } from '../systems/ChaseSimulation.js';
+import { HitStop } from '../systems/HitStop.js';
 import { Records } from '../systems/ScoreSystem.js';
+import { ThreatRadar } from '../systems/ThreatRadar.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
 
@@ -68,6 +73,10 @@ export class GameScene extends Phaser.Scene {
       { x: 0, y: 0 },
       { x: 0, y: 0 },
     ];
+    this.hitStop = new HitStop();
+    this.pendingPower = false; // a Shockwave press during a hit-stop waits for the action to restart
+    this.radar = new ThreatRadar();
+    this.beams = new SirenBeams(this, this.layers.lights);
     this.rig = new CameraRig();
     this.rig.reset(this.sim.player.x, this.sim.player.y);
     this.view = { x: 0, y: 0, right: 0, bottom: 0 }; // visible screen rectangle
@@ -103,7 +112,7 @@ export class GameScene extends Phaser.Scene {
 
   makeLooks() {
     const look = (name, lights) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights });
-    return { player: look('player', false), police: look('police', true), wreck: look('wreck', false) };
+    return { player: look('player', false), police: look('police', true), interceptor: look('interceptor', true), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
   }
 
   // ------------------------------------------------------------------------------------------
@@ -122,6 +131,8 @@ export class GameScene extends Phaser.Scene {
 
   startRun(seed = (Math.random() * 2 ** 31) >>> 0) {
     this.sim.reset(seed);
+    this.hitStop.reset();
+    this.pendingPower = false;
     this.mode = 'playing';
     this.turntable = false;
     this.crashClock = 0;
@@ -157,6 +168,7 @@ export class GameScene extends Phaser.Scene {
     this.effects.clear();
     this.smokeClock.clear();
     this.hideCrate();
+    this.radar.clear();
     this.scenery.sync(this.sim.chunks, Infinity);
     this.cameras.main.resetFX();
   }
@@ -171,8 +183,12 @@ export class GameScene extends Phaser.Scene {
     this.simTime += dt;
     const command = this.controls.getCommand();
     let gameDt = dt;
+    const frozen = this.hitStop.update(frameMs);
+    if (command.activatePowerUp) this.pendingPower = true;
 
-    if (this.mode === 'attract' || this.turntable) {
+    if (frozen) {
+      gameDt = 0; // the action holds; camera shake and starbursts carry on
+    } else if (this.mode === 'attract' || this.turntable) {
       this.spinInPlace(this.turntable ? command.steer : 0, dt);
     } else {
       if (this.mode === 'crashed') {
@@ -181,14 +197,18 @@ export class GameScene extends Phaser.Scene {
         if (!this.finished && this.crashClock >= CRASH.gameOverDelay) this.finishRun();
       }
       const playing = this.mode === 'playing';
-      const events = this.sim.step(gameDt, { steer: playing ? command.steer : 0, activatePowerUp: playing && command.activatePowerUp }, this.simView);
+      const events = this.sim.step(gameDt, { steer: playing ? command.steer : 0, activatePowerUp: playing && this.pendingPower }, this.simView);
+      this.pendingPower = false;
       this.handleEvents(events);
     }
 
     this.scenery.sync(this.sim.chunks);
     this.followCar(dt);
+    if (this.mode === 'playing' && !this.turntable) this.radar.update(this.sim, this.simView, dt);
+    else this.radar.clear();
+    this.beams.update(this.radar.threats, this.sim.player, time);
     this.carShadows.clear();
-    this.syncCars(time);
+    this.syncCars(time, gameDt, dt);
     this.updateTyresAndFires(gameDt * 1000);
     this.updateCrate(time);
     this.scenery.syncCones(this.sim.cones);
@@ -202,10 +222,13 @@ export class GameScene extends Phaser.Scene {
     for (const e of events) {
       switch (e.type) {
         case 'spawn':
-          this.acquireView(e.police, this.looks.police);
+          this.acquireView(e.police, this.lookFor(e.police));
           break;
         case 'wreck':
-          if (e.police.view && e.cause !== 'void') e.police.view.setLook(this.looks.wreck);
+          if (e.police.view && e.cause !== 'void') {
+            e.police.view.setLook(this.looks.wreck);
+            e.police.view.startTumble(this.looks.wreckRoof);
+          }
           break;
         case 'fall':
           this.audio.play('bump', 0.6);
@@ -214,6 +237,7 @@ export class GameScene extends Phaser.Scene {
         case 'explosion': {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
           this.effects.explosion(e.x, e.y, e.player);
+          if (!e.player && distance < HITSTOP.wreckRange) this.punch(HITSTOP.wreckMs);
           this.audio.play('explosion', 1 - distance / AUDIO.explosionRange);
           if (!e.player && distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.explosion * (1 - distance / EXPLOSION.shakeDistance));
           break;
@@ -225,6 +249,8 @@ export class GameScene extends Phaser.Scene {
             this.crashClock = CRASH.gameOverDelay - VOID.resultsDelay;
           } else {
             this.playerView.setLook(this.looks.wreck);
+            this.playerView.startTumble(this.looks.wreckRoof);
+            this.hitStop.trigger(HITSTOP.crashMs);
             this.audio.play('crash');
             this.rig.addTrauma(TRAUMA.crash);
           }
@@ -239,6 +265,7 @@ export class GameScene extends Phaser.Scene {
         case 'combo':
           this.toast(comboText(e.count), 'combo');
           this.audio.play('combo');
+          this.punch(HITSTOP.comboMs);
           break;
         case 'nearMiss':
           this.toast('CLOSE CALL!', 'near');
@@ -257,17 +284,24 @@ export class GameScene extends Phaser.Scene {
         case 'bump':
           this.audio.play('bump', e.impact / 250);
           this.rig.addTrauma(TRAUMA.bump);
+          this.effects.impact(e.x, e.y, EFFECTS.burstBump);
+          this.punch(HITSTOP.bumpMs);
           break;
         case 'scrape':
           this.rig.addTrauma(TRAUMA.scrape);
+          this.effects.impact(e.x, e.y, EFFECTS.burstScrape);
+          this.punch(HITSTOP.scrapeMs);
           break;
         case 'curb':
           this.audio.play('bump', 0.3);
           this.rig.addTrauma(TRAUMA.curb);
           break;
         case 'cone':
-          this.audio.play('cone', 0.8);
-          if (e.player) this.rig.addTrauma(TRAUMA.knock);
+          if (e.cone.item.kind === 'civilian') this.onParkedCarHit(e);
+          else {
+            this.audio.play('cone', 0.8);
+            if (e.player) this.rig.addTrauma(TRAUMA.knock);
+          }
           break;
         default:
           break;
@@ -275,12 +309,29 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  onParkedCarHit(e) {
+    this.audio.play('bump', e.player ? 0.8 : 0.4);
+    this.effects.impact(e.x, e.y, EFFECTS.burstSmash);
+    if (!e.player) return;
+    this.rig.addTrauma(TRAUMA.smash);
+    this.punch(HITSTOP.smashMs);
+  }
+
+  lookFor(police) {
+    return police.role === 'interceptor' ? this.looks.interceptor : this.looks.police;
+  }
+
+  // Freezes the action for a moment. Only in play: a crash has its own slow motion.
+  punch(ms) {
+    if (this.mode === 'playing') this.hitStop.trigger(ms);
+  }
+
   toast(text, kind) {
     this.game.events.emit('toast', text, kind);
   }
 
   acquireView(police, look) {
-    const view = this.freeViews.pop() || new CarView(this, look, this.carShadows);
+    const view = this.freeViews.pop() || new CarView(this, look, this.carShadows, this.layers);
     view.setLook(look);
     view.setAlpha(1);
     police.view = view;
@@ -292,15 +343,16 @@ export class GameScene extends Phaser.Scene {
     police.view = null;
   }
 
-  syncCars(time) {
-    this.playerView.update(this.sim.player, this.view, time);
+  syncCars(time, gameDt, realDt) {
+    // The player's crash plays out during the slow motion, so it runs on real time.
+    this.playerView.update(this.sim.player, this.view, time, realDt * TUMBLE.playerTimeScale);
     for (const police of this.sim.police) {
       if (!police.active || !police.view) continue;
       if (police.state === 'wreck') {
         const left = WRECK.lifetime - police.wreckTime;
         police.view.setAlpha(left < WRECK.fadeSeconds ? Math.max(0, left / WRECK.fadeSeconds) : 1);
       }
-      police.view.update(police.model, this.view, time);
+      police.view.update(police.model, this.view, time, gameDt);
     }
   }
 
@@ -369,9 +421,8 @@ export class GameScene extends Phaser.Scene {
     const key = `prop:crate:0:${projection.key}`;
     const body = bakeMesh(this, key, this.crateMesh, 0, projection, 'body');
     const shadow = bakeMesh(this, `${key}:shadow`, this.crateMesh, 0, projection, 'shadow');
-    const scale = 1 / RENDER.bakeScale;
-    this.crateBody.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(scale);
-    this.crateShadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(scale);
+    this.crateBody.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
+    this.crateShadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(1 / shadow.scale);
   }
 
   hideCrate() {
@@ -399,8 +450,13 @@ export class GameScene extends Phaser.Scene {
   crateOnCanvas(out) {
     const crate = this.sim.powerUps.crate;
     if (!crate.active || this.mode !== 'playing') return null;
+    return this.pointOnCanvas(crate.x, crate.y, 10, out);
+  }
+
+  // A world position in canvas pixels. For things drawn over the world by UIScene.
+  pointOnCanvas(x, y, z, out) {
     const camera = this.cameras.main;
-    projection.toScreen(crate.x, crate.y, 10, screenPoint);
+    projection.toScreen(x, y, z, screenPoint);
     out.x = (screenPoint.x - this.view.x) * camera.zoom;
     out.y = (screenPoint.y - this.view.y) * camera.zoom;
     return out;
@@ -452,7 +508,7 @@ export class GameScene extends Phaser.Scene {
     this.looks = this.makeLooks();
     this.playerView.setLook(this.sim.state === 'crashed' ? this.looks.wreck : this.looks.player);
     for (const police of this.sim.police) {
-      if (police.view) police.view.setLook(police.alive ? this.looks.police : this.looks.wreck);
+      if (police.view) police.view.setLook(police.alive ? this.lookFor(police) : this.looks.wreck);
     }
     this.bakeCrate();
     releaseOtherViews(this, projection.key);
@@ -515,6 +571,7 @@ export class GameScene extends Phaser.Scene {
       slipAngle: car.slipAngle,
       chassisRoll: car.chassisRoll,
       trauma: this.rig.trauma,
+      warnings: this.radar.threats.length,
       isFalling: car.isFalling,
       chunkX: this.sim.chunks.cx,
       chunkY: this.sim.chunks.cy,
@@ -572,7 +629,7 @@ export class GameScene extends Phaser.Scene {
     hook.startRun = (seed) => this.startRun(seed);
     hook.spawnPolice = (x, y, heading, options) => {
       const police = this.sim.spawnPolice(x, y, heading, { role: 'chaser', speedFactor: 1.1, turnDeg: 125, aimSide: 0, ...options });
-      this.acquireView(police, this.looks.police);
+      this.acquireView(police, this.lookFor(police));
       return police.id;
     };
     hook.teleport = (x, y, heading = 0, freeze = false) => {

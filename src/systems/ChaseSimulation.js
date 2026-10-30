@@ -71,6 +71,13 @@ export class ChaseSimulation {
     return count;
   }
 
+  // Police actually chasing the player: not parked roadblocks. This is what HEAT.police counts.
+  get pursuers() {
+    let count = 0;
+    for (const police of this.police) if (police.alive && !police.parked) count += 1;
+    return count;
+  }
+
   get activeCars() {
     return this.bodies.length - 1;
   }
@@ -96,7 +103,9 @@ export class ChaseSimulation {
     else player.slide(dt, WRECK.friction, WRECK.spinFriction);
     this.chunks.update(player.x, player.y);
     for (const police of this.police) {
-      if (police.alive) {
+      if (police.alive && police.parked) {
+        police.model.slide(dt, WRECK.friction, WRECK.spinFriction);
+      } else if (police.alive) {
         steerPolice(police, player, dt, this.rng, this.world);
         police.model.stepFor(police.steer, dt, PHYSICS.maxStepSeconds);
         police.age += dt;
@@ -192,7 +201,8 @@ export class ChaseSimulation {
       police.nearArmed = false;
       if (this.state !== 'running') return;
       if (impact > CRASH.playerImpact) {
-        this.crashPlayer(police.alive ? 'police' : 'wreck');
+        if (!police.alive) this.crashPlayer('wreck');
+        else this.crashPlayer(police.parked ? 'roadblock' : 'police');
         if (police.alive && impact > CRASH.policeCarImpact) this.wreckPolice(police, 'player');
       } else if (impact > 40) {
         this.emit('bump', { x: this.player.x, y: this.player.y, impact, player: true });
@@ -216,6 +226,7 @@ export class ChaseSimulation {
     this.state = 'crashed';
     player.mass = COLLISION.wreckMass;
     this.crash = { cause, x: player.x, y: player.y, time: this.time };
+    if (cause !== 'void') this.throwWreck(player);
     this.emit('crash', { cause, x: player.x, y: player.y });
     if (cause !== 'void') this.explosions.push({ x: player.x, y: player.y, source: this.playerBody, player: true });
   }
@@ -225,10 +236,19 @@ export class ChaseSimulation {
   wreckPolice(police, cause) {
     if (!police.alive) return;
     police.wreck(cause);
+    if (cause !== 'void') this.throwWreck(police.model);
     const combo = this.state === 'running' ? this.stats.addWreck() : 0;
     this.emit('wreck', { police, cause, x: police.model.x, y: police.model.y, combo });
     if (combo >= 2) this.emit('combo', { count: combo, x: police.model.x, y: police.model.y });
     if (cause !== 'void') this.explosions.push({ x: police.model.x, y: police.model.y, source: police, player: false });
+  }
+
+  // A wreck doesn't just stop: it is shoved and spun, and slides to rest.
+  throwWreck(car) {
+    const angle = this.rng() * Math.PI * 2;
+    car.vx += Math.cos(angle) * WRECK.kick;
+    car.vy += Math.sin(angle) * WRECK.kick;
+    car.angularVelocity += (this.rng() * 2 - 1) * WRECK.spinKick;
   }
 
   runExplosions() {
@@ -326,7 +346,7 @@ export class ChaseSimulation {
       }
       const far = !this.chunks.contains(car.x, car.y);
       if (police.alive) {
-        police.stuckTime = car.speed < POLICE.stuckSpeed ? police.stuckTime + dt : 0;
+        police.stuckTime = !police.parked && car.speed < POLICE.stuckSpeed ? police.stuckTime + dt : 0;
         const onScreen = isOnScreen(car.x, car.y, view, 60);
         if (police.stuckTime > POLICE.stuckSeconds) {
           if (onScreen) this.wreckPolice(police, 'stuck');
@@ -373,14 +393,22 @@ export class ChaseSimulation {
     if (!cone || cone.state !== 'standing') return;
     cone.state = 'flying';
     cone.timer = 0;
+    const feel = CONES.kinds[cone.item.kind] || CONES;
     const jitter = (this.rng() - 0.5) * 80;
-    cone.vx = car.vx * CONES.knockSpeed + jitter;
-    cone.vy = car.vy * CONES.knockSpeed - jitter;
-    const lamp = cone.item.kind === 'lamp';
-    cone.spin = (this.rng() - 0.5) * (lamp ? CONES.lampSpin : CONES.spin);
-    const slowdown = lamp ? CONES.lampSlowdown : CONES.slowdown;
-    car.vx *= slowdown;
-    car.vy *= slowdown;
+    cone.vx = car.vx * feel.knockSpeed + jitter;
+    cone.vy = car.vy * feel.knockSpeed - jitter;
+    if (feel.sideKick) {
+      // Shoved off to whichever side of the car's path it was on, so it clears the way.
+      const speed = Math.max(1, Math.hypot(car.vx, car.vy));
+      const rightX = -car.vy / speed;
+      const rightY = car.vx / speed;
+      const side = (cone.x - car.x) * rightX + (cone.y - car.y) * rightY < 0 ? -1 : 1;
+      cone.vx += rightX * side * feel.sideKick;
+      cone.vy += rightY * side * feel.sideKick;
+    }
+    cone.spin = (this.rng() - 0.5) * feel.spin;
+    car.vx *= feel.slowdown;
+    car.vy *= feel.slowdown;
     this.emit('cone', { cone, x: cone.x, y: cone.y, player: car === this.player });
   }
 

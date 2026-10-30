@@ -8,18 +8,24 @@ files), so the whole game is well under 1 MB compressed. The city has no edge: i
 ## How to play
 
 - Your car always drives forward. You only steer.
-- Police cars spawn off screen and chase you. More of them join the longer you survive, and from
-  about 12 seconds some try to cut you off from the front.
+- Police cars arrive at speed from off screen, along the roads. More join the longer you survive.
+  White cruisers tail you. From 15 seconds, faster black-and-white interceptors aim for where you are
+  going and come at you from the side streets.
+- A red arrow at the screen edge, with red and blue light sweeping across the road, means a car is
+  arriving fast from that direction.
+- Giant word statues are solid: drift round them.
+- From 30 seconds, parked police cars block crossings ahead. Go round them, or lure the chasers into them.
 - A hard hit from a police car, a wreck, a wall or a solid prop wrecks your car. Scrapes and bumps
   from behind are fine. Getting boxed in (held almost still for 1.4 s) also ends the run.
 - Parking islands and roundabouts can be driven over (they slow you a little, and the trees on them
-  are still solid). Cones, lamp posts and wooden crates get knocked away.
+  are still solid). Cones, lamp posts, wooden crates and parked cars get knocked away; parked cars
+  cost you real speed.
 - Watch for sinkholes and missing road sections. Drive over one and you fall in: run over. Police
   fall in too, and each one counts as wrecked.
 - Police are not careful drivers: make them hit trees, blocks, barriers, each other and burning
   wrecks. Several in quick succession is a combo.
 - Passing very close to a police car at speed is a **close call**.
-- Teal crates hold a **Shockwave**: drive through one, then press the ⚡ button (Space on a
+- Orange gift boxes hold a **Shockwave**: drive through one, then press the ⚡ button (Space on a
   keyboard) to wreck every police car close around you.
 - Score = survival time. Your best time, police wrecked, close calls and best combo are saved.
 

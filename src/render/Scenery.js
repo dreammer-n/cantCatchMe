@@ -5,20 +5,7 @@ import { createRng } from '../utils/math.js';
 import { depthAt } from './layers.js';
 import { bakeMesh } from './lowpoly.js';
 import { projection } from './projection.js';
-import {
-  LAMP_REACH,
-  barrier,
-  concreteBlock,
-  island,
-  lampPost,
-  leafyTree,
-  monument,
-  pineTree,
-  roundabout,
-  shippingContainer,
-  trafficCone,
-  woodCrate,
-} from './propModels.js';
+import { LAMP_REACH, propBakeScale, propMesh } from './propModels.js';
 
 const DEG = Math.PI / 180;
 const screen = { x: 0, y: 0 };
@@ -56,7 +43,7 @@ export class Scenery {
   bakeCatalogue() {
     for (const entry of propCatalogue()) {
       const key = propKey(entry.model, entry.heading);
-      bakeMesh(this.scene, key, this.meshFor(entry), entry.heading, projection, 'body');
+      bakeMesh(this.scene, key, this.meshFor(entry), entry.heading, projection, 'body', propBakeScale(entry));
       bakeMesh(this.scene, `${key}:shadow`, this.meshFor(entry), entry.heading, projection, 'shadow');
     }
   }
@@ -64,7 +51,7 @@ export class Scenery {
   meshFor(entry) {
     let mesh = this.meshes.get(entry.model);
     if (!mesh) {
-      mesh = buildMesh(entry);
+      mesh = propMesh(entry);
       this.meshes.set(entry.model, mesh);
     }
     return mesh;
@@ -133,11 +120,10 @@ export class Scenery {
   showProp(prop) {
     const item = prop.source;
     const key = propKey(item.model, item.heading);
-    const body = bakeMesh(this.scene, key, this.meshFor(item), item.heading, projection, 'body');
+    const body = bakeMesh(this.scene, key, this.meshFor(item), item.heading, projection, 'body', propBakeScale(item));
     const shadow = bakeMesh(this.scene, `${key}:shadow`, this.meshFor(item), item.heading, projection, 'shadow');
-    const scale = 1 / RENDER.bakeScale;
-    prop.body.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(scale);
-    prop.shadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(scale).setAlpha(RENDER.shadowAlpha);
+    prop.body.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
+    prop.shadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(1 / shadow.scale).setAlpha(RENDER.shadowAlpha);
     this.place(prop, item.x, item.y, 0);
     prop.body.setDepth(item.band === 'raised' ? DEPTH.raised : depthAt(item.x, item.y));
     prop.shadow.setDepth(item.band === 'raised' ? DEPTH.raised - 1 : DEPTH.shadows);
@@ -229,11 +215,13 @@ export class Scenery {
         prop.shadow.setVisible(false);
         continue;
       }
-      // Flying: a hop and a spin, fading out at the end.
-      const t = Math.min(1, cone.timer / CONES.flySeconds);
-      this.place(prop, cone.x, cone.y, Math.sin(Math.PI * Math.min(1, t * 1.6)) * 26);
-      prop.body.setRotation(cone.angle).setAlpha(1 - t * t).setDepth(depthAt(cone.x, cone.y));
-      prop.shadow.setAlpha(RENDER.shadowAlpha * (1 - t));
+      // Flying: bounces that get smaller, and a spin, fading out at the end.
+      const feel = CONES.kinds[item.kind] || CONES;
+      const t = Math.min(1, cone.timer / (feel.flySeconds || CONES.flySeconds));
+      const bounces = Math.abs(Math.sin(Math.PI * t * 3)) * (1 - t) * (feel.hop || CONES.hop);
+      this.place(prop, cone.x, cone.y, bounces);
+      prop.body.setRotation(cone.angle).setAlpha(Math.min(1, (1 - t) * 3)).setDepth(depthAt(cone.x, cone.y));
+      prop.shadow.setAlpha(RENDER.shadowAlpha * Math.min(1, (1 - t) * 3));
     }
   }
 
@@ -265,6 +253,10 @@ export class Scenery {
               g.lineStyle(mark.width, PALETTE.paintWhite, mark.alpha);
               g.strokeCircle(mark.x, mark.y, mark.r);
             }
+            continue;
+          }
+          if (mark.arrow) {
+            if (mark.x >= x0 && mark.x < x1 && mark.y >= y0 && mark.y < y1) drawArrow(g, mark);
             continue;
           }
           const px0 = Math.max(mark.x, x0 - 1);
@@ -373,37 +365,28 @@ function floorColor(color) {
   return PALETTE.paintWhite;
 }
 
+// A painted road arrow: a shaft and a head, turned to its heading.
+function drawArrow(g, mark) {
+  const { arrowLength: length, arrowWidth: width } = WORLD;
+  const fx = Math.sin(mark.heading);
+  const fy = -Math.cos(mark.heading);
+  const rx = -fy;
+  const ry = fx;
+  const at = (along, across) => [mark.x + fx * along + rx * across, mark.y + fy * along + ry * across];
+  const shaft = width * 0.17;
+  const neck = length * 0.12;
+  const [a, b, c, d] = [at(-length / 2, -shaft), at(-length / 2, shaft), at(neck, shaft), at(neck, -shaft)];
+  const [tip, left, right] = [at(length / 2, 0), at(neck, -width / 2), at(neck, width / 2)];
+  g.fillStyle(PALETTE.paintWhite, mark.alpha);
+  g.fillTriangle(a[0], a[1], b[0], b[1], c[0], c[1]);
+  g.fillTriangle(a[0], a[1], c[0], c[1], d[0], d[1]);
+  g.fillTriangle(tip[0], tip[1], left[0], left[1], right[0], right[1]);
+}
+
 function propKey(model, heading) {
   return `prop:${model}:${Math.round(heading / DEG)}:${projection.key}`;
 }
 
-function buildMesh(item) {
-  const p = item.params;
-  switch (item.kind) {
-    case 'island':
-      return island(p.length);
-    case 'tree':
-      return p.treeKind === 'pine' ? pineTree(p.size) : leafyTree(p.size);
-    case 'lamp':
-      return lampPost();
-    case 'block':
-      return concreteBlock(p);
-    case 'barrier':
-      return barrier({ length: p.length });
-    case 'cone':
-      return trafficCone();
-    case 'woodcrate':
-      return woodCrate();
-    case 'container':
-      return shippingContainer(p);
-    case 'monument':
-      return monument();
-    case 'roundabout':
-      return roundabout();
-    default:
-      throw new Error(`No model for ${item.kind}`);
-  }
-}
 
 // Screen box around a world rectangle (all four corners projected).
 function projectedBox(x0, y0, x1, y1) {

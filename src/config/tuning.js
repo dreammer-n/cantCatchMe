@@ -25,15 +25,16 @@ export const CHUNKS = {
   // the tallest phones (checked by tests/test_world.mjs).
   size: 2400,
   activeRadius: 1, // chunks kept on each side of the player's: 1 = a 3 x 3 grid
-  propPool: 800, // images prepared at startup (checked against the fullest chunks by the tests)
+  propPool: 1000, // images prepared at startup (checked against the fullest chunks by the tests)
   // weight: how often this layout appears. cells: [arrangement, weight] for each city block in it.
   // roadHoles: [fewest, most] holes in the roads inside the chunk (never on its border roads).
   presets: {
-    city: { weight: 30, roadHoles: [0, 1], cells: [['blocks', 45], ['grove', 20], ['barriers', 10], ['cones', 10], ['open', 10], ['sinkhole', 5]] },
-    parking: { weight: 25, roadHoles: [0, 0], cells: [['parking', 80], ['grove', 10], ['open', 10]] },
-    plaza: { weight: 12, roadHoles: [0, 0], cells: [['grove', 45], ['open', 35], ['cones', 20]] },
-    industrial: { weight: 20, roadHoles: [0, 1], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
-    ruins: { weight: 13, roadHoles: [2, 4], cells: [['sinkhole', 45], ['open', 25], ['barriers', 15], ['cones', 15]] },
+    // landmarks: the word statues this kind of chunk can have.
+    city: { weight: 30, roadHoles: [0, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['open', 5], ['sinkhole', 5]] },
+    parking: { weight: 25, roadHoles: [0, 0], landmarks: ['MALL', 'PARK'], cells: [['parking', 65], ['garden', 25], ['grove', 5], ['open', 5]] },
+    plaza: { weight: 12, roadHoles: [0, 0], landmarks: ['GAMES', 'DINER'], cells: [['garden', 30], ['grove', 30], ['open', 20], ['cones', 20]] },
+    industrial: { weight: 20, roadHoles: [0, 1], landmarks: ['GAS', 'DEPOT'], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
+    ruins: { weight: 13, roadHoles: [2, 4], landmarks: ['STOP', 'GAS'], cells: [['sinkhole', 45], ['open', 25], ['barriers', 15], ['cones', 15]] },
   },
 };
 
@@ -90,6 +91,8 @@ export const UI = {
 // Interface colors. World colors are in PALETTE below.
 export const COLORS = {
   zone: 0xffffff,
+  warning: 0xff3b30,
+  warningBack: 0x14080a,
   uiText: '#e8edf2',
   uiPanel: 'rgba(10, 12, 15, 0.55)',
 };
@@ -190,18 +193,12 @@ export const POLICE_HANDLING = {
 };
 
 export const POLICE = {
-  // Speed and turning grow over the run (player top speed = 300).
-  speedStart: 1.04,
-  speedEnd: 1.14,
-  turnStartDeg: 118,
-  turnEndDeg: 136,
-  rampSeconds: 150,
+  // Speed and turning grow over the run: see HEAT.
   steerGain: 2.4, // steering = angle to target x gain (clamped to full lock)
   retargetMin: 0.12, // seconds between target updates (reaction time), random in this range
   retargetMax: 0.32,
   aimJitter: 70, // each car aims a little to one side of the player, so they don't all follow one line
-  ramDistance: 220, // closer than this, every car aims straight at the player
-  predictMaxSeconds: 1.1, // interceptors aim where the player will be, at most this far ahead
+  ramDistance: 220, // closer than this, chasers stop aiming to one side and interceptors stop manoeuvring
   awareness: 0.6, // chance, at each reaction, that a car checks for a prop in its path
   lookAhead: 60, // how far ahead it checks: this + speed x lookAheadSeconds
   lookAheadSeconds: 0.25,
@@ -213,24 +210,75 @@ export const POLICE = {
   maxCars: 48, // police + wrecks on the map
 };
 
+// [TUNE] Interceptors: black-and-white cruisers that aim at where the player is going to be.
+export const INTERCEPTOR = {
+  leadMin: 0.45, // lead time (seconds) up close ...
+  leadMax: 1.6, // ... and far away: lead time = time for this car to reach the player, within these limits
+  speedBonus: 0.07, // added to HEAT.speedFactor: they are the fast ones
+  turnBonusDeg: 8, // added to HEAT.turnDeg
+  crossingSnap: 170, // when the predicted point is this close to a crossing, aim at the crossing itself
+  ambushDistance: 420, // ... but only while further than this from the player
+  flankDistance: 650, // closer than this and behind the player, swing out to the side ...
+  flankOffset: 170, // ... by this much, rather than tailgating
+  spawnAngleDeg: [50, 115], // arrive from this far round from the direction of travel (the side streets)
+};
+
+// [TUNE] Roadblocks: parked cruisers across a crossing ahead. They don't chase and don't count
+// toward HEAT.police. Hit one hard and the run is over; lure police into one and they pile up.
+export const ROADBLOCK = {
+  firstAt: 30, // seconds into the run
+  everyMin: 10, // seconds between roadblocks, random in this range
+  everyMax: 16,
+  retrySeconds: 1, // no suitable crossing right now: look again this soon
+  cars: 2,
+  maxParked: 6,
+  spacing: 92, // between the cars; 2 cars nearly fill a 190-wide road
+  angleJitter: 0.3, // radians: parked a bit untidily
+  mass: 2.2, // shoved less than a moving car
+  distances: [900, 1200, 1500, 1800, 2100, 2300], // how far ahead to look for a crossing, nearest first
+  screenMargin: 90, // screen units: only placed this far outside the view
+  clearance: 130,
+};
+
+// [TUNE] Warning arrows at the screen edge for police arriving from out of sight.
+export const WARNING = {
+  closingInterceptor: 60, // interceptors count when approaching faster than this (units/s)
+  closingFast: 200, // other police need this: tailing cars close far slower, so they never count
+  maxSeconds: 5, // not until this close to arriving
+  fadeInside: 130, // screen units inside the view over which the arrow fades away
+  fadeRate: 8, // how quickly an arrow fades in and out (per second)
+  minLevel: 0.03,
+  maxShown: 5,
+  size: 11, // at the UI's reference size
+  pulseMs: 130,
+  // The siren light that sweeps across the road ahead of an arriving car.
+  beamReach: 0.8, // share of the way from the car to the player
+  beamMaxLength: 1500,
+  beamWidth: 300, // at its far end
+  beamAlpha: 0.38,
+};
+
+// [TUNE] How the pressure builds. Each table is [seconds survived, value]; in between, values blend.
+//   0-15 s   2 to 4 basic chasers, to ease the player in
+//   15-30 s  interceptors arrive (ROADBLOCK starts at 30)
+//   30-45 s  top speed climbs, roadblocks start
+//   45 s +   swarm: more cars, more of them interceptors, and those react faster
+export const HEAT = {
+  police: [[0, 2], [15, 4], [30, 8], [45, 12], [75, 18], [110, 23], [160, 26]],
+  interceptorShare: [[14.99, 0], [15, 0.3], [30, 0.35], [45, 0.5], [90, 0.6]],
+  speedFactor: [[0, 1.04], [30, 1.05], [45, 1.1], [150, 1.14]], // x the player's top speed of 300
+  turnDeg: [[0, 118], [150, 136]],
+  reaction: [[45, 1], [90, 0.65]], // interceptors' reaction time, x normal
+};
+
 export const SPAWN = {
   firstSpawnAt: 1.3, // seconds into the run
-  // [time in seconds, police on the map]; values in between are blended.
-  table: [
-    [0, 2],
-    [10, 4],
-    [25, 7],
-    [45, 12],
-    [75, 17],
-    [110, 22],
-    [160, 26],
-  ],
+  speedMin: 0.8, // police arrive already moving: this share of their top speed ...
+  speedMax: 1, // ... up to this, at random
+  laneOffset: 45, // how far from the road's centre line they drive in
   intervalStart: 0.9, // seconds between spawns, shrinking to intervalEnd
   intervalEnd: 0.4,
   intervalRampSeconds: 90,
-  interceptorsFrom: 12, // seconds; before that every car simply chases
-  interceptorMaxShare: 0.45,
-  interceptorRampSeconds: 90,
   aheadShare: 0.35, // share of spawns placed ahead of the player (they come at you)
   screenMargin: 130, // spawn this far outside the screen edge (screen units)
   minDistance: 700, // never closer to the player than this
@@ -254,6 +302,8 @@ export const COLLISION = {
   treeRadius: 13,
   lampRadius: 7,
   coneRadius: 11,
+  civilianHalfWidth: 22, // parked cars are boxes the size of a car
+  civilianHalfLength: 42,
   woodCrateRadius: 15,
   monumentRadius: 36,
   roundaboutRadius: 150,
@@ -278,6 +328,22 @@ export const WRECK = {
   fadeSeconds: 1,
   friction: 2.6, // how fast a wreck slides to a stop (per second)
   spinFriction: 3,
+  kick: 130, // a wrecked car is shoved this hard in a random direction (units/s), so it never just stops
+  spinKick: 9, // and spun, up to this fast either way (radians per second)
+};
+
+// [TUNE] How a wreck is thrown about on screen. Drawing only: see render/Tumble.js.
+export const TUMBLE = {
+  hopMin: 70, // how high it flies (world units)
+  hopMax: 115,
+  airSeconds: 0.6,
+  bounceShare: 0.2, // the bounce after landing, as a share of the first height
+  bounceSeconds: 0.24,
+  roofChance: 0.6, // otherwise it rolls all the way round, back onto its wheels
+  spin: 1.1, // extra turn on screen, up to this much either way (radians)
+  minSquash: 0.42, // the drawing never gets thinner than this mid-roll
+  overFlamesHeight: 12, // above this height it is drawn in front of the fireball
+  playerTimeScale: 0.6, // the player's crash runs in slow motion, so its tumble uses this share of real time
 };
 
 export const EXPLOSION = {
@@ -301,11 +367,27 @@ export const COMBO = {
 export const CONES = {
   knockSpeed: 0.85, // share of the hitting car's speed given to the cone
   flySeconds: 1.1,
+  hop: 26,
   respawnSeconds: 25,
   slowdown: 0.97, // a cone barely slows the car down
-  lampSlowdown: 0.88, // a lamp post costs a little more
   spin: 18, // how fast a knocked cone can spin (radians per second)
-  lampSpin: 5, // a long post tips over rather than whirls
+  // Other breakable props: how they differ from a cone (a wooden crate behaves like one).
+  kinds: {
+    lamp: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 }, // a long post tips over rather than whirls
+    civilian: { knockSpeed: 0.8, slowdown: 0.82, spin: 2.5, sideKick: 190, flySeconds: 2.2, hop: 46 }, // a parked car bounces aside, and costs real speed
+  },
+};
+
+// [TUNE] Hit-stop: the action freezes for a moment on big hits. Real milliseconds, not frames.
+export const HITSTOP = {
+  scrapeMs: 36, // a glancing hit
+  bumpMs: 40,
+  smashMs: 40, // the player smashing a parked car
+  wreckMs: 40, // a police car wrecked close to the player ...
+  wreckRange: 520, // ... this close (world units)
+  crashMs: 45, // the player's own crash, before the slow motion
+  comboMs: 45, // a double wreck or bigger pile-up
+  cooldownMs: 320, // no second freeze this soon, so swarms don't turn into stutter
 };
 
 // Drive-over curbs (parking islands). The penalty applies once each time a car climbs on.
@@ -351,6 +433,7 @@ export const TRAUMA = {
   shakeSpeed: 40, // how fast the shake moves
   scrape: 0.25,
   knock: 0.2, // cones and lamp posts
+  smash: 0.45, // parked cars
   curb: 0.3,
   fall: 0.35,
   bump: 0.35,
@@ -362,13 +445,13 @@ export const TRAUMA = {
 
 // [TUNE] Skid marks.
 export const SKIDS = {
-  maxMarks: 500, // hard cap; the oldest mark is reused when full
+  maxMarks: 900, // hard cap; the oldest mark is reused when full
   slipThreshold: 70, // sideways speed (units/s) above which tyres leave marks
   width: 7,
-  minSegmentLength: 6,
-  lifetimeMs: 2600,
-  alpha: 0.38,
-  color: 0x15181c,
+  minSegmentLength: 10,
+  lifetimeMs: 7000,
+  alpha: 0.6,
+  color: 0x0c0e12,
   rearAxle: 0.3, // rear wheels sit this share of car length behind the centre
   wheelSpread: 0.36, // ...and this share of car width either side
 };
@@ -400,26 +483,30 @@ export const RENDER = {
   // Car drawings made at startup from the 3D model, evenly spaced around the compass.
   directions: 64,
   // Per model: wrecks barely turn, so fewer drawings (less memory) are enough.
-  carDirections: { player: 64, police: 64, wreck: 32 },
+  carDirections: { player: 64, police: 64, interceptor: 64, wreck: 32, wreckRoof: 16 },
   // 0 = snap to the nearest drawing, 1 = also rotate by the small leftover angle (smoother turning).
   residualRotation: 1,
   // Pixels per world unit in the drawings baked at startup (cars and props).
   // The screen shows 0.9-2 px per unit on most devices, so 1.5 stays sharp without wasting memory.
   bakeScale: 1.5,
+  // Two things cost a lot of graphics memory for little visible gain, so they are drawn coarser: shadows,
+  // and low flat props (islands, roundabouts), which are big but have no fine detail.
+  shadowBakeScale: 0.75,
+  flatBakeScale: 1,
   // Light, in camera terms: u = screen right, v = toward the viewer, z = up. [TUNE]
-  // Key light from the right and above, so one side of everything is lit, the other in shade,
-  // and shadows fall to the left.
-  keyLight: [0.7, 0.05, 0.7],
-  keyGain: 0.5,
+  // A low sun from the right and a little toward the viewer, so one side of everything is lit, the
+  // other in shade, and long shadows fall to the upper left (about 1.2 x the object's height).
+  keyLight: [0.72, 0.2, 0.62],
+  keyGain: 0.58,
   fillLight: [-0.3, 0.8, 0.5], // soft light from the camera side so faces in shadow are not flat
   fillGain: 0.15,
-  ambient: 0.42,
+  ambient: 0.38,
   skyGain: 0.1, // extra light on upward-facing surfaces (roofs, hoods, tops) so they read apart from the sides
-  shadowLength: 0.75, // 1 = shadow length that matches the key light; lower = shorter shadows
-  shadowColor: 0x0b0f17,
-  shadowAlpha: 0.3,
+  shadowLength: 1, // 1 = shadow length that matches the key light; lower = shorter shadows
+  shadowColor: 0x0a0c1a,
+  shadowAlpha: 0.42,
   // Soft dark patch right under each car (where little light reaches), so it sits on the ground.
-  contactShadow: { alpha: 0.22, grow: 3 },
+  contactShadow: { alpha: 0.3, grow: 3 },
   seamWidth: 0.6, // world units; hides hairline gaps between neighbouring faces
 };
 
@@ -433,21 +520,24 @@ export const DEPTH = {
   effects: 4e9,
 };
 
-// Placeholder world colours (low-poly, flat shaded). Final palette goes in ART_DIRECTION.md.
+// World colours: the comic-arcade palette (low-poly, flat shaded). See ART_DIRECTION.md.
 export const PALETTE = {
-  asphalt: 0x4a515e, // roads
-  lot: 0x575f6c, // city blocks (parking lots, plazas): a little lighter than the roads
-  asphaltPatchDark: 0x49505c,
-  asphaltPatchLight: 0x525a67,
-  paintWhite: 0xe4e0d4,
+  asphalt: 0x2f3640, // roads
+  lot: 0x3a424e, // city blocks (parking lots, plazas): a little lighter than the roads
+  asphaltPatchDark: 0x2a3039,
+  asphaltPatchLight: 0x363e49,
+  paintWhite: 0xf8f6ef,
   paintYellow: 0xf0c04a,
-  curb: 0xe6bd45,
-  grass: 0x7aa94b,
+  curb: 0xf39c12, // gold rim of islands and roundabouts ...
+  median: 0xf1c40f, // ... around a vivid yellow top
   concrete: 0xb5aea2,
-  plaza: 0x626a76,
-  void: 0x0b0d12,
-  voidWall: 0x2a2d33,
-  voidRim: 0x6f7682,
+  plaza: 0x47505d,
+  void: 0x06070b,
+  voidWall: 0x171a21,
+  voidRim: 0x8791a1,
+  civilianTeal: 0x3fbfa8,
+  civilianPink: 0xf08fa0,
+  civilianYellow: 0xecc94b,
   monument: 0xc9c1b1,
   woodCrate: 0xa9794a,
   woodStrap: 0x75522f,
@@ -465,8 +555,8 @@ export const PALETTE = {
   cone: 0xf07a2a,
   coneStripe: 0xf4f1ea,
   // Player car
-  playerBody: 0xe0473c,
-  playerStripe: 0xf4efe6,
+  playerBody: 0xd7142f,
+  playerStripe: 0xfdf3dc,
   glass: 0x24344a,
   glassShine: 0x3e5878,
   trim: 0x2a2e35,
@@ -475,8 +565,9 @@ export const PALETTE = {
   headlight: 0xfff3c4,
   taillight: 0xff3b30,
   // Police car (original design: white with a blue side stripe and a red / blue light bar)
-  policeBody: 0xeef1f4,
-  policeStripe: 0x2f6fe0,
+  policeBody: 0xf5f7fa,
+  policeStripe: 0x1b2a6b,
+  interceptorDark: 0x24272e, // black-and-white interceptor: dark hood and boot
   lightRed: 0xff3b30,
   lightBlue: 0x3d8bff,
   // Burnt-out wreck
@@ -484,11 +575,19 @@ export const PALETTE = {
   wreckGlass: 0x16181c,
   scorch: 0x0b0d10,
   // Shockwave crate
-  crate: 0x2fc4b2,
-  crateRibbon: 0xf4efe6,
-  crateGlow: 0x5ff5e0,
+  crate: 0xe8572a, // warm orange-red wrapping paper
+  crateRibbon: 0xfdf3dc,
+  crateGlow: 0xffa64d,
+  crateArrow: 0x5ff5e0, // stays teal, like the Shockwave button: orange would look like the red warnings
+  chunkTyre: 0x17191e,
+  chunkHub: 0x5a5e66,
+  chunkMetal: 0x2a2826,
+  chunkPanel: 0x3d3833,
+  statueRed: 0xd7142f,
+  statueNavy: 0x25408f,
+  statueCream: 0xf6efdf,
   pulse: 0x7ff7ff,
-  smoke: 0xd9dde3,
+  smoke: 0xf4efe0,
   fire: 0xffb02e,
 };
 
@@ -507,11 +606,37 @@ export const AUDIO = {
 export const EFFECTS = {
   maxSmoke: 140,
   maxFire: 160,
+  maxFireball: 120, // flame clouds on screen at once
+  maxChunks: 24, // big flying pieces (tyres, bumpers, panels)
+  maxRings: 6, // ground shockwave rings
+  chunksSmall: 3, // pieces thrown out by a police wreck ...
+  chunksBig: 5, // ... and by the player's crash
+  chunkGravity: 620,
+  chunkBounce: 0.5,
+  chunkScrape: 3,
+  chunkSeconds: 1.8,
+  ringRadius: 170, // world units a wreck's ground ring reaches
+  ringRadiusBig: 240,
+  ringMs: 360,
+  scorchRadius: 62, // world units
+  sirenGlowOverAlpha: 0.15, // the faint colour cast over nearby props and cars
+  maxBursts: 8, // comic starbursts on screen at once
+  burstPopMs: 90, // how fast one pops out ...
+  burstHoldMs: 40, // ... stays ...
+  burstFadeMs: 120, // ... and goes
+  // Starburst sizes (1 = 160 screen units across).
+  burstBig: 1.25, // the player's crash
+  burstWreck: 0.85, // a police car wrecked
+  burstSmash: 0.6, // a parked car hit
+  burstBump: 0.42,
+  burstScrape: 0.24,
+  sirenPoolRadius: 105, // world units: the red / blue light on the ground under a cruiser
+  sirenPoolAlpha: 0.62,
   maxDebris: 90,
   smokeEveryMs: 45, // a puff from each skidding rear tyre this often
   wreckSmokeEveryMs: 160,
-  maxScorch: 24,
-  scorchSeconds: 14,
+  maxScorch: 30,
+  scorchSeconds: 45, // the road keeps the marks long after the wreck has gone
   lightFlashMs: 220, // police light bar alternates red / blue this often
 };
 
@@ -556,6 +681,9 @@ export const SCENERY = {
   laneDash: 60,
   laneGap: 60,
   laneWidth: 6,
+  laneAlpha: 0.6,
+  stallAlpha: 0.95,
+  crosswalkAlpha: 0.95,
 };
 
 // The world is a grid of city blocks ("cells") separated by open roads. Each chunk picks a layout
@@ -582,6 +710,22 @@ export const WORLD = {
     { width: 60, length: 130, height: 52, color: 'containerRust' },
   ],
   containerTurnsDeg: [0, 90],
+  parkedCarChance: 0.13, // chance that a parking stall has a car in it
+  civilians: [
+    { shape: 'van', color: 'civilianTeal' },
+    { shape: 'hatchback', color: 'civilianPink' },
+    { shape: 'sedan', color: 'civilianYellow' },
+  ],
+  civilianTurnsDeg: [0, 90, 180, 270],
+  // Word statues: giant block letters on a low plinth, one per chunk at most.
+  landmarkChance: 0.75,
+  landmarkColors: { STOP: 'statueRed', MALL: 'statueNavy', HOTEL: 'statueCream', PARK: 'statueCream', GAMES: 'statueRed', DINER: 'statueNavy', GAS: 'statueRed', DEPOT: 'statueCream' },
+  letterUnit: 17, // world units per grid square of the block font: letters are 85 tall
+  letterThickness: 20,
+  letterGap: 10,
+  arrowChance: 0.3, // chance that a stretch of road has a painted arrow
+  arrowLength: 64,
+  arrowWidth: 28,
   plazaHalfSize: 695, // half the width of the paved square in the middle of a plaza chunk
   treeSizes: [0.9, 1, 1.1, 1.2],
   crosswalkChance: 0.18,

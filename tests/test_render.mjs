@@ -175,13 +175,13 @@ for (const view of RENDER.views) {
 
 // --- Props ---
 {
-  for (const name of ['police', 'wreck']) {
+  for (const name of ['police', 'interceptor', 'wreck', 'wreckRoof']) {
     check(`${name} car model shows faces from the angled camera`, projectMesh(carMesh(name), 0.3, angled).some((p) => p.faces.length > 0));
   }
-  const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.crate(), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];
+  const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.crate(), props.hatchback(0xf08fa0), props.sedan(0xecc94b), props.van(0x3fbfa8), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];
   check('every prop model shows faces from the angled camera', models.every((m) => projectMesh(m, 0.3, angled).some((p) => p.faces.length > 0)));
   const faceCount = models.reduce((s, m) => s + m.reduce((t, p) => t + p.faces.length, 0), 0) + carMesh('player').reduce((t, p) => t + p.faces.length, 0);
-  check('models stay low-poly', faceCount < 300, `${faceCount} faces for the car and all ${models.length} prop types`);
+  check('models stay low-poly', faceCount < 450, `${faceCount} faces for the car and all ${models.length} prop types`);
 }
 
 console.log(`\n(default view car drawings: ${totalMB.toFixed(1)} MB graphics memory)`);

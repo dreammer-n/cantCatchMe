@@ -29,11 +29,12 @@ without touching gameplay.
 4. **The ground** is a flat plane, and the camera's view of a flat plane is just a turn plus a squash, so
    the floor, markings, skid marks and car shadows live in containers that do exactly that
    (`src/render/layers.js`). They stay in world coordinates.
-5. **Shadows**: props bake their shadow (the solid cast along the light onto the ground) into a second
+5. **Shadows** come from a low sun: about 1.2 × the height of what casts them, falling to the upper left.
+   Props bake their shadow (the solid cast along the light onto the ground) into a second
    image; cars draw a live outline of their body cast along the light, each frame, plus a soft contact
    patch right underneath. Car and prop shadows use the same light, so they always fall the same way.
    No real-time lighting.
-6. **Light** (`RENDER` in `tuning.js`): ambient + key light from the right + soft fill from the camera side
+6. **Light** (`RENDER` in `tuning.js`): ambient + low key light from the right + soft fill from the camera side
    + a little "sky" light on upward faces. Result: tops brightest, the side facing the key medium, the other
    side darkest, for every object. The light is fixed to the camera, so it never changes while driving.
 
@@ -47,15 +48,20 @@ Built in height bands, each its own solid so it catches the light differently:
 | layer 1 | body: sloped hood, middle, sloped boot; head/tail lights and grille as flat paint | 9.5–17 |
 | layer 2 | glass cabin (windscreen, rear window, side windows with a pillar), flat roof, spoiler | 17–30 |
 
-Footprint is exactly the physics size (44 × 84). The same builder makes the **police car** (white, blue
-side stripe, push bar, red/blue light bar) and the **wreck** (burnt colours, crumpled roof). Drawn
-directions per model: player 64, police 64, wreck 32 (`RENDER.carDirections`; wrecks barely turn).
+Footprint is exactly the physics size (44 × 84). The same builder makes the **police car** (white, navy
+side stripe, push bar, red/blue light bar), the **interceptor** (the same car in black and white), the
+**wreck** (burnt colours, crumpled roof) and the **wreck on its roof**. Drawn directions per model: player 64,
+police 64, interceptor 64, wreck 32, upside-down wreck 16 (`RENDER.carDirections`; wrecks barely turn).
+
+Solids here have no bottom face, because nothing sees under a car on its wheels. The upside-down wreck adds
+an underside plate, or it would look like a hollow shell.
 Police light bars get two small glows on top (`CarView.updateLights`), alternating red / blue. They use
 normal blending on purpose: an additive blend between cars in the draw order cost one extra draw call per
 police car (39 → 7 draw calls with 24 police on screen).
 
-Result: 0 bytes of downloaded art, about 7 draw calls per frame even with 24 police on screen, 11 MB
-of graphics memory for the three car drawing sheets (player 4.5, police 4.4, wreck 2.1, measured). Switching camera views (debug tool only)
+Result: 0 bytes of downloaded art, about 7-10 draw calls per frame even with 24 police on screen. Graphics
+memory, measured: car drawing sheets 17.4 MB, prop drawings 12.4 MB. Shadows and flat props are drawn coarser
+to keep that down (`RENDER.shadowBakeScale`, `flatBakeScale`). Switching camera views (debug tool only)
 redraws everything in about a second.
 
 ## Layers and draw order (`DEPTH` in `tuning.js`)
@@ -64,15 +70,25 @@ redraws everything in about a second.
 |---|---|---|
 | `ground` (0) | floor (roads darker, city blocks lighter), markings, sinkholes, skid marks, scorch marks, lamp light pools, shockwave ring | world-coordinate container, turned and squashed; each chunk's floor is split into 800-unit squares and off-screen squares are skipped |
 | `raised` (10) | low curbs, parking islands, roundabouts | baked images, always under cars |
-| `shadows` (20) | car shadows, prop shadows, crate glow | cars: one shared live drawing in a ground container (all cars, cleared each frame); props: baked images |
+| `shadows` (20) | car shadows, prop shadows, crate glow, siren light on the road | cars: one shared live drawing in a ground container (all cars, cleared each frame); props: baked images; siren light: one additive image per cruiser, all in their own ground layer (`layers.lights`), so 24 cruisers cost one blend change, not 24 |
 | `objects` (1e9 + screen Y) | cars, police lights, blocks, trees, lamps, barriers, cones, crates, containers, monuments | sorted by their ground point: nearer the viewer = in front. The band is huge because screen Y has no limit in an endless world |
-| `effects` (4e9+) | tyre smoke, wreck smoke and flames, fire, debris, flashes | particles in screen space (positions through the projection), capped by `EFFECTS` |
+| `effects` (4e9+) | tyre smoke, wreck smoke and flames, sparks, debris, starbursts | particles in screen space (positions through the projection), capped by `EFFECTS` |
 | UI | HUD, menus | separate `UIScene`, never affected by the camera |
 
 Rules:
 - Anything standing up gets **one** depth from its ground point (`depthAt(x, y)`), its centre.
-- Keep standing props compact (under ~150 units across). Long things are kept low in the `raised` band.
+- Keep standing props compact (under ~150 units across). Long things are kept low in the `raised` band, or
+  split up: a word statue is one prop per letter on a low plinth.
 - Physics never reads `RENDER`, `DEPTH`, `PALETTE` or the camera.
+
+## Wrecks
+
+Wrecks are thrown about on screen only. The physics keeps a car on the flat map; `render/Tumble.js` works out a
+height, a roll and an extra turn, and `CarView` shows them by lifting the sprite, turning it and squashing it
+while it rolls side-on, switching to the upside-down drawing past 90°. While in the air the car is drawn in front
+of the flames. The explosion is layered, back to front: comic star, flame clouds that cool from white through yellow and
+orange to dark red, flying pieces and the car, then a white flash on top. Smoke rises as the flames die, a ring runs
+out along the ground and the road keeps a burn for 45 s.
 
 ## Culling (skipping what is off screen)
 
@@ -119,6 +135,8 @@ faces. Press T again to drive off.
 - Low curbs/islands always draw under cars, so a car just behind a curb shows its bottom edge over it.
 - Particles (smoke, fire) are drawn above everything, so smoke can show in front of a nearer tree.
 - Police light glows sit with their car in the draw order; a light can show over a prop right behind it.
+- A car in the air is drawn in front of everything standing, so a tumbling wreck can pass over a nearby tree.
+- Siren colour on props is a faint wash laid over everything nearby, not real lighting on each surface.
 - A falling car is drawn over its hole's near edge (no clipping), so it reads as shrinking into the dark
   rather than disappearing behind the rim.
 

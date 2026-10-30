@@ -86,7 +86,10 @@ function stepSim(seconds, steer = 0, activatePowerUp = false) {
   const all = [];
   for (let t = 0; t < seconds; t += 1 / 60) {
     const v = cam.follow(sim.player, 1 / 60);
-    for (const e of sim.step(1 / 60, { steer, activatePowerUp: activatePowerUp && t === 0 }, v)) all.push(e);
+    for (const e of sim.step(1 / 60, { steer, activatePowerUp: activatePowerUp && t === 0 }, v)) {
+      if (e.type === 'spawn') e.distanceAtSpawn = Math.hypot(e.x - sim.player.x, e.y - sim.player.y);
+      all.push(e);
+    }
   }
   return all;
 }
@@ -97,7 +100,7 @@ check('no police in the first second', sim.alivePolice === 0);
 ev = stepSim(2.5);
 check('police arrive after a moment', sim.alivePolice >= 1, `${sim.alivePolice} police`);
 const firstSpawns = ev.filter((e) => e.type === 'spawn');
-check('police spawn off screen and not too close', firstSpawns.every((e) => Math.hypot(e.x - sim.player.x, e.y - sim.player.y) > 500), firstSpawns.map((e) => Math.round(Math.hypot(e.x - sim.player.x, e.y - sim.player.y))).join(','));
+check('police spawn off screen and not too close', firstSpawns.length > 0 && firstSpawns.every((e) => e.distanceAtSpawn >= T.SPAWN.minDistance - 10), firstSpawns.map((e) => Math.round(e.distanceAtSpawn)).join(','));
 
 // Two police head-on: both wrecked, explosion, combo.
 sim.reset(4);

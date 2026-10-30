@@ -325,12 +325,12 @@ export function boundsOf(projected, shadows = []) {
   return box;
 }
 
-// Draws a model once into its own texture. Returns { key, originX, originY } for an Image.
-// part: 'body' (the object) or 'shadow' (its ground shadow only).
+// Draws a model once into its own texture. Returns { key, originX, originY, scale } for an Image
+// (show the Image at 1 / scale). which: 'body' (the object) or 'shadow' (its ground shadow only).
 const bakedMeta = new Map();
-export function bakeMesh(scene, key, mesh, heading, proj, which = 'body') {
+export function bakeMesh(scene, key, mesh, heading, proj, which = 'body', bodyScale = RENDER.bakeScale) {
   if (scene.textures.exists(key) && bakedMeta.has(key)) return bakedMeta.get(key);
-  const scale = RENDER.bakeScale;
+  const scale = which === 'shadow' ? RENDER.shadowBakeScale : bodyScale;
   const pad = 2;
   const projected = which === 'body' ? projectMesh(mesh, heading, proj) : [];
   const shadows = which === 'shadow' ? projectShadow(mesh, heading, proj) : [];
@@ -351,7 +351,7 @@ export function bakeMesh(scene, key, mesh, heading, proj, which = 'body') {
   ctx.restore();
   texture.refresh();
 
-  const meta = { key, originX: ox / width, originY: oy / height };
+  const meta = { key, originX: ox / width, originY: oy / height, scale };
   bakedMeta.set(key, meta);
   return meta;
 }

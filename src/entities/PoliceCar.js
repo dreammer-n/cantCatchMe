@@ -1,11 +1,12 @@
 import { Car } from './Car.js';
-import { COLLISION, POLICE_HANDLING } from '../config/tuning.js';
+import { COLLISION, POLICE_HANDLING, ROADBLOCK, SPAWN } from '../config/tuning.js';
 
 // One police car: the shared driving model plus pursuit state. No drawing here; the game scene
 // attaches a CarView while the car is on the map (`view`). Objects are reused (pooled).
 //
 // States: 'idle' (in the pool), 'chasing', 'wreck' (burnt out, an obstacle for a few seconds).
-// Roles: 'chaser' (follows the player) or 'interceptor' (aims where the player is going).
+// Roles: 'chaser' (follows the player), 'interceptor' (aims where the player is going) or
+// 'roadblock' (parked across a crossing; never moves unless something hits it).
 export class PoliceCar {
   constructor(id) {
     this.id = id;
@@ -24,14 +25,21 @@ export class PoliceCar {
     return this.state !== 'idle';
   }
 
-  spawn(x, y, heading, { role, speedFactor, turnDeg, aimSide }) {
+  get parked() {
+    return this.role === 'roadblock';
+  }
+
+  // launchShare: how fast it is already going, as a share of its top speed.
+  // reaction: multiplies its time between decisions (lower = sharper).
+  spawn(x, y, heading, { role, speedFactor, turnDeg, aimSide, launchShare = SPAWN.speedMin, reaction = 1 }) {
     this.handling.topSpeed = POLICE_HANDLING.topSpeed * speedFactor;
     this.handling.maxTurnRateDeg = turnDeg;
     this.model.reset(x, y, heading);
-    this.model.launch(this.handling.topSpeed * 0.85);
-    this.model.mass = 1;
+    this.model.launch(this.handling.topSpeed * launchShare);
     this.state = 'chasing';
     this.role = role;
+    this.model.mass = this.parked ? ROADBLOCK.mass : 1;
+    this.reaction = reaction;
     this.aimSide = aimSide; // -1..1: which side of the player this car aims for
     this.retarget = 0;
     this.targetX = x;

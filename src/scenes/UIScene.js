@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
-import { COLORS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, RENDER, STORAGE_KEYS, UI } from '../config/tuning.js';
+import { COLORS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, RENDER, STORAGE_KEYS, UI, WARNING } from '../config/tuning.js';
 import { DevPanel } from '../dev/DevPanel.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { findView, projection } from '../render/projection.js';
@@ -11,9 +11,12 @@ import { PauseScreen } from '../ui/Screens.js';
 import { getPixelRatio, getSafeAreaInsets } from '../utils/screen.js';
 
 const cratePoint = { x: 0, y: 0 };
+const threatPoint = { x: 0, y: 0 };
+const edge = { x: 0, y: 0, dx: 0, dy: 0 };
 
 // Everything drawn over the world during a run: the HUD (HTML), the pause menu (HTML), the
-// steering feedback and the arrow pointing at an off-screen Shockwave crate (canvas).
+// steering feedback, the arrow pointing at an off-screen Shockwave crate and the red warning
+// chevrons for police arriving from out of sight (canvas).
 export class UIScene extends Phaser.Scene {
   constructor() {
     super('UIScene');
@@ -176,6 +179,7 @@ export class UIScene extends Phaser.Scene {
       this.drawArrow(g, this.safe.right - size, y, size, 1, steer === 1);
     }
     this.drawCrateArrow(g, width, height);
+    this.drawThreats(g, width, height);
   }
 
   drawArrow(g, x, y, size, direction, lit) {
@@ -183,27 +187,58 @@ export class UIScene extends Phaser.Scene {
     g.fillTriangle(x + direction * size, y, x - direction * size * 0.6, y - size, x - direction * size * 0.6, y + size);
   }
 
-  // When the crate is off screen, a pulsing teal arrow at the screen edge points to it.
-  drawCrateArrow(g, width, height) {
-    const p = this.world.crateOnCanvas(cratePoint);
-    if (!p) return;
+  // Where the line from the screen centre to p leaves the area kept clear of the HUD. Written into
+  // `edge`, with the line's direction. Returns false if p is inside that area.
+  edgeToward(p, width, height) {
     const inset = 34 * this.uiScale;
     const left = this.safe.left + inset;
     const right = this.safe.right - inset;
     const top = this.safe.top + inset * 2.2; // stay clear of the timer
     const bottom = this.safe.bottom - inset * 2.6; // and of the Shockwave button
-    if (p.x > left && p.x < right && p.y > top && p.y < bottom) return;
     const cx = width / 2;
     const cy = height / 2;
     const angle = Math.atan2(p.y - cy, p.x - cx);
-    // Where the line from the centre to the crate leaves the inner rectangle.
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
     const t = Math.min(dx > 0 ? (right - cx) / dx : dx < 0 ? (left - cx) / dx : Infinity, dy > 0 ? (bottom - cy) / dy : dy < 0 ? (top - cy) / dy : Infinity);
-    const x = cx + dx * t;
-    const y = cy + dy * t;
+    edge.x = cx + dx * t;
+    edge.y = cy + dy * t;
+    edge.dx = dx;
+    edge.dy = dy;
+    return !(p.x > left && p.x < right && p.y > top && p.y < bottom);
+  }
+
+  // A red chevron at the screen edge for each police car arriving from out of sight. It points
+  // where the car will come from, and fades as the car comes into view.
+  drawThreats(g, width, height) {
+    const size = (WARNING.size + Math.sin(this.time.now / WARNING.pulseMs) * 1.5) * this.uiScale;
+    for (const threat of this.world.radar.threats) {
+      this.edgeToward(this.world.pointOnCanvas(threat.x, threat.y, 0, threatPoint), width, height);
+      const { x, y, dx, dy } = edge;
+      const tipX = x + dx * size;
+      const tipY = y + dy * size;
+      const wing = size * 0.9;
+      const backX = x - dx * size * 0.2;
+      const backY = y - dy * size * 0.2;
+      const ax = backX - dy * wing;
+      const ay = backY + dx * wing;
+      const bx = backX + dy * wing;
+      const by = backY - dx * wing;
+      for (const [color, thickness, alpha] of THREAT_STROKES) {
+        g.lineStyle(size * thickness, color, alpha * threat.level);
+        g.lineBetween(ax, ay, tipX, tipY);
+        g.lineBetween(bx, by, tipX, tipY);
+      }
+    }
+  }
+
+  // When the crate is off screen, a pulsing teal arrow at the screen edge points to it.
+  drawCrateArrow(g, width, height) {
+    const p = this.world.crateOnCanvas(cratePoint);
+    if (!p || !this.edgeToward(p, width, height)) return;
+    const { x, y, dx, dy } = edge;
     const size = (13 + Math.sin(this.time.now / 160) * 2) * this.uiScale;
-    g.fillStyle(PALETTE.crateGlow, 0.95);
+    g.fillStyle(PALETTE.crateArrow, 0.95);
     g.fillTriangle(
       x + dx * size,
       y + dy * size,
@@ -277,6 +312,12 @@ export class UIScene extends Phaser.Scene {
     ].join(' · ');
   }
 }
+
+// Dark edge first, so the chevron shows up on any background. [colour, thickness x size, opacity]
+const THREAT_STROKES = [
+  [COLORS.warningBack, 0.75, 0.7],
+  [COLORS.warning, 0.42, 1],
+];
 
 function compassName(deg) {
   return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];

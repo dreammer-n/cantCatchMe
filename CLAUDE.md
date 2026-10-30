@@ -19,6 +19,9 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 10. **Low-poly 2.5D look (Milestone 1.6, approved with M1.7 on 2026-10-29):** game name "Can't Catch Me!". Minimalist low-poly, flat-shaded, matching the camera/geometry/lighting approach of the owner's PAKO Forever reference frames (not their assets). Fixed orthographic camera with the map turned (40°) and tilted (48°); cars and props built from 3D solids and drawn once at startup (cars in 64 directions). Replaces the north-up camera and comic outlines of decision 9. Draft style rules in `ART_DIRECTION.md`.
 11. **Full game in one pass (2026-10-29):** owner said "proceed with the rest of the milestones and provide the full game" (M2–M5 together, then test). Single Shockwave power-up, no adverts, no analytics.
 12. **Endless world (Step 2, 2026-10-30):** owner asked for an endless chunk-streaming world with sinkholes instead of a fence. Replaces decision 4. Active grid is 3 x 3 chunks; chunks are 2400 units, not the 1200 suggested as an example, because the grid only guarantees one chunk's width ahead and the camera shows about 2030 units on tall phones (`tests/test_world.mjs` checks this). Every chunk keeps the same 600-unit road grid, so roads always line up; holes never touch a chunk's border roads.
+13. **Pursuit (Step 3, 2026-10-30):** owner asked for two police types (tailing chasers; black-and-white interceptors that aim at the player's predicted position, make for upcoming crossings and flank), parked roadblocks from 30 s, red warning chevrons for police arriving from out of sight, and a heat curve in four stages (`HEAT` in `tuning.js`). Parked cruisers don't count toward the police number. Police still spawn in motion, now along a road.
+14. **Comic-arcade look (Step 4, 2026-10-30):** owner's own "Arcade Comic Low-Poly" identity: clean low-poly models with comic-book action effects (ink-edged starbursts, puffy cloud smoke, hit-stop). Low sun with shadows about 1.2 x height, falling to the upper left. Palette in `ART_DIRECTION.md`. The owner's PAKO Forever frames are a reference for lighting, shadows and density only: no copied assets, props or branding. Parked civilian cars are breakable props (knocked aside), not physics bodies, to stay cheap on phones.
+15. **Crashes and set dressing (2026-10-30):** owner asked for more drama. Wrecks tumble (drawing only: physics stays flat; `render/Tumble.js`), with fireballs, flying wreckage and lasting burns. Word statues are one solid prop per letter, so draw order stays right. Siren beams warn of arriving police. The power-up is an orange gift box, but its arrow and the Shockwave button stay teal, so they are never mistaken for the red warnings. Prop drawings have a memory budget, checked by `tests/test_set.mjs`.
 
 ## Platform facts to respect (checked 2026-10-28, re-verify before Milestone 3)
 
@@ -41,9 +44,10 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Scenes: boot, world, HUD/pause overlay, title, results | `src/scenes/BootScene.js`, `GameScene.js`, `UIScene.js`, `MenuScene.js`, `GameOverScene.js` |
 | One chase as pure logic (no Phaser): steps cars, collisions, rules, events | `src/systems/ChaseSimulation.js` |
 | Shared driving model (player + police), pure maths | `src/entities/Car.js` |
-| Police car state (pooled) / pursuit steering | `src/entities/PoliceCar.js`, `src/systems/PoliceAI.js` |
+| Police car state (pooled) / pursuit steering (chasers, interceptors) | `src/entities/PoliceCar.js`, `src/systems/PoliceAI.js` |
+| Which police get a warning arrow (drawn by `UIScene.drawThreats`) | `src/systems/ThreatRadar.js` |
 | Collisions (car circles, prop circles/boxes, grid) | `src/systems/CollisionSystem.js` |
-| Spawn director + difficulty curve | `src/systems/SpawnSystem.js` |
+| Spawn director, roadblocks, difficulty curve (numbers in `HEAT`) | `src/systems/SpawnSystem.js` |
 | Shockwave crate power-up | `src/systems/PowerUpSystem.js` |
 | Run stats, saved records, time format | `src/systems/ScoreSystem.js`; settings in `src/systems/Settings.js` |
 | Synthesised sound (Web Audio, no files) | `src/systems/AudioSystem.js` |
@@ -54,10 +58,14 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Camera behaviour: look-ahead, speed zoom, trauma shake (pure maths) | `src/render/CameraRig.js` |
 | Ground/shadow layers, depth sorting | `src/render/layers.js` |
 | Low-poly renderer (solids, flat shading, shadows, baking) | `src/render/lowpoly.js` |
-| Car models (player, police, wreck) / car drawing sheets | `src/render/carModels.js`, `src/render/carAtlas.js` |
-| Prop models (blocks, barriers, trees, lamps, cones, islands, crates, containers, monument, roundabout) | `src/render/propModels.js` |
+| Car models (player, police, interceptor, wreck, upside-down wreck) / car drawing sheets | `src/render/carModels.js`, `src/render/carAtlas.js` |
+| Prop models (blocks, barriers, trees, lamps, cones, islands, crates, containers, monument, roundabout, parked cars, block letters, gift box) | `src/render/propModels.js` |
 | Drawing the loaded chunks (floor, holes, pooled props), culling, knocked props | `src/render/Scenery.js` |
-| Particles, flashes, scorch marks, shockwave ring | `src/render/Effects.js` |
+| Comic starbursts, puffy smoke, sparks, scorch marks, shockwave ring | `src/render/Effects.js` |
+| Hit-stop (brief freeze on big hits) | `src/systems/HitStop.js` |
+| Wreck tumbling and flying-piece maths (drawing only) | `src/render/Tumble.js` |
+| Siren beams ahead of arriving police | `src/render/SirenBeams.js` |
+| Block letters for the word statues | `src/render/blockFont.js` |
 | Skid marks (capped pool) | `src/systems/SkidMarks.js` |
 | HTML interface: HUD, title / pause / results screens | `src/ui/Hud.js`, `src/ui/Screens.js`, `src/ui/dom.js`, styles in `src/styles/main.css` |
 | Debug toolbar (`?debug` only) | `src/dev/DevPanel.js` |

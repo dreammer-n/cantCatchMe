@@ -15,11 +15,15 @@ function groundContainer(scene, depth) {
 export function createLayers(scene) {
   const ground = groundContainer(scene, DEPTH.ground);
   const shadows = groundContainer(scene, DEPTH.shadows);
+  const lights = groundContainer(scene, DEPTH.shadows + 0.5);
+  const lightsOver = groundContainer(scene, DEPTH.effects - 1);
   const layers = {
     ground: ground.turn, // add things here in world coordinates
     shadows: shadows.turn,
+    lights: lights.turn, // glows lying on the ground: all together, so they cost one blend change
+    lightsOver: lightsOver.turn, // the same, above standing objects: faint colour cast on props and cars
     applyProjection() {
-      for (const layer of [ground, shadows]) {
+      for (const layer of [ground, shadows, lights, lightsOver]) {
         layer.tilt.setScale(1, projection.squash);
         layer.turn.setRotation(projection.azimuth);
       }

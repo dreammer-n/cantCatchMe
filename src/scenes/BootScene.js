@@ -13,7 +13,7 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     makeEffectTextures(this);
-    for (const name of ['player', 'police', 'wreck']) ensureCarAtlas(this, name);
+    for (const name of ['player', 'police', 'interceptor', 'wreck', 'wreckRoof']) ensureCarAtlas(this, name);
     this.registry.set('handlingPreset', DEFAULT_HANDLING_PRESET);
     this.registry.set('layout', buildLayout());
     this.scene.start('GameScene');

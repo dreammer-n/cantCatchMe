@@ -86,6 +86,7 @@ const CAUSES = {
   wreck: ['WRECKED!', 'You hit a burning wreck'],
   obstacle: ['WRECKED!', 'You crashed into the scenery'],
   void: ['BUSTED!', 'Fell into the void'],
+  roadblock: ['BUSTED!', 'You hit a roadblock'],
 };
 
 export class GameOverScreen extends Screen {
