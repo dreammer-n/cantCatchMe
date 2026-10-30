@@ -71,7 +71,7 @@ export class Bot {
       while (t < horizon && ok) {
         car.stepFor(steer, 0.05, 1 / 120);
         t += 0.05;
-        if (!sim.world.isClear(car.x, car.y, 30, 10)) ok = false;
+        if (!sim.world.isClear(car.x, car.y, 30)) ok = false;
         for (const p of sim.police) {
           if (!p.active) continue;
           const px = p.model.x + p.model.vx * t;
@@ -80,8 +80,6 @@ export class Bot {
         }
       }
       score = t * 10 + (steer === this.steer ? 0.3 : 0) + this.rng() * 0.2;
-      // Prefer staying near the middle of the arena.
-      score -= Math.hypot(car.x - 3000, car.y - 3000) / 4000;
       if (score > best) {
         best = score;
         choice = steer;
@@ -144,6 +142,17 @@ export function playRun(sim, { seed, screen = SCREENS.portrait, maxSeconds = 240
   }
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   return { ...sim.stats.summary(), cause: crashInfo.cause || 'timeout', policeAge: crashInfo.policeAge, spawns, maxAlive, msPerSimSecond: ms / Math.max(1e-6, simSeconds), steps: wall };
+}
+
+// A small test map: the given items, sorted into the chunks they stand on.
+export function fixedMap(items) {
+  const inChunk = (i, cx, cy) => Math.floor(i.x / T.CHUNKS.size) === cx && Math.floor(i.y / T.CHUNKS.size) === cy;
+  return {
+    chunkAt(cx, cy) {
+      const here = items.filter((i) => inChunk(i, cx, cy));
+      return { cx, cy, x0: cx * T.CHUNKS.size, y0: cy * T.CHUNKS.size, seed: 1, preset: 'test', paint: [], items: here.filter((i) => !i.isVoid), voids: here.filter((i) => i.isVoid) };
+    },
+  };
 }
 
 export function newSim() {

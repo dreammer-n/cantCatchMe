@@ -1,6 +1,6 @@
 // Unit checks for the shared driving model (runs in Node, no browser).
 import { Car } from '../src/entities/Car.js';
-import { ARENA, CRASH, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PHYSICS, POLICE_HANDLING } from '../src/config/tuning.js';
+import { HANDLING_PRESETS, HANDLING_PRESET_ORDER, PHYSICS, POLICE_HANDLING } from '../src/config/tuning.js';
 import { StaticWorld, collideWithWorld } from '../src/systems/CollisionSystem.js';
 const emptyWorld = new StaticWorld([]);
 const hit = { impact: 0, shape: null };
@@ -152,20 +152,20 @@ check('presets ordered grippy < balanced < drifty', drifts[0] < drifts[1] && dri
 // Police keep their handling: none of the player's slide extras.
 check('police have no slide extras', POLICE_HANDLING.slideGripLoss === 0 && POLICE_HANDLING.counterSteerBonus === 0 && POLICE_HANDLING.deepSlideScrub === 0);
 
-// Wall: head-on into the top wall at full speed is a crash-strength impact; the car stays inside.
-{
+// No outer wall: the old map edges (0 and 6000) and everything beyond them are just open road.
+for (const [name, x, y, heading] of [['north', 500, 200, 0], ['west', 200, 500, -Math.PI / 2], ['east', 5800, 500, Math.PI / 2], ['south', 500, 5800, Math.PI]]) {
   const car = new Car(HANDLING_PRESETS.balanced);
-  car.reset(500, 200, 0);
+  car.reset(x, y, heading);
   car.launch(300);
   let maxImpact = 0;
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 180; i++) {
     car.stepFor(0, 1 / 60, PHYSICS.maxStepSeconds);
     maxImpact = Math.max(maxImpact, collideWithWorld(car, emptyWorld, hit));
   }
-  check('head-on wall: crash-strength impact, car stays inside', maxImpact > CRASH.playerImpact && car.y > 0 && car.y < ARENA.height, `impact ${fmt(maxImpact)}, y ${fmt(car.y)}`);
+  check(`no wall: driving ${name} past the old map edge meets nothing`, maxImpact === 0 && car.speed > 295 && Math.hypot(car.x - x, car.y - y) > 800);
 }
 
-// Wall: long random drive never escapes the arena.
+// A long random drive stays sane.
 {
   const car = new Car(HANDLING_PRESETS.drifty);
   car.reset(2000, 2000, 0.3);
@@ -175,9 +175,9 @@ check('police have no slide extras', POLICE_HANDLING.slideGripLoss === 0 && POLI
     if (i % 20 === 0) steer = Math.floor(rnd() * 3) - 1;
     car.stepFor(steer, 1 / 60, PHYSICS.maxStepSeconds);
     collideWithWorld(car, emptyWorld, hit);
-    if (car.x < 0 || car.x > ARENA.width || car.y < 0 || car.y > ARENA.height || !Number.isFinite(car.x)) escaped = true;
+    if (!Number.isFinite(car.x) || !Number.isFinite(car.y)) escaped = true;
   }
-  check('2-minute random drive stays inside the arena', !escaped);
+  check('2-minute random drive keeps valid numbers', !escaped);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

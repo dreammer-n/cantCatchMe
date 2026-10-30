@@ -85,7 +85,7 @@ const CAUSES = {
   pinned: ['BUSTED!', 'Boxed in by the police'],
   wreck: ['WRECKED!', 'You hit a burning wreck'],
   obstacle: ['WRECKED!', 'You crashed into the scenery'],
-  wall: ['WRECKED!', 'You hit the city wall'],
+  void: ['BUSTED!', 'Fell into the void'],
 };
 
 export class GameOverScreen extends Screen {

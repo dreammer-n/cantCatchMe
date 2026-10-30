@@ -18,6 +18,7 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 9. **2.5D presentation (Milestone 1.5, approved 2026-10-28):** stylized 2.5D comic-book look, high-angle oblique camera (north-up, fixed, 55° default under test). Physics stays flat and never reads visual settings. All drawing goes through `src/render/projection.js`. Rules in `RENDERING.md`. No shaders.
 10. **Low-poly 2.5D look (Milestone 1.6, approved with M1.7 on 2026-10-29):** game name "Can't Catch Me!". Minimalist low-poly, flat-shaded, matching the camera/geometry/lighting approach of the owner's PAKO Forever reference frames (not their assets). Fixed orthographic camera with the map turned (40°) and tilted (48°); cars and props built from 3D solids and drawn once at startup (cars in 64 directions). Replaces the north-up camera and comic outlines of decision 9. Draft style rules in `ART_DIRECTION.md`.
 11. **Full game in one pass (2026-10-29):** owner said "proceed with the rest of the milestones and provide the full game" (M2–M5 together, then test). Single Shockwave power-up, no adverts, no analytics.
+12. **Endless world (Step 2, 2026-10-30):** owner asked for an endless chunk-streaming world with sinkholes instead of a fence. Replaces decision 4. Active grid is 3 x 3 chunks; chunks are 2400 units, not the 1200 suggested as an example, because the grid only guarantees one chunk's width ahead and the camera shows about 2030 units on tall phones (`tests/test_world.mjs` checks this). Every chunk keeps the same 600-unit road grid, so roads always line up; holes never touch a chunk's border roads.
 
 ## Platform facts to respect (checked 2026-10-28, re-verify before Milestone 3)
 
@@ -46,15 +47,16 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Shockwave crate power-up | `src/systems/PowerUpSystem.js` |
 | Run stats, saved records, time format | `src/systems/ScoreSystem.js`; settings in `src/systems/Settings.js` |
 | Synthesised sound (Web Audio, no files) | `src/systems/AudioSystem.js` |
-| Generated city layout (data shared by drawing and collisions) | `src/systems/WorldLayout.js` |
+| Chunk layouts (data shared by drawing and collisions, worked out from chunk coordinates) | `src/systems/WorldLayout.js` |
+| Which chunks are loaded around the player | `src/systems/ChunkManager.js` |
 | Car drawing (reads physics, never writes it), skid/tyre helpers | `src/entities/CarView.js` |
 | Camera (world → screen), visible-ground helper | `src/render/projection.js` |
 | Camera behaviour: look-ahead, speed zoom, trauma shake (pure maths) | `src/render/CameraRig.js` |
 | Ground/shadow layers, depth sorting | `src/render/layers.js` |
 | Low-poly renderer (solids, flat shading, shadows, baking) | `src/render/lowpoly.js` |
 | Car models (player, police, wreck) / car drawing sheets | `src/render/carModels.js`, `src/render/carAtlas.js` |
-| Prop models (blocks, barriers, trees, lamps, cones, islands, crate) | `src/render/propModels.js` |
-| Floor and props drawing, culling, knocked cones | `src/render/Scenery.js` |
+| Prop models (blocks, barriers, trees, lamps, cones, islands, crates, containers, monument, roundabout) | `src/render/propModels.js` |
+| Drawing the loaded chunks (floor, holes, pooled props), culling, knocked props | `src/render/Scenery.js` |
 | Particles, flashes, scorch marks, shockwave ring | `src/render/Effects.js` |
 | Skid marks (capped pool) | `src/systems/SkidMarks.js` |
 | HTML interface: HUD, title / pause / results screens | `src/ui/Hud.js`, `src/ui/Screens.js`, `src/ui/dom.js`, styles in `src/styles/main.css` |

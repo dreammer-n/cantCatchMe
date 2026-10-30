@@ -15,6 +15,7 @@ import {
   RENDER,
   TRAUMA,
   VIEW,
+  VOID,
   WRECK,
 } from '../config/tuning.js';
 import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
@@ -50,7 +51,7 @@ export class GameScene extends Phaser.Scene {
     this.audio = this.registry.get('audio');
     this.layout = this.registry.get('layout');
     this.layers = createLayers(this);
-    this.scenery = new Scenery(this, this.layers, this.layout);
+    this.scenery = new Scenery(this, this.layers);
     this.sim = new ChaseSimulation({ layout: this.layout, handling: this.currentHandling() });
 
     // One shared drawing for every car's ground shadow (cleared each frame).
@@ -156,6 +157,7 @@ export class GameScene extends Phaser.Scene {
     this.effects.clear();
     this.smokeClock.clear();
     this.hideCrate();
+    this.scenery.sync(this.sim.chunks, Infinity);
     this.cameras.main.resetFX();
   }
 
@@ -183,6 +185,7 @@ export class GameScene extends Phaser.Scene {
       this.handleEvents(events);
     }
 
+    this.scenery.sync(this.sim.chunks);
     this.followCar(dt);
     this.carShadows.clear();
     this.syncCars(time);
@@ -202,7 +205,11 @@ export class GameScene extends Phaser.Scene {
           this.acquireView(e.police, this.looks.police);
           break;
         case 'wreck':
-          if (e.police.view) e.police.view.setLook(this.looks.wreck);
+          if (e.police.view && e.cause !== 'void') e.police.view.setLook(this.looks.wreck);
+          break;
+        case 'fall':
+          this.audio.play('bump', 0.6);
+          this.rig.addTrauma(TRAUMA.fall);
           break;
         case 'explosion': {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
@@ -213,9 +220,14 @@ export class GameScene extends Phaser.Scene {
         }
         case 'crash':
           this.mode = 'crashed';
-          this.playerView.setLook(this.looks.wreck);
-          this.audio.play('crash');
-          this.rig.addTrauma(TRAUMA.crash);
+          if (e.cause === 'void') {
+            // Already out of sight: no wreck, no bang, and a shorter wait for the results.
+            this.crashClock = CRASH.gameOverDelay - VOID.resultsDelay;
+          } else {
+            this.playerView.setLook(this.looks.wreck);
+            this.audio.play('crash');
+            this.rig.addTrauma(TRAUMA.crash);
+          }
           this.controls.releaseHeld();
           PlatformManager.runFailed();
           this.game.events.emit('run-crashed', e.cause);
@@ -305,9 +317,9 @@ export class GameScene extends Phaser.Scene {
       if (!police.view) continue;
       const onScreen = police.view.sprite.visible;
       if (police.alive && onScreen) this.tyres((police.id + 1) * 2, police.model, ms);
-      else if (police.state === 'wreck' && onScreen) this.burn(police.id, police.model, police.wreckTime, ms);
+      else if (police.state === 'wreck' && onScreen && !police.model.isFalling) this.burn(police.id, police.model, police.wreckTime, ms);
     }
-    if (this.sim.state === 'crashed') this.burn(-1, this.sim.player, this.crashClock * 2, ms);
+    if (this.sim.state === 'crashed' && !this.sim.player.isFalling) this.burn(-1, this.sim.player, this.crashClock * 2, ms);
     this.skids.update(ms);
   }
 
@@ -503,6 +515,13 @@ export class GameScene extends Phaser.Scene {
       slipAngle: car.slipAngle,
       chassisRoll: car.chassisRoll,
       trauma: this.rig.trauma,
+      isFalling: car.isFalling,
+      chunkX: this.sim.chunks.cx,
+      chunkY: this.sim.chunks.cy,
+      chunksLoaded: this.sim.chunks.active.size,
+      shapes: this.sim.world.shapes.length,
+      propsInUse: this.scenery.items.length,
+      propsFree: this.scenery.freeProps.length,
       mode: this.mode,
       runState: this.sim.state,
       runTime: this.sim.time,
@@ -549,6 +568,7 @@ export class GameScene extends Phaser.Scene {
     const hook = () => this.getDebugState();
     hook.scenery = () => this.scenery.describe();
     hook.sim = () => this.sim;
+    hook.scene = () => this;
     hook.startRun = (seed) => this.startRun(seed);
     hook.spawnPolice = (x, y, heading, options) => {
       const police = this.sim.spawnPolice(x, y, heading, { role: 'chaser', speedFactor: 1.1, turnDeg: 125, aimSide: 0, ...options });
@@ -564,7 +584,7 @@ export class GameScene extends Phaser.Scene {
       if (freeze) this.scene.pause();
     };
     hook.unfreeze = () => this.scene.resume();
-    hook.crash = (cause = 'wall') => {
+    hook.crash = (cause = 'obstacle') => {
       this.sim.crashPlayer(cause);
       this.sim.runExplosions();
       this.handleEvents(this.sim.events.splice(0));

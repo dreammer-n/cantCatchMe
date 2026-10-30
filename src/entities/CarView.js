@@ -1,4 +1,4 @@
-import { CAR_SIZE, EFFECTS, PALETTE, RENDER, SKIDS } from '../config/tuning.js';
+import { CAR_SIZE, EFFECTS, PALETTE, RENDER, SKIDS, VOID } from '../config/tuning.js';
 import { atlasMeta, frameFor } from '../render/carAtlas.js';
 import { LIGHT_BAR } from '../render/carModels.js';
 import { depthAt } from '../render/layers.js';
@@ -23,6 +23,7 @@ export class CarView {
     );
     this.flashOffset = Math.random() * 1000;
     this.alpha = 1;
+    this.wasFalling = false;
     this.setLook(look);
   }
 
@@ -63,9 +64,28 @@ export class CarView {
     frameFor(model.heading, projection, pick, this.directions);
     const depth = depthAt(model.x, model.y);
     this.sprite.setFrame(pick.frame).setRotation(pick.rotation).setPosition(screen.x, screen.y).setDepth(depth);
+    if (model.isFalling) {
+      this.drawFalling(model.fallProgress);
+      return true;
+    }
+    if (this.wasFalling) {
+      this.wasFalling = false;
+      this.sprite.setScale(1 / RENDER.bakeScale).setAlpha(this.alpha);
+    }
     this.drawShadow(model);
     if (this.hasLights) this.updateLights(model, time, depth);
     return true;
+  }
+
+  // Into a hole: it shrinks with distance, sinks faster and faster, and fades into the dark.
+  // No shadow: the ground it would land on is gone.
+  drawFalling(progress) {
+    this.wasFalling = true;
+    this.sprite
+      .setScale((1 - (1 - VOID.fallScale) * progress) / RENDER.bakeScale)
+      .setPosition(this.sprite.x, this.sprite.y + progress * progress * VOID.fallDrop)
+      .setAlpha(this.alpha * (1 - progress * progress));
+    for (const light of this.lights) light.setVisible(false);
   }
 
   // Two glows over the light bar, alternating red / blue.

@@ -1,5 +1,5 @@
 // Unit + scenario tests for the survival loop (pure game logic, no browser).
-import { CS, Car, CameraRig, ChaseSimulation, SCREENS, T, buildLayout, newSim, playRun, projection, isOnScreen, Camera } from './simkit.mjs';
+import { CS, Car, CameraRig, ChaseSimulation, SCREENS, T, buildLayout, fixedMap, newSim, playRun, projection, isOnScreen, Camera } from './simkit.mjs';
 
 let pass = 0;
 let fail = 0;
@@ -10,25 +10,11 @@ function check(name, ok, detail = '') {
 }
 
 // ---- Layout -------------------------------------------------------------------------------
+// (Chunks and their layouts are checked in test_world.mjs.)
 const layout = buildLayout();
-const again = buildLayout();
-const kinds = {};
-for (const item of layout.items) kinds[item.kind] = (kinds[item.kind] || 0) + 1;
-check('layout is the same every time (fixed seed)', JSON.stringify(layout.items.map((i) => [i.kind, Math.round(i.x), Math.round(i.y)])) === JSON.stringify(again.items.map((i) => [i.kind, Math.round(i.x), Math.round(i.y)])));
-check('layout has every kind of prop', ['island', 'tree', 'lamp', 'block', 'barrier', 'cone', 'wall'].every((k) => kinds[k] > 0), JSON.stringify(kinds));
-const nearStart = layout.items.filter((i) => i.kind !== 'wall' && Math.hypot(i.x - T.START.x, i.y - T.START.y) < T.START.clearRadius);
+const startChunk = layout.chunkAt(Math.floor(T.START.x / T.CHUNKS.size), Math.floor(T.START.y / T.CHUNKS.size));
+const nearStart = [...startChunk.items, ...startChunk.voids].filter((i) => Math.hypot(i.x - T.START.x, i.y - T.START.y) < T.START.clearRadius);
 check('start area is clear', nearStart.length === 0, `${nearStart.length} items inside`);
-const onRoads = layout.items.filter((i) => {
-  if (i.kind === 'wall') return false;
-  const fx = (i.x % T.WORLD.cell) / T.WORLD.cell;
-  const fy = (i.y % T.WORLD.cell) / T.WORLD.cell;
-  const m = (T.WORLD.margin - 25) / T.WORLD.cell;
-  return fx < m || fx > 1 - m || fy < m || fy > 1 - m;
-});
-check('roads between blocks stay open', onRoads.length === 0, `${onRoads.length} props on roads`);
-const models = new Set(layout.items.map((i) => `${i.model}:${Math.round((i.heading * 180) / Math.PI)}`));
-check('few distinct prop drawings needed', models.size < 80, `${models.size} drawings`);
-check('prop count is reasonable for phones', layout.items.length < 700, `${layout.items.length} props, ${layout.paint.length} floor marks`);
 
 // ---- Collision geometry ---------------------------------------------------------------------
 const world = new CS.StaticWorld([
@@ -67,14 +53,15 @@ function impactInto(world, car, seconds = 0.6) {
   }
   return maxImpact;
 }
-const wallWorld = new CS.StaticWorld([]);
+// A long block whose east face runs along x = 0: an obstacle too big to miss.
+const wallWorld = new CS.StaticWorld([{ kind: 'block', x: -300, y: 3000, heading: 0, collider: { type: 'box', hw: 300, hl: 2000 }, breakable: false }]);
 const headOn = impactInto(wallWorld, carAt(200, 3000, 270, 300));
-check('head-on into the arena wall at full speed is a crash', headOn > T.CRASH.playerImpact, `impact ${headOn.toFixed(0)}`);
+check('head-on into a big solid obstacle at full speed is a crash', headOn > T.CRASH.playerImpact, `impact ${headOn.toFixed(0)}`);
 const glance = impactInto(wallWorld, carAt(60, 3000, 345, 300), 1.2);
-check('a 15 degree glance off the wall is survivable', glance > 0 && glance < T.CRASH.playerImpact, `impact ${glance.toFixed(0)}`);
+check('a 15 degree glance off it is survivable', glance > 0 && glance < T.CRASH.playerImpact, `impact ${glance.toFixed(0)}`);
 const glancer = carAt(60, 3000, 345, 300);
 impactInto(wallWorld, glancer, 1.2);
-check('after glancing off, the car keeps driving along the wall', glancer.speed > 220 && glancer.x > 20, `speed ${glancer.speed.toFixed(0)}`);
+check('after glancing off, the car keeps driving along it', glancer.speed > 220 && glancer.x > 20, `speed ${glancer.speed.toFixed(0)}`);
 
 const a = carAt(0, 0, 90, 300);
 const b = carAt(80, 0, 270, 300);
@@ -218,7 +205,7 @@ stepSim(0.6);
 check('driving into a cone knocks it flying, no crash', cone.state !== 'standing' && sim.state === 'running', cone.state);
 
 // Collision tiers, each on a small map with just the one prop.
-const tierSim = (items) => new ChaseSimulation({ layout: { items, paint: [], cones: items.filter((i) => i.breakable) }, handling });
+const tierSim = (items) => new ChaseSimulation({ layout: fixedMap(items), handling });
 const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
 function stepTier(s, seconds) {
   const all = [];

@@ -47,7 +47,7 @@ export class PowerUps {
       const distance = lerp(POWERUP.minDistance, POWERUP.maxDistance, sim.rng());
       const x = player.x + Math.sin(heading) * distance;
       const y = player.y - Math.cos(heading) * distance;
-      if (sim.world.isClear(x, y, POWERUP.clearance, 120)) {
+      if (sim.world.isClear(x, y, POWERUP.clearance)) {
         Object.assign(this.crate, { active: true, x, y, age: 0 });
         return true;
       }

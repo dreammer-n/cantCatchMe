@@ -1,6 +1,7 @@
 import { POLICE, SPAWN } from '../config/tuning.js';
 import { projection } from '../render/projection.js';
 import { clamp, headingOf, lerp, tableLookup } from '../utils/math.js';
+import { nearestRoadPoint } from './WorldLayout.js';
 
 const screen = { x: 0, y: 0 };
 const ground = { x: 0, y: 0 };
@@ -61,15 +62,18 @@ export class SpawnDirector {
       const hh = view.halfH + SPAWN.screenMargin;
       const t = Math.min(hw / Math.max(1e-6, Math.abs(ex)), hh / Math.max(1e-6, Math.abs(ey)));
       projection.groundFromScreen(view.cx + ex * t, view.cy + ey * t, ground);
+      // Onto the nearest road, which must still be out of sight and on a loaded chunk.
+      nearestRoadPoint(ground.x, ground.y, ground);
       const x = ground.x;
       const y = ground.y;
+      if (isOnScreen(x, y, view, SPAWN.screenMargin / 2) || !sim.chunks.contains(x, y)) continue;
 
       const dx = x - player.x;
       const dy = y - player.y;
       const distance = Math.hypot(dx, dy);
       const towardUs = (dx * dirX + dy * dirY) / Math.max(1, distance) > 0.35;
       if (distance < (towardUs ? SPAWN.minAheadDistance : SPAWN.minDistance)) continue;
-      if (!sim.world.isClear(x, y, SPAWN.clearance, 40)) continue;
+      if (!sim.world.isClear(x, y, SPAWN.clearance)) continue;
       if (sim.isNearCar(x, y, 110)) continue;
 
       const role = rng() < level.interceptorShare ? 'interceptor' : 'chaser';

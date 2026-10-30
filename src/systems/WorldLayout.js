@@ -1,55 +1,116 @@
-import { ARENA, COLLISION, SCENERY, START, WORLD } from '../config/tuning.js';
-import { createRng } from '../utils/math.js';
+import { CHUNKS, COLLISION, SCENERY, START, VOID, WORLD } from '../config/tuning.js';
+import { createRng, lerp } from '../utils/math.js';
 
-// The arena's contents as plain data, shared by the drawing (render/Scenery.js) and the
+// The world's contents as plain data, shared by the drawing (render/Scenery.js) and the
 // collisions (systems/CollisionSystem.js). No Phaser here, so it can be tested on its own.
 //
-// The arena is a grid of city blocks ("cells") with open roads between them. Each block gets
-// one arrangement (parking row, concrete blocks, trees ...), picked with a fixed seed, so the
-// map is identical on every run and on every device.
+// The world is endless and made of square chunks, each a block of city "cells" with open roads
+// between them. Roads run along every cell edge in every chunk, so they always line up at chunk
+// borders whichever layouts meet there. A chunk is worked out from its coordinates and a fixed
+// seed: the same chunk always comes back the same, so nothing has to be stored.
 //
+// Chunk: { cx, cy, x0, y0, seed, preset, items, paint, voids }
 // Item: { kind, name, x, y, heading (radians, 0 = north), model (drawing cache key), params,
-//         band: 'objects' | 'raised' | 'wall', collider: null | {type:'circle', r} | {type:'box', hw, hl},
+//         band: 'objects' | 'raised', collider: null | {type:'circle', r} | {type:'box', hw, hl},
 //         breakable, curb }
-// layout.cones lists every breakable item (cones and lamp posts): they all get knocked away the same way.
 // A box collider's hw runs along the item's local x (right), hl along its local y (forward).
-// Paint: axis-aligned rectangles on the floor { x, y, w, h, alpha, color? } (x, y = top-left
-// corner; color 'lot' = the lighter surface of a city block, otherwise white paint).
+// Breakable items (cones, lamp posts, wooden crates) all get knocked away the same way.
+// Void: { kind: 'void', isVoid: true, x, y, heading, collider, outline: [{x, y}] }: a hole in the
+// ground; the outline is what gets drawn.
+// Paint: rectangles on the floor { x, y, w, h, alpha, color? } (x, y = top-left corner; color 'lot' =
+// the lighter surface of a city block, 'plaza' = a paved square, otherwise white paint), or
+// rings { ring: true, x, y, r, width, alpha } (white, drawn with the floor square holding the centre).
 
 const DEG = Math.PI / 180;
 const ISLAND_WIDTH = 70; // matches propModels.js
+const CELLS_PER_CHUNK = Math.round(CHUNKS.size / WORLD.cell);
+const LAMP_FACINGS_DEG = [0, 90, 180, 270];
+const TREE_KINDS = ['pine', 'leafy'];
 
 export function buildLayout(seed = WORLD.seed) {
-  const rng = createRng(seed);
-  counter = 0;
-  const items = [];
-  const paint = [];
-  const cones = [];
-  addWalls(items);
-
-  const cols = Math.round(ARENA.width / WORLD.cell);
-  const rows = Math.round(ARENA.height / WORLD.cell);
-  for (let cy = 0; cy < rows; cy += 1) {
-    for (let cx = 0; cx < cols; cx += 1) {
-      const cell = makeCell(cx, cy, rng, items);
-      paint.push({ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' });
-      const kind = pickWeighted(rng, WORLD.mix);
-      BUILDERS[kind](cell, items, paint, rng);
-      if (rng() < WORLD.crosswalkChance) addCrosswalk(cell, paint, rng);
-    }
-  }
-  addLaneLines(paint, cols, rows);
-  for (const item of items) if (item.breakable) cones.push(item);
-  return { items, paint, cones };
+  return { chunkAt: (cx, cy) => buildChunk(cx, cy, seed) };
 }
 
-function makeCell(cx, cy, rng, items) {
-  const x0 = cx * WORLD.cell + WORLD.margin;
-  const y0 = cy * WORLD.cell + WORLD.margin;
+export function chunkCoord(v) {
+  return Math.floor(v / CHUNKS.size);
+}
+
+// The nearest point on a road's centre line to (x, y), written into out.
+export function nearestRoadPoint(x, y, out) {
+  const rx = Math.round(x / WORLD.cell) * WORLD.cell;
+  const ry = Math.round(y / WORLD.cell) * WORLD.cell;
+  if (Math.abs(x - rx) < Math.abs(y - ry)) {
+    out.x = rx;
+    out.y = y;
+  } else {
+    out.x = x;
+    out.y = ry;
+  }
+  return out;
+}
+
+function chunkSeed(cx, cy, seed) {
+  return (Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663) ^ Math.imul(seed, 83492791)) >>> 0;
+}
+
+export function buildChunk(cx, cy, seed = WORLD.seed) {
+  const hash = chunkSeed(cx, cy, seed);
+  const rng = createRng(hash);
+  counter = 0;
+  const hasStart = chunkCoord(START.x) === cx && chunkCoord(START.y) === cy;
+  const presets = Object.entries(CHUNKS.presets);
+  const preset = hasStart ? 'city' : pickWeighted(rng, presets.map(([name, def]) => [name, def.weight]));
+  const def = CHUNKS.presets[preset];
+  const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [] };
+
+  for (let j = 0; j < CELLS_PER_CHUNK; j += 1) {
+    for (let i = 0; i < CELLS_PER_CHUNK; i += 1) {
+      const cell = makeCell(chunk, i, j);
+      chunk.paint.push({ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' });
+      if (preset === 'plaza' && isPlazaCell(i, j)) continue;
+      BUILDERS[pickWeighted(rng, def.cells)](cell, chunk.items, chunk.paint, rng);
+      if (rng() < WORLD.crosswalkChance) addCrosswalk(cell, chunk.paint, rng, i, j);
+    }
+  }
+  if (preset === 'plaza') addPlaza(chunk);
+  addLaneLines(chunk);
+  addRoadHoles(chunk, def.roadHoles, rng);
+  if (hasStart) chunk.paint.push({ ring: true, x: START.x, y: START.y, r: SCENERY.startMarkRadius, width: 4, alpha: 0.35 });
+  return chunk;
+}
+
+// Every prop drawing the world can ask for, so all of them can be drawn at startup and none has to
+// be drawn during play. tests/test_world.mjs checks that chunks use nothing outside this list.
+export function propCatalogue() {
+  const list = [];
+  const push = (kind, model, headingDeg, params = {}) => list.push({ kind, model, heading: headingDeg * DEG, params });
+  for (const length of WORLD.islandLengths) for (const deg of [0, 90]) push('island', `island${length}`, deg, { length });
+  for (const treeKind of TREE_KINDS) for (const size of WORLD.treeSizes) push('tree', `${treeKind}${size}`, 0, { treeKind, size });
+  for (const deg of LAMP_FACINGS_DEG) push('lamp', 'lamp', deg);
+  for (const type of WORLD.blockTypes) for (const deg of WORLD.blockTurnsDeg) push('block', blockModel(type), deg, type);
+  for (const length of WORLD.barrierLengths) for (const deg of WORLD.barrierTurnsDeg) push('barrier', `barrier${length}`, deg, { length });
+  for (const type of WORLD.containerTypes) for (const deg of WORLD.containerTurnsDeg) push('container', containerModel(type), deg, type);
+  push('cone', 'cone', 0);
+  push('woodcrate', 'woodcrate', 0);
+  push('monument', 'monument', 0);
+  push('roundabout', 'roundabout', 0);
+  return list;
+}
+
+function blockModel(type) {
+  return `block${type.width}x${type.length}x${type.height}`;
+}
+
+function containerModel(type) {
+  return `container-${type.color}`;
+}
+
+function makeCell(chunk, i, j) {
+  const x0 = chunk.x0 + i * WORLD.cell + WORLD.margin;
+  const y0 = chunk.y0 + j * WORLD.cell + WORLD.margin;
   const size = WORLD.cell - WORLD.margin * 2;
   return {
-    cx,
-    cy,
+    chunk,
     x0,
     y0,
     x1: x0 + size,
@@ -58,8 +119,13 @@ function makeCell(cx, cy, rng, items) {
     midY: y0 + size / 2,
     size,
     placed: [], // { x, y, r } of things already in this cell
-    items,
+    items: chunk.items,
   };
+}
+
+// The middle blocks of a plaza chunk are paved over.
+function isPlazaCell(i, j) {
+  return i >= 1 && i <= 2 && j >= 1 && j <= 2;
 }
 
 // Is a circle of radius r at (x, y) free: inside the block, away from the start, not on top of
@@ -106,7 +172,7 @@ function named(kind) {
 }
 
 function tree(x, y, rng) {
-  const treeKind = rng() < 0.55 ? 'pine' : 'leafy';
+  const treeKind = rng() < 0.55 ? TREE_KINDS[0] : TREE_KINDS[1];
   const size = pick(rng, WORLD.treeSizes);
   return {
     kind: 'tree',
@@ -150,6 +216,65 @@ function cone(x, y) {
     collider: { type: 'circle', r: COLLISION.coneRadius },
     breakable: true,
   };
+}
+
+function woodCrate(x, y) {
+  return {
+    kind: 'woodcrate',
+    name: named('woodcrate'),
+    x,
+    y,
+    heading: 0,
+    model: 'woodcrate',
+    params: {},
+    band: 'objects',
+    collider: { type: 'circle', r: COLLISION.woodCrateRadius },
+    breakable: true,
+  };
+}
+
+function barrier(x, y, length, turnDeg) {
+  // A barrier mesh lies along local x; heading turns it.
+  return {
+    kind: 'barrier',
+    name: named('barrier'),
+    x,
+    y,
+    heading: turnDeg * DEG,
+    model: `barrier${length}`,
+    params: { length },
+    band: 'objects',
+    collider: { type: 'box', hw: length / 2, hl: 13 },
+    breakable: false,
+  };
+}
+
+// A round hole. The drawn edge wanders a little, always outside the part that swallows cars.
+function roundVoid(x, y, r, rng) {
+  const outline = [];
+  const sides = 13;
+  for (let i = 0; i < sides; i += 1) {
+    const angle = (i / sides) * Math.PI * 2;
+    const reach = r + VOID.outlineGrow * lerp(0.4, 1.5, rng());
+    outline.push({ x: x + Math.cos(angle) * reach, y: y + Math.sin(angle) * reach });
+  }
+  return { kind: 'void', isVoid: true, name: named('void'), x, y, heading: 0, collider: { type: 'circle', r }, breakable: false, outline };
+}
+
+// A missing section of road: a box across the road with a broken edge. Runs along local y.
+function gapVoid(x, y, hw, hl, headingDeg, rng) {
+  const heading = headingDeg * DEG;
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const local = [];
+  const steps = 4;
+  const jag = () => VOID.outlineGrow * lerp(0.2, 1.5, rng());
+  for (let i = 0; i < steps; i += 1) local.push([lerp(-hw, hw, i / steps), -hl - jag()]);
+  for (let i = 0; i < steps; i += 1) local.push([hw, lerp(-hl, hl, i / steps)]);
+  for (let i = 0; i < steps; i += 1) local.push([lerp(hw, -hw, i / steps), hl + jag()]);
+  for (let i = 0; i < steps; i += 1) local.push([-hw, lerp(hl, -hl, i / steps)]);
+  const outline = local.map(([lx, ly]) => ({ x: x + lx * cos + ly * sin, y: y + lx * sin - ly * cos }));
+  return { kind: 'void', isVoid: true, name: named('void'), x, y, heading, collider: { type: 'box', hw, hl }, breakable: false, outline };
 }
 
 const BUILDERS = {
@@ -223,7 +348,7 @@ const BUILDERS = {
           x: spot.x,
           y: spot.y,
           heading: turn * DEG,
-          model: `block${type.width}x${type.length}x${type.height}`,
+          model: blockModel(type),
           params: type,
           band: 'objects',
           collider: { type: 'box', hw: type.width / 2, hl: type.length / 2 },
@@ -251,24 +376,7 @@ const BUILDERS = {
       const r = length / 2 + 25;
       const spot = randomSpot(cell, r, rng);
       if (!spot) continue;
-      const turn = pick(rng, WORLD.barrierTurnsDeg);
-      // A barrier mesh lies along local x; heading turns it.
-      add(
-        cell,
-        {
-          kind: 'barrier',
-          name: named('barrier'),
-          x: spot.x,
-          y: spot.y,
-          heading: turn * DEG,
-          model: `barrier${length}`,
-          params: { length },
-          band: 'objects',
-          collider: { type: 'box', hw: length / 2, hl: 13 },
-          breakable: false,
-        },
-        r,
-      );
+      add(cell, barrier(spot.x, spot.y, length, pick(rng, WORLD.barrierTurnsDeg)), r);
     }
   },
 
@@ -287,80 +395,171 @@ const BUILDERS = {
     cell.placed.push({ x: spot.x, y: spot.y, r: 110 });
   },
 
+  // A works yard: shipping containers, a line of barriers and a stack of breakable crates.
+  yard(cell, items, paint, rng) {
+    const containers = 1 + Math.floor(rng() * 2);
+    for (let i = 0; i < containers; i += 1) {
+      const type = pick(rng, WORLD.containerTypes);
+      const r = Math.hypot(type.width, type.length) / 2 + 25;
+      const spot = randomSpot(cell, r, rng);
+      if (!spot) continue;
+      add(
+        cell,
+        {
+          kind: 'container',
+          name: named('container'),
+          x: spot.x,
+          y: spot.y,
+          heading: pick(rng, WORLD.containerTurnsDeg) * DEG,
+          model: containerModel(type),
+          params: type,
+          band: 'objects',
+          collider: { type: 'box', hw: type.width / 2, hl: type.length / 2 },
+          breakable: false,
+        },
+        r,
+      );
+    }
+    const line = randomSpot(cell, 105, rng);
+    if (line) {
+      const turn = rng() < 0.5 ? 0 : 90;
+      const length = WORLD.barrierLengths[0];
+      for (const side of [-1, 1]) {
+        const shift = side * (length / 2 + 6);
+        items.push(barrier(line.x + (turn === 0 ? shift : 0), line.y + (turn === 0 ? 0 : shift), length, turn));
+      }
+      cell.placed.push({ x: line.x, y: line.y, r: 105 });
+    }
+    const stack = randomSpot(cell, 60, rng);
+    if (stack) {
+      const count = 3 + Math.floor(rng() * 3);
+      for (let i = 0; i < count; i += 1) {
+        items.push(woodCrate(stack.x + ((i % 3) - 1) * 36, stack.y + (Math.floor(i / 3) - 0.5) * 36));
+      }
+      cell.placed.push({ x: stack.x, y: stack.y, r: 60 });
+    }
+  },
+
+  // The block has collapsed: a big hole in the middle.
+  sinkhole(cell, items, paint, rng) {
+    const r = lerp(VOID.sinkholeRadius[0], VOID.sinkholeRadius[1], rng());
+    const spot = randomSpot(cell, r + VOID.outlineGrow * 1.5, rng);
+    if (!spot) return;
+    cell.chunk.voids.push(roundVoid(spot.x, spot.y, r, rng));
+    cell.placed.push({ x: spot.x, y: spot.y, r: r + VOID.outlineGrow * 1.5 });
+  },
+
   open() {},
 };
 
-// Zebra crossing on the road along one edge of the block.
-function addCrosswalk(cell, paint, rng) {
+// The paved square in the middle of a plaza chunk: a roundabout with a monument and trees, on the
+// crossing of the chunk's two middle roads. Traffic can still ride over the roundabout's curb.
+function addPlaza(chunk) {
+  const x = chunk.x0 + CHUNKS.size / 2;
+  const y = chunk.y0 + CHUNKS.size / 2;
+  const half = WORLD.plazaHalfSize;
+  chunk.paint.push({ x: x - half, y: y - half, w: half * 2, h: half * 2, alpha: 1, color: 'plaza' });
+  chunk.paint.push({ ring: true, x, y, r: COLLISION.roundaboutRadius + 150, width: 6, alpha: 0.5 });
+  chunk.items.push({
+    kind: 'roundabout',
+    name: named('roundabout'),
+    x,
+    y,
+    heading: 0,
+    model: 'roundabout',
+    params: {},
+    band: 'raised',
+    collider: { type: 'circle', r: COLLISION.roundaboutRadius },
+    breakable: false,
+    curb: true,
+  });
+  chunk.items.push({
+    kind: 'monument',
+    name: named('monument'),
+    x,
+    y,
+    heading: 0,
+    model: 'monument',
+    params: {},
+    band: 'objects',
+    collider: { type: 'circle', r: COLLISION.monumentRadius },
+    breakable: false,
+  });
+  const rng = createRng(chunk.seed + 1);
+  for (let i = 0; i < 4; i += 1) {
+    const angle = Math.PI / 4 + (i * Math.PI) / 2;
+    chunk.items.push(tree(x + Math.cos(angle) * 96, y + Math.sin(angle) * 96, rng));
+    chunk.items.push(lamp(x + Math.cos(angle) * 560, y + Math.sin(angle) * 560, LAMP_FACINGS_DEG[i]));
+  }
+}
+
+// Holes in the roads inside the chunk, midway between crossings. The chunk's border roads stay
+// whole, so there is always a way around every chunk and the road network never breaks.
+function addRoadHoles(chunk, [fewest, most], rng) {
+  const count = fewest + Math.floor(rng() * (most - fewest + 1));
+  const used = new Set();
+  for (let n = 0; n < count; n += 1) {
+    const northSouth = rng() < 0.5;
+    const line = 1 + Math.floor(rng() * (CELLS_PER_CHUNK - 1));
+    const segment = Math.floor(rng() * CELLS_PER_CHUNK);
+    const key = `${northSouth}:${line}:${segment}`;
+    if (used.has(key)) continue;
+    used.add(key);
+    const across = line * WORLD.cell;
+    const along = (segment + 0.5) * WORLD.cell;
+    const x = chunk.x0 + (northSouth ? across : along);
+    const y = chunk.y0 + (northSouth ? along : across);
+    if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + 150) continue;
+    if (rng() < VOID.gapChance) {
+      const hl = lerp(VOID.gapHalfLength[0], VOID.gapHalfLength[1], rng());
+      chunk.voids.push(gapVoid(x, y, VOID.gapHalfWidth, hl, northSouth ? 0 : 90, rng));
+    } else {
+      const r = lerp(VOID.holeRadius[0], VOID.holeRadius[1], rng());
+      const shift = (rng() < 0.5 ? -1 : 1) * VOID.holeSideShift;
+      chunk.voids.push(roundVoid(x + (northSouth ? shift : 0), y + (northSouth ? 0 : shift), r, rng));
+    }
+  }
+}
+
+// Zebra crossing on the road along one edge of the block. Not on the chunk's own border roads:
+// half of it would belong to the neighbouring chunk.
+function addCrosswalk(cell, paint, rng, i, j) {
   const horizontal = rng() < 0.5;
   const width = 150;
   const stripe = 18;
   if (horizontal) {
     // Across the road above the block: stripes run north-south.
+    if (j === 0) return;
     const y = cell.y0 - WORLD.margin - 35;
-    if (y < 60) return;
     for (let s = -width / 2; s < width / 2; s += stripe * 2) paint.push({ x: cell.midX + s, y, w: stripe, h: 70, alpha: 0.8 });
   } else {
+    if (i === 0) return;
     const x = cell.x0 - WORLD.margin - 35;
-    if (x < 60) return;
     for (let s = -width / 2; s < width / 2; s += stripe * 2) paint.push({ x, y: cell.midY + s, w: 70, h: stripe, alpha: 0.8 });
   }
 }
 
-// Dashed centre lines along every road (cell borders), broken at the crossings.
-function addLaneLines(paint, cols, rows) {
+// Dashed centre lines along every road, broken at the crossings. Lines on the chunk's border stick
+// out by half their width: the floor drawing cuts each chunk to its own square, and the
+// neighbouring chunk draws the same dash from its side, so the two halves always meet.
+function addLaneLines(chunk) {
   const { cell, margin } = WORLD;
   const { laneDash, laneGap, laneWidth } = SCENERY;
   const step = laneDash + laneGap;
-  for (let k = 1; k < cols; k += 1) {
-    const x = k * cell;
-    for (let j = 0; j < rows; j += 1) {
-      for (let y = j * cell + margin; y + laneDash <= (j + 1) * cell - margin; y += step) {
-        paint.push({ x: x - laneWidth / 2, y, w: laneWidth, h: laneDash, alpha: 0.32 });
+  const middleX = chunk.x0 + CHUNKS.size / 2;
+  const middleY = chunk.y0 + CHUNKS.size / 2;
+  const onPlaza = (x, y) => chunk.preset === 'plaza' && Math.abs(x - middleX) < WORLD.plazaHalfSize && Math.abs(y - middleY) < WORLD.plazaHalfSize;
+  for (let k = 0; k <= CELLS_PER_CHUNK; k += 1) {
+    const line = k * cell;
+    for (let j = 0; j < CELLS_PER_CHUNK; j += 1) {
+      for (let along = j * cell + margin; along + laneDash <= (j + 1) * cell - margin; along += step) {
+        const vx = chunk.x0 + line;
+        const vy = chunk.y0 + along;
+        if (!onPlaza(vx, vy + laneDash / 2)) chunk.paint.push({ x: vx - laneWidth / 2, y: vy, w: laneWidth, h: laneDash, alpha: 0.32 });
+        const hx = chunk.x0 + along;
+        const hy = chunk.y0 + line;
+        if (!onPlaza(hx + laneDash / 2, hy)) chunk.paint.push({ x: hx, y: hy - laneWidth / 2, w: laneDash, h: laneWidth, alpha: 0.32 });
       }
-    }
-  }
-  for (let k = 1; k < rows; k += 1) {
-    const y = k * cell;
-    for (let j = 0; j < cols; j += 1) {
-      for (let x = j * cell + margin; x + laneDash <= (j + 1) * cell - margin; x += step) {
-        paint.push({ x, y: y - laneWidth / 2, w: laneDash, h: laneWidth, alpha: 0.32 });
-      }
-    }
-  }
-}
-
-// Arena walls: short barrier pieces along each edge (drawing only; collisions use the edges).
-function addWalls(items) {
-  const t = ARENA.wallThickness;
-  const { width: W, height: H } = ARENA;
-  const sides = [
-    { name: 'north', from: [-t, -t / 2], to: [W + t, -t / 2], normal: { x: 0, y: -1 } },
-    { name: 'south', from: [-t, H + t / 2], to: [W + t, H + t / 2], normal: { x: 0, y: 1 } },
-    { name: 'west', from: [-t / 2, 0], to: [-t / 2, H], normal: { x: -1, y: 0 } },
-    { name: 'east', from: [W + t / 2, 0], to: [W + t / 2, H], normal: { x: 1, y: 0 } },
-  ];
-  for (const side of sides) {
-    const dx = side.to[0] - side.from[0];
-    const dy = side.to[1] - side.from[1];
-    const total = Math.hypot(dx, dy);
-    const count = Math.ceil(total / SCENERY.wallSegment);
-    const length = total / count;
-    for (let i = 0; i < count; i += 1) {
-      const k = (i + 0.5) / count;
-      items.push({
-        kind: 'wall',
-        name: `wall-${side.name}-${i}`,
-        x: side.from[0] + dx * k,
-        y: side.from[1] + dy * k,
-        heading: dx !== 0 ? 0 : 90 * DEG,
-        model: `wall${Math.round(length)}`,
-        params: { length, width: t * 0.75, height: SCENERY.wallHeight },
-        band: 'wall',
-        normal: side.normal,
-        collider: null,
-        breakable: false,
-      });
     }
   }
 }

@@ -3,7 +3,7 @@
 An original HTML5 arcade car-chase survival game. Drive a little red coupe through a low-poly
 city, dodge the police, lure them into crashing into props and each other, and survive as long
 as you can. Built with Phaser 3 and Vite; all art and sound are made in code (no image or audio
-files), so the whole game is well under 1 MB compressed.
+files), so the whole game is well under 1 MB compressed. The city has no edge: it is generated around you as you drive.
 
 ## How to play
 
@@ -12,8 +12,10 @@ files), so the whole game is well under 1 MB compressed.
   about 12 seconds some try to cut you off from the front.
 - A hard hit from a police car, a wreck, a wall or a solid prop wrecks your car. Scrapes and bumps
   from behind are fine. Getting boxed in (held almost still for 1.4 s) also ends the run.
-- Parking islands can be driven over (they slow you a little, and the trees on them are still
-  solid). Cones and lamp posts get knocked away.
+- Parking islands and roundabouts can be driven over (they slow you a little, and the trees on them
+  are still solid). Cones, lamp posts and wooden crates get knocked away.
+- Watch for sinkholes and missing road sections. Drive over one and you fall in: run over. Police
+  fall in too, and each one counts as wrecked.
 - Police are not careful drivers: make them hit trees, blocks, barriers, each other and burning
   wrecks. Several in quick succession is a combo.
 - Passing very close to a police car at speed is a **close call**.

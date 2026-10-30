@@ -1,13 +1,14 @@
-import { ARENA, COLLISION, CURB } from '../config/tuning.js';
+import { COLLISION, CURB } from '../config/tuning.js';
 
 // Collisions for the flat physics world. Pure maths, no Phaser.
 //
 // Shapes: every car is two circles (front and back); props are circles (trees, lamps, cones)
-// or rotated boxes (islands, blocks, barriers); the arena edge is four straight walls.
-// Props come in three kinds:
-//   solid     (trees, blocks, barriers, the arena edge): the car bounces off.
-//   breakable (cones, lamp posts): knocked away, reported through onTouch.
-//   curb      (parking islands): driven over, with a speed penalty and a bump on the way on.
+// or rotated boxes (islands, blocks, barriers).
+// Props come in four kinds:
+//   solid     (trees, blocks, barriers, containers): the car bounces off.
+//   breakable (cones, lamp posts, wooden crates): knocked away, reported through onTouch.
+//   curb      (parking islands, roundabouts): driven over, with a speed penalty and a bump on the way on.
+//   void      (sinkholes): a car whose centre is over one falls in, reported in result.voidShape.
 // Results: "impact" = how fast the car was moving INTO a solid surface (units/s). A glancing scrape
 // gives a small impact, a head-on hit a big one; the crash rules compare it to thresholds.
 
@@ -18,13 +19,14 @@ const OFF = COLLISION.carCircleOffset;
 
 const hit = { nx: 0, ny: 0, depth: 0 };
 
-// Static props in a grid, so each car only looks at the few props near it.
+// Static props in a grid with no edges, so each car only looks at the few props near it. Only
+// squares with something in them exist: chunks add and remove their props as the player moves.
+const ROWS = 2 ** 26; // room for 20 billion world units in each direction
+
 export class StaticWorld {
-  constructor(items) {
+  constructor(items = []) {
     this.cell = COLLISION.gridCell;
-    this.cols = Math.ceil(ARENA.width / this.cell) + 2;
-    this.rows = Math.ceil(ARENA.height / this.cell) + 2;
-    this.grid = Array.from({ length: this.cols * this.rows }, () => []);
+    this.grid = new Map();
     this.shapes = [];
     this.stamp = 0;
     for (const item of items) if (item.collider) this.add(item);
@@ -42,45 +44,62 @@ export class StaticWorld {
       cos: Math.cos(item.heading),
       sin: Math.sin(item.heading),
       bound: c.type === 'circle' ? c.r : Math.hypot(c.hw, c.hl),
-      solid: !item.breakable && !item.curb,
+      solid: !item.breakable && !item.curb && !item.isVoid,
       curb: Boolean(item.curb),
+      isVoid: Boolean(item.isVoid),
+      cone: null, // set by the chunk manager on breakable props
       item,
       seen: 0,
     };
     this.shapes.push(shape);
-    this.forCells(shape.x, shape.y, shape.bound, (list) => list.push(shape));
+    this.forCells(shape, (key) => {
+      const list = this.grid.get(key);
+      if (list) list.push(shape);
+      else this.grid.set(key, [shape]);
+    });
     return shape;
   }
 
-  forCells(x, y, r, visit) {
-    const c0 = this.clampCol(Math.floor((x - r) / this.cell) + 1);
-    const c1 = this.clampCol(Math.floor((x + r) / this.cell) + 1);
-    const r0 = this.clampRow(Math.floor((y - r) / this.cell) + 1);
-    const r1 = this.clampRow(Math.floor((y + r) / this.cell) + 1);
-    for (let row = r0; row <= r1; row += 1) {
-      for (let col = c0; col <= c1; col += 1) visit(this.grid[row * this.cols + col]);
+  // Takes a prop out again. Squares left empty are forgotten, so memory stays flat on endless drives.
+  remove(shape) {
+    this.forCells(shape, (key) => {
+      const list = this.grid.get(key);
+      if (!list) return;
+      const index = list.indexOf(shape);
+      if (index < 0) return;
+      list[index] = list[list.length - 1];
+      list.pop();
+      if (list.length === 0) this.grid.delete(key);
+    });
+    const index = this.shapes.indexOf(shape);
+    if (index >= 0) {
+      this.shapes[index] = this.shapes[this.shapes.length - 1];
+      this.shapes.pop();
     }
   }
 
-  clampCol(c) {
-    return c < 0 ? 0 : c >= this.cols ? this.cols - 1 : c;
-  }
-
-  clampRow(r) {
-    return r < 0 ? 0 : r >= this.rows ? this.rows - 1 : r;
+  forCells(shape, visit) {
+    const c0 = Math.floor((shape.x - shape.bound) / this.cell);
+    const c1 = Math.floor((shape.x + shape.bound) / this.cell);
+    const r0 = Math.floor((shape.y - shape.bound) / this.cell);
+    const r1 = Math.floor((shape.y + shape.bound) / this.cell);
+    for (let row = r0; row <= r1; row += 1) {
+      for (let col = c0; col <= c1; col += 1) visit(col * ROWS + row);
+    }
   }
 
   // Calls visit(shape) once for every shape that may touch the circle (x, y, r).
   forEachNear(x, y, r, visit) {
     this.stamp += 1;
     const stamp = this.stamp;
-    const c0 = this.clampCol(Math.floor((x - r) / this.cell) + 1);
-    const c1 = this.clampCol(Math.floor((x + r) / this.cell) + 1);
-    const r0 = this.clampRow(Math.floor((y - r) / this.cell) + 1);
-    const r1 = this.clampRow(Math.floor((y + r) / this.cell) + 1);
+    const c0 = Math.floor((x - r) / this.cell);
+    const c1 = Math.floor((x + r) / this.cell);
+    const r0 = Math.floor((y - r) / this.cell);
+    const r1 = Math.floor((y + r) / this.cell);
     for (let row = r0; row <= r1; row += 1) {
       for (let col = c0; col <= c1; col += 1) {
-        const list = this.grid[row * this.cols + col];
+        const list = this.grid.get(col * ROWS + row);
+        if (!list) continue;
         for (let i = 0; i < list.length; i += 1) {
           const shape = list[i];
           if (shape.seen === stamp) continue;
@@ -94,12 +113,11 @@ export class StaticWorld {
     }
   }
 
-  // Is the circle free of solid props and inside the arena (with `edge` to spare)?
-  isClear(x, y, r, edge = 0) {
-    if (x < r + edge || y < r + edge || x > ARENA.width - r - edge || y > ARENA.height - r - edge) return false;
+  // Is the circle free of solid props and holes?
+  isClear(x, y, r) {
     let clear = true;
     this.forEachNear(x, y, r, (shape) => {
-      if (clear && shape.solid && circleVsShape(x, y, r, shape, hit)) clear = false;
+      if (clear && (shape.solid || shape.isVoid) && circleVsShape(x, y, r, shape, hit)) clear = false;
     });
     return clear;
   }
@@ -217,24 +235,31 @@ function climbCurb(car, nx, ny) {
   car.vy *= scale;
 }
 
+const CENTRE_POINT = 0.01; // radius used to test only the car's centre against a hole
+
 const circles = [
   { x: 0, y: 0 },
   { x: 0, y: 0 },
 ];
 
-// Car against props and the arena edge. Returns the strongest impact; the prop involved (or
-// 'wall') is written into result.shape, and result.curbHit says the car just climbed onto a curb.
+// Car against props. Returns the strongest impact; the prop involved is written into result.shape.
+// result.curbHit says the car just climbed onto a curb, result.voidShape that it is over a hole.
 // Breakable props are reported through onTouch.
 export function collideWithWorld(car, world, result, onTouch) {
   result.impact = 0;
   result.shape = null;
   result.curbHit = false;
+  result.voidShape = null;
   let onCurb = false;
   for (let i = 0; i < 2; i += 1) {
     carCircles(car, circles);
     const c = circles[i];
     world.forEachNear(c.x, c.y, R, (shape) => {
       if (!circleVsShape(c.x, c.y, R, shape, hit)) return;
+      if (shape.isVoid) {
+        if (circleVsShape(car.x, car.y, CENTRE_POINT, shape, hit)) result.voidShape = shape;
+        return;
+      }
       if (shape.curb) {
         // Only the first touch of a crossing counts, however long the car stays on.
         if (!onCurb && !car.onCurb) {
@@ -255,18 +280,6 @@ export function collideWithWorld(car, world, result, onTouch) {
         result.shape = shape;
       }
     });
-    // Arena edge.
-    carCircles(car, circles);
-    const p = circles[i];
-    let impact = 0;
-    if (p.x < R) impact = Math.max(impact, bounceOffSurface(car, 1, 0, R - p.x));
-    if (p.x > ARENA.width - R) impact = Math.max(impact, bounceOffSurface(car, -1, 0, p.x - (ARENA.width - R)));
-    if (p.y < R) impact = Math.max(impact, bounceOffSurface(car, 0, 1, R - p.y));
-    if (p.y > ARENA.height - R) impact = Math.max(impact, bounceOffSurface(car, 0, -1, p.y - (ARENA.height - R)));
-    if (impact > result.impact) {
-      result.impact = impact;
-      result.shape = 'wall';
-    }
   }
   car.onCurb = onCurb;
   return result.impact;

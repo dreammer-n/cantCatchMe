@@ -1,4 +1,4 @@
-import { PALETTE, SCENERY } from '../config/tuning.js';
+import { COLLISION, PALETTE, SCENERY } from '../config/tuning.js';
 import { box, decal, frustum, glowing, ngon, rect } from './lowpoly.js';
 
 // Low-poly placeholder props, built from a few solids each. Original designs.
@@ -88,6 +88,38 @@ export function crate() {
   decal(lid, 'top', 0.4, 0.6, 0, 1, PALETTE.crateRibbon, true);
   decal(lid, 'top', 0, 1, 0.4, 0.6, PALETTE.crateRibbon, true);
   return [body, lid];
+}
+
+// Wooden crate: breakable, and brown so it can't be mistaken for the teal Shockwave crate.
+export function woodCrate() {
+  const body = box(-14, 14, -14, 14, 0, 26, PALETTE.woodCrate, 0);
+  for (const face of ['front', 'back', 'left', 'right']) decal(body, face, 0.42, 0.58, 0, 1, PALETTE.woodStrap);
+  decal(body, 'top', 0.42, 0.58, 0, 1, PALETTE.woodStrap);
+  return [body];
+}
+
+// Shipping container, with a dark band near one end. Runs along local y.
+export function shippingContainer({ width, length, height, color }) {
+  const body = box(-width / 2, width / 2, -length / 2, length / 2, 0, height, PALETTE[color], 0);
+  for (const face of ['left', 'right']) decal(body, face, 0.82, 0.96, 0, 1, PALETTE.trim);
+  return [body];
+}
+
+// Stepped stone base with a tapered column.
+export function monument() {
+  return [
+    ngon({ sides: 8, r0: 40, r1: 36, z0: 0, z1: 12, color: PALETTE.monument, rotation: 0.39, layer: 0 }),
+    ngon({ sides: 8, r0: 26, r1: 22, z0: 12, z1: 24, color: PALETTE.monument, rotation: 0.39, layer: 1 }),
+    ngon({ sides: 4, r0: 14, r1: 5, z0: 24, z1: 130, color: PALETTE.concrete, rotation: 0.78, layer: 2 }),
+  ];
+}
+
+// Low round planter in the middle of a roundabout: a curb around grass.
+export function roundabout(radius = COLLISION.roundaboutRadius) {
+  return [
+    ngon({ sides: 14, r0: radius, r1: radius - 2, z0: 0, z1: ISLAND_HEIGHT, color: PALETTE.curb, layer: 0 }),
+    ngon({ sides: 14, r0: radius - 8, r1: radius - 8, z0: ISLAND_HEIGHT, z1: ISLAND_HEIGHT + 0.5, color: PALETTE.grass, layer: 1 }),
+  ];
 }
 
 // Raised parking island: low curb around a grass top. Runs along local y.

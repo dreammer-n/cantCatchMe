@@ -29,6 +29,8 @@ export class Car {
     this.slipAngle = 0; // radians, signed: + = moving to the right of where the nose points
     this.chassisRoll = 0; // radians, visual only: nothing in the physics reads it
     this.onCurb = false; // set by the collision system
+    this.isFalling = false; // over a hole: no steering, no engine (see fall)
+    this.fallProgress = 0; // 0 at the edge .. 1 fully fallen
   }
 
   setHandling(handling) {
@@ -115,6 +117,29 @@ export class Car {
     this.lateralSpeed = 0;
     this.slipAngle = 0;
     this.chassisRoll = 0;
+  }
+
+  // The car has gone over a hole: from now on only fall() moves it.
+  startFall() {
+    this.isFalling = true;
+    this.fallProgress = 0;
+    this.forwardSpeed = 0;
+    this.lateralSpeed = 0;
+    this.slipAngle = 0;
+    this.chassisRoll = 0;
+    this.onCurb = false;
+  }
+
+  // No engine, no steering: momentum dies away while it drops. The drop itself is only drawn
+  // (CarView reads fallProgress); on the flat map the car just stays in the hole.
+  fall(dt, seconds, friction) {
+    this.fallProgress = Math.min(1, this.fallProgress + dt / seconds);
+    const keep = Math.exp(-friction * dt);
+    this.vx *= keep;
+    this.vy *= keep;
+    this.heading = wrapAngle(this.heading + this.angularVelocity * dt);
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
   }
 
   // Starts moving at `speed` straight ahead.

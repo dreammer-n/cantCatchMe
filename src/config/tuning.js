@@ -18,13 +18,43 @@ export const VIEW = {
   shortSideWorldUnits: 900,
 };
 
-export const ARENA = {
-  width: 6000,
-  height: 6000,
-  wallThickness: 80,
+// The world has no edge: chunks are generated around the player and recycled behind them.
+export const CHUNKS = {
+  // World units per chunk, a whole number of city cells (WORLD.cell). The active grid only reaches
+  // this far ahead of the player, so it must exceed what the camera can show: about 2030 units on
+  // the tallest phones (checked by tests/test_world.mjs).
+  size: 2400,
+  activeRadius: 1, // chunks kept on each side of the player's: 1 = a 3 x 3 grid
+  propPool: 800, // images prepared at startup (checked against the fullest chunks by the tests)
+  // weight: how often this layout appears. cells: [arrangement, weight] for each city block in it.
+  // roadHoles: [fewest, most] holes in the roads inside the chunk (never on its border roads).
+  presets: {
+    city: { weight: 30, roadHoles: [0, 1], cells: [['blocks', 45], ['grove', 20], ['barriers', 10], ['cones', 10], ['open', 10], ['sinkhole', 5]] },
+    parking: { weight: 25, roadHoles: [0, 0], cells: [['parking', 80], ['grove', 10], ['open', 10]] },
+    plaza: { weight: 12, roadHoles: [0, 0], cells: [['grove', 45], ['open', 35], ['cones', 20]] },
+    industrial: { weight: 20, roadHoles: [0, 1], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
+    ruins: { weight: 13, roadHoles: [2, 4], cells: [['sinkhole', 45], ['open', 25], ['barriers', 15], ['cones', 15]] },
+  },
 };
 
-// Where each run starts (centre of the arena), and the open space kept clear around it.
+// [TUNE] Sinkholes and missing road sections. A car falls when its centre is over the hole, so
+// clipping the edge is safe. The drawn hole is a little bigger than the part that swallows cars.
+export const VOID = {
+  holeRadius: [55, 80], // round holes in a road ...
+  holeSideShift: 35, // ... pushed this far to one side, leaving a lane open
+  gapChance: 0.35, // share of road holes that are a whole missing section instead
+  gapHalfLength: [55, 85],
+  gapHalfWidth: 92, // roads are 190 wide
+  sinkholeRadius: [95, 150], // big holes inside city blocks
+  outlineGrow: 16,
+  fallSeconds: 0.85,
+  fallFriction: 2.5, // how fast the car stops moving sideways while it drops
+  fallScale: 0.2, // drawn size at the bottom of the fall
+  fallDrop: 90, // screen units it sinks on the way down
+  resultsDelay: 0.7, // real seconds between the end of the fall and the results screen
+};
+
+// Where each run starts (on a road crossing, inside its chunk), and the open space kept clear around it.
 export const START = {
   x: 3000,
   y: 3000,
@@ -177,7 +207,6 @@ export const POLICE = {
   lookAheadSeconds: 0.25,
   swerveAngle: 0.6, // radians: where it looks for a way around
   probeRadius: 26,
-  despawnDistance: 2900, // police this far away (and off screen) are recycled; must stay beyond the furthest spawn point
   stuckSpeed: 40,
   stuckSeconds: 2.2,
   maxActive: 28, // performance cap
@@ -225,6 +254,9 @@ export const COLLISION = {
   treeRadius: 13,
   lampRadius: 7,
   coneRadius: 11,
+  woodCrateRadius: 15,
+  monumentRadius: 36,
+  roundaboutRadius: 150,
   gridCell: 300,
 };
 
@@ -320,6 +352,7 @@ export const TRAUMA = {
   scrape: 0.25,
   knock: 0.2, // cones and lamp posts
   curb: 0.3,
+  fall: 0.35,
   bump: 0.35,
   nearMiss: 0.4,
   explosion: 0.55, // right next to the player; fades with distance
@@ -395,8 +428,9 @@ export const DEPTH = {
   ground: 0, // floor, markings, skid marks
   raised: 10, // low curbs and islands (always under cars)
   shadows: 20, // shadows of cars and props
-  objects: 1000, // + screen Y (always stays below `effects`)
-  effects: 100000,
+  // Endless world: screen Y can be any size, so these bands are wide enough for days of driving.
+  objects: 1e9, // + screen Y (always stays below `effects`)
+  effects: 4e9,
 };
 
 // Placeholder world colours (low-poly, flat shaded). Final palette goes in ART_DIRECTION.md.
@@ -407,9 +441,18 @@ export const PALETTE = {
   asphaltPatchLight: 0x525a67,
   paintWhite: 0xe4e0d4,
   paintYellow: 0xf0c04a,
-  curb: 0xd1c8b6,
+  curb: 0xe6bd45,
   grass: 0x7aa94b,
   concrete: 0xb5aea2,
+  plaza: 0x626a76,
+  void: 0x0b0d12,
+  voidWall: 0x2a2d33,
+  voidRim: 0x6f7682,
+  monument: 0xc9c1b1,
+  woodCrate: 0xa9794a,
+  woodStrap: 0x75522f,
+  containerBlue: 0x3f6f9e,
+  containerRust: 0xa8573a,
   barrier: 0xd6d0c2,
   barrierStripe: 0xe8553d,
   trunk: 0x7b5233,
@@ -505,33 +548,23 @@ export const SCENERY = {
   // Trees were a bit small next to the car (crown only 1.4x the car's width); 1.25 makes a pine
   // about 4 car-heights tall with a crown about twice the car's width. [TUNE]
   treeScale: 1.25,
-  wallHeight: 40,
-  wallSegment: 200, // arena walls are built from short barrier pieces
   patchesPerCell: 9, // small asphalt patches per city block (speed reference)
   startMarkRadius: 70,
   stallLength: 92,
   stallSpacing: 56,
-  floorChunk: 1000, // the floor is drawn in squares this big; off-screen squares are skipped
+  floorChunk: 800, // the floor is drawn in squares this big (must divide CHUNKS.size); off-screen squares are skipped
   laneDash: 60,
   laneGap: 60,
   laneWidth: 6,
 };
 
-// The arena is a grid of city blocks ("cells") separated by open roads. Each block gets one
-// arrangement, chosen by a fixed random seed, so the map is the same on every run. [TUNE]
+// The world is a grid of city blocks ("cells") separated by open roads. Each chunk picks a layout
+// (CHUNKS.presets) and each block in it an arrangement, from a fixed seed, so the map is the same
+// on every run. [TUNE]
 export const WORLD = {
   seed: 1029,
   cell: 600, // block size including half the road on each side
   margin: 95, // empty road strip inside each cell edge (roads are 2 x margin wide)
-  // [arrangement, weight]
-  mix: [
-    ['parking', 34],
-    ['blocks', 22],
-    ['grove', 14],
-    ['barriers', 12],
-    ['cones', 9],
-    ['open', 9],
-  ],
   islandLengths: [360, 400, 440],
   // Concrete block shapes (a few shapes and turns, so few drawings are needed).
   blockTypes: [
@@ -544,6 +577,12 @@ export const WORLD = {
   blockTurnsDeg: [0, 20, 45, 90],
   barrierLengths: [140, 180],
   barrierTurnsDeg: [0, 90, 30, 150],
+  containerTypes: [
+    { width: 60, length: 130, height: 52, color: 'containerBlue' },
+    { width: 60, length: 130, height: 52, color: 'containerRust' },
+  ],
+  containerTurnsDeg: [0, 90],
+  plazaHalfSize: 695, // half the width of the paved square in the middle of a plaza chunk
   treeSizes: [0.9, 1, 1.1, 1.2],
   crosswalkChance: 0.18,
 };

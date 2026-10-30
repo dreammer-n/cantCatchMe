@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/test_sim.mjs && node tests/test_car.mjs && node tests/test_render.mjs",
+    "test": "node tests/test_sim.mjs && node tests/test_car.mjs && node tests/test_render.mjs && node tests/test_world.mjs",
     "balance": "node tests/balance.mjs 30 portrait 1.3"
   },
   "dependencies": {

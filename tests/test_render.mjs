@@ -4,7 +4,7 @@ import { box, convexHull, projectMesh, projectShadow, worldShadowOutline } from 
 import { atlasLayout, directionHeading, frameFor, measureCar } from '../src/render/carAtlas.js';
 import { carMesh, carShadowPoints } from '../src/render/carModels.js';
 import * as props from '../src/render/propModels.js';
-import { RENDER, DEPTH, ARENA, SCENERY, CAR_SIZE } from '../src/config/tuning.js';
+import { RENDER, DEPTH, CAR_SIZE } from '../src/config/tuning.js';
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = '') => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}  ${detail}`); };
@@ -165,27 +165,23 @@ for (const view of RENDER.views) {
 
 // --- Draw order bands ---
 {
-  const ranges = RENDER.views.map((v) => { const pr = new Projection(v); return [DEPTH.objects + pr.depthOf(-100, -100), DEPTH.objects + pr.depthOf(ARENA.width + 100, ARENA.height + 100)]; });
+  // Endless world: this far is about 5 weeks of non-stop driving in one direction.
+  const far = 3e8;
+  const ranges = RENDER.views.map((v) => { const pr = new Projection(v); return [DEPTH.objects + pr.depthOf(-far, -far), DEPTH.objects + pr.depthOf(far, far)]; });
   const lo = Math.min(...ranges.map((r) => r[0])), hi = Math.max(...ranges.map((r) => r[1]));
-  check('standing objects stay between shadows and effects in every view', lo > DEPTH.shadows && hi < DEPTH.effects - 10, `${lo.toFixed(0)}..${hi.toFixed(0)}`);
-  const inside = RENDER.views.map((v) => { const pr = new Projection(v); return [DEPTH.objects + pr.depthOf(0, 0), DEPTH.objects + pr.depthOf(ARENA.width, ARENA.height)]; });
-  check('far-side walls sort behind and near-side walls in front of everything inside the arena',
-    Math.min(...inside.map((r) => r[0])) > DEPTH.objects - 100 && Math.max(...inside.map((r) => r[1])) < DEPTH.effects - 10);
+  check('standing objects stay between shadows and effects, however far the car drives', lo > DEPTH.shadows && hi < DEPTH.effects - 10, `${lo.toExponential(1)}..${hi.toExponential(1)}`);
   check('bands in order: ground < raised < shadows < objects', DEPTH.ground < DEPTH.raised && DEPTH.raised < DEPTH.shadows && DEPTH.shadows < DEPTH.objects);
 }
 
 // --- Props ---
 {
-  const { buildLayout } = await import('../src/systems/WorldLayout.js');
-  const all = buildLayout().items.filter((item) => item.kind !== 'wall');
-  check('all scenery sits inside the arena', all.every((p) => p.x > 0 && p.x < ARENA.width && p.y > 0 && p.y < ARENA.height));
   for (const name of ['police', 'wreck']) {
     check(`${name} car model shows faces from the angled camera`, projectMesh(carMesh(name), 0.3, angled).some((p) => p.faces.length > 0));
   }
-  const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.crate()];
+  const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.crate(), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];
   check('every prop model shows faces from the angled camera', models.every((m) => projectMesh(m, 0.3, angled).some((p) => p.faces.length > 0)));
   const faceCount = models.reduce((s, m) => s + m.reduce((t, p) => t + p.faces.length, 0), 0) + carMesh('player').reduce((t, p) => t + p.faces.length, 0);
-  check('models stay low-poly', faceCount < 250, `${faceCount} faces for the car and all 8 prop types`);
+  check('models stay low-poly', faceCount < 300, `${faceCount} faces for the car and all ${models.length} prop types`);
 }
 
 console.log(`\n(default view car drawings: ${totalMB.toFixed(1)} MB graphics memory)`);

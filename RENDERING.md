@@ -62,24 +62,40 @@ redraws everything in about a second.
 
 | Band | What | How it is drawn |
 |---|---|---|
-| `ground` (0) | floor (roads darker, city blocks lighter), markings, skid marks, scorch marks, lamp light pools, shockwave ring | world-coordinate container, turned and squashed; the floor is split into 1000-unit squares and off-screen squares are skipped |
-| `raised` (10) | low curbs and parking islands | baked images, always under cars |
+| `ground` (0) | floor (roads darker, city blocks lighter), markings, sinkholes, skid marks, scorch marks, lamp light pools, shockwave ring | world-coordinate container, turned and squashed; each chunk's floor is split into 800-unit squares and off-screen squares are skipped |
+| `raised` (10) | low curbs, parking islands, roundabouts | baked images, always under cars |
 | `shadows` (20) | car shadows, prop shadows, crate glow | cars: one shared live drawing in a ground container (all cars, cleared each frame); props: baked images |
-| `objects` (1000 + screen Y) | cars, police lights, blocks, trees, lamps, barriers, cones, crate | sorted by their ground point: nearer the viewer = in front |
-| far walls (900) / near walls (99990) | arena edge barriers | far side always behind, near side always in front |
-| `effects` (100000+) | tyre smoke, wreck smoke and flames, fire, debris, flashes | particles in screen space (positions through the projection), capped by `EFFECTS` |
+| `objects` (1e9 + screen Y) | cars, police lights, blocks, trees, lamps, barriers, cones, crates, containers, monuments | sorted by their ground point: nearer the viewer = in front. The band is huge because screen Y has no limit in an endless world |
+| `effects` (4e9+) | tyre smoke, wreck smoke and flames, fire, debris, flashes | particles in screen space (positions through the projection), capped by `EFFECTS` |
 | UI | HUD, menus | separate `UIScene`, never affected by the camera |
 
 Rules:
 - Anything standing up gets **one** depth from its ground point (`depthAt(x, y)`), its centre.
-- Keep standing props compact (under ~150 units across). Long things are split into pieces
-  (walls are 200-unit barrier segments) or kept low in the `raised` band.
+- Keep standing props compact (under ~150 units across). Long things are kept low in the `raised` band.
 - Physics never reads `RENDER`, `DEPTH`, `PALETTE` or the camera.
 
 ## Culling (skipping what is off screen)
 
 Every frame, props, floor squares and cars outside the camera's view (plus a margin) are hidden, so
-Phaser doesn't process them. The map has ~420 props; usually 20–60 are on screen.
+Phaser doesn't process them. The 9 loaded chunks hold about 450 props; usually 20–60 are on screen.
+
+## Streaming (the endless world)
+
+The world exists only as data worked out from chunk coordinates (`WorldLayout.js`). `ChunkManager.js` keeps
+a 3 x 3 grid of chunks loaded around the player, and `Scenery.sync` draws whatever is loaded:
+
+- **Nothing is created during play.** Floors are one fixed set of drawings per grid slot, redrawn when a
+  chunk arrives. Prop images come from a pool made at startup (`CHUNKS.propPool`).
+- **Every prop drawing is made at startup** from `propCatalogue()`. If you add a prop or a new turn angle to
+  a layout, add it there too; a test fails if you forget.
+- **One new chunk per frame.** New chunks arrive beyond what the camera shows, so spreading them out is
+  invisible and avoids a hitch. A restart or a long jump fills everything in at once.
+- **The grid must out-reach the camera.** `CHUNKS.size` must stay larger than the furthest ground the camera
+  shows along a map axis (about 2030 units on tall phones). A test checks this.
+- **Sinkholes** are drawn in the ground layer: a broken rim, a far wall, then the dark part pushed toward
+  the viewer, which is what makes the hole read as deep.
+- **Falling cars** shrink, sink and fade (`CarView.drawFalling`) and lose their shadow. The physics only
+  tracks `fallProgress`; the drop itself is drawn.
 
 ## Inspecting a car from every direction
 
@@ -92,8 +108,9 @@ faces. Press T again to drive off.
 1. Build it in `propModels.js` from `box`, `frustum`, `ngon` (+ `decal` for paint, `glowing` for lamps).
    Local axes: x right, y forward, z up, centred on its ground point.
 2. Place it in `src/systems/WorldLayout.js` (an item with a `collider` if it should be solid) and add
-   its model to `meshFor()` in `Scenery.js`.
-3. Parts are painted in `layer` order (lower first), so list them bottom to top / inside to outside.
+   its model to `buildMesh()` in `Scenery.js`.
+3. Add it to `propCatalogue()` in `WorldLayout.js`, so its drawing is made at startup.
+4. Parts are painted in `layer` order (lower first), so list them bottom to top / inside to outside.
 
 ## Known limitations
 
@@ -102,6 +119,8 @@ faces. Press T again to drive off.
 - Low curbs/islands always draw under cars, so a car just behind a curb shows its bottom edge over it.
 - Particles (smoke, fire) are drawn above everything, so smoke can show in front of a nearer tree.
 - Police light glows sit with their car in the draw order; a light can show over a prop right behind it.
+- A falling car is drawn over its hole's near edge (no clipping), so it reads as shrinking into the dark
+  rather than disappearing behind the rim.
 
 ## Not used, on purpose
 
