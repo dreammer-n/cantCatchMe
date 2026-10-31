@@ -28,7 +28,12 @@ export class Car {
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
     this.slipAngle = 0; // radians, signed: + = moving to the right of where the nose points
-    this.chassisRoll = 0; // radians, visual only: nothing in the physics reads it
+    // Visual only: nothing in the physics reads these. The car's drawing follows them (CarView).
+    this.chassisRoll = 0; // radians, signed: + = the body leans to its right
+    this.rollVelocity = 0;
+    this.chassisPitch = 0; // radians, signed: + = nose down
+    this.pitchVelocity = 0;
+    this.longAccel = 0; // smoothed forward acceleration, for the pitch
     this.onCurb = false; // set by the collision system
     this.scale = 1; // size: 1 = normal, bigger while Giant. Physics: collisions use it too
     this.scaleVelocity = 0;
@@ -65,10 +70,13 @@ export class Car {
 
     // Steering toward the direction of the slide (counter-steering) turns the nose faster.
     const counterSteer = steer * this.lateralSpeed > 0 ? slide * Math.abs(steer) : 0;
+    const lock = Math.min(1, Math.abs(steer));
 
     // Turning needs speed: no spinning on the spot at the start.
     const turnAuthority = Math.min(1, Math.max(0, this.forwardSpeed) / h.fullTurnSpeed);
-    const targetTurn = steer * degToRad(h.maxTurnRateDeg) * turnAuthority * (1 + h.counterSteerBonus * counterSteer);
+    const targetTurn = steer * degToRad(h.maxTurnRateDeg) * turnAuthority * (1 + h.counterSteerBonus * counterSteer)
+      // Let go of the wheel in a slide and the nose swings back toward the way the car is going: the tail catches.
+      + this.slipAngle * h.selfAlign * (1 - lock) * turnAuthority;
     this.angularVelocity += (targetTurn - this.angularVelocity) * smoothFactor(h.steerResponse, dt);
     this.heading = wrapAngle(this.heading + this.angularVelocity * dt);
 
@@ -82,7 +90,6 @@ export class Car {
 
     // Grip drops while steering and while already sliding, and recovers gradually afterwards.
     // Part-steering (police) blends between the two; for the player (-1/0/1) it is one or the other.
-    const lock = Math.min(1, Math.abs(steer));
     const targetGrip = (h.gripStraight + (h.gripTurning - h.gripStraight) * lock) * (1 - h.slideGripLoss * slide) * (1 - (1 - FLAT_TIRE.gripShare) * flat);
     this.grip += (targetGrip - this.grip) * smoothFactor(h.gripChangeRate, dt);
 
@@ -93,8 +100,10 @@ export class Car {
     forward -= (h.slideScrub * Math.abs(lateral) + h.deepSlideScrub * deepSlide) * dt;
 
     // Engine always drives toward top speed (no brake, no reverse). Tires on a curb find little traction.
-    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * (1 - (1 - FLAT_TIRE.accelShare) * flat);
-    const topSpeed = h.topSpeed * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
+    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * (1 - (1 - FLAT_TIRE.accelShare) * flat) * (1 - h.slideEngineLoss * slide);
+    let topSpeed = h.topSpeed * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
+    // Top speed covers the whole car, forward and sideways together: a turn can't add speed.
+    if (h.slideCountsAsSpeed) topSpeed = Math.sqrt(Math.max(0, topSpeed * topSpeed - lateral * lateral));
     if (forward < topSpeed) forward = Math.min(topSpeed, forward + drive * dt);
     else forward = topSpeed + (forward - topSpeed) * Math.exp(-h.overspeedDrag * dt);
 
@@ -102,11 +111,32 @@ export class Car {
     this.vy = fy * forward + ry * lateral;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    const forwardChange = dt > 0 ? (forward - this.forwardSpeed) / dt : 0;
     this.forwardSpeed = forward;
     this.lateralSpeed = lateral;
     this.slipAngle = Math.atan2(lateral, forward);
-    const targetRoll = Math.max(-1, Math.min(1, lateral / h.slideFullSlip)) * degToRad(h.rollMaxDeg);
-    this.chassisRoll += (targetRoll - this.chassisRoll) * smoothFactor(h.rollResponse, dt);
+    this.moveBody(forwardChange, dt);
+  }
+
+  // The body on its springs. The weight goes to the outside of a turn as soon as the car starts turning
+  // (not only once it slides), overshoots a little and settles. Braking and turning in dip the nose.
+  moveBody(forwardChange, dt) {
+    const h = this.handling;
+    const force = Math.max(-1, Math.min(1, (this.speed * this.angularVelocity) / h.rollFullAccel));
+    this.rollVelocity += (h.rollSpring * (-force * degToRad(h.rollMaxDeg) - this.chassisRoll) - h.rollDamping * this.rollVelocity) * dt;
+    this.chassisRoll += this.rollVelocity * dt;
+    this.longAccel += (forwardChange - this.longAccel) * smoothFactor(12, dt);
+    const pitch = Math.max(-1, Math.min(1, -this.longAccel / h.pitchFullAccel + h.pitchTurnShare * Math.abs(force)));
+    this.pitchVelocity += (h.rollSpring * (pitch * degToRad(h.pitchMaxDeg) - this.chassisPitch) - h.rollDamping * this.pitchVelocity) * dt;
+    this.chassisPitch += this.pitchVelocity * dt;
+  }
+
+  stillBody() {
+    this.chassisRoll = 0;
+    this.rollVelocity = 0;
+    this.chassisPitch = 0;
+    this.pitchVelocity = 0;
+    this.longAccel = 0;
   }
 
   // Advances by any frame time using equal small steps, so results barely depend on frame rate.
@@ -137,7 +167,7 @@ export class Car {
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
     this.slipAngle = 0;
-    this.chassisRoll = 0;
+    this.stillBody();
   }
 
   // Size follows its target on a spring: elastic on the way up, smooth on the way down.
@@ -175,7 +205,7 @@ export class Car {
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
     this.slipAngle = 0;
-    this.chassisRoll = 0;
+    this.stillBody();
   }
 
   // The car has gone over a hole: from now on only fall() moves it.
@@ -187,7 +217,7 @@ export class Car {
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
     this.slipAngle = 0;
-    this.chassisRoll = 0;
+    this.stillBody();
     this.onCurb = false;
   }
 

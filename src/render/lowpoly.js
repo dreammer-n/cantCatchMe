@@ -106,6 +106,39 @@ export function ngon({ x = 0, y = 0, sides, r0, r1, z0, z1, color, topColor = co
   return { verts, faces, layer };
 }
 
+// A round wheel, its axle along local x: a many-sided drum with a hub painted on the outer face (side -1 =
+// the car's left, 1 = its right). radius sets its height too: it stands on z = 0.
+export function roundWheel({ x0, x1, y, radius, color, hub, side, sides = 10 }) {
+  const verts = [];
+  for (const x of [x0, x1]) {
+    for (let i = 0; i < sides; i += 1) {
+      const a = -Math.PI / 2 + (i * Math.PI * 2) / sides;
+      verts.push([x, y + radius * Math.cos(a), radius + radius * Math.sin(a)]);
+    }
+  }
+  const faces = [];
+  for (let i = 0; i < sides; i += 1) {
+    const j = (i + 1) % sides;
+    faces.push({ name: `tread${i}`, v: [i, j, sides + j, sides + i], color, decals: [] });
+  }
+  const wall = shadeColor(color, 1.5);
+  const ring = (start) => Array.from({ length: sides }, (_, i) => start + i);
+  faces.push({ name: 'inner', v: side < 0 ? ring(sides) : ring(0), color: wall, decals: [] });
+  const outer = { name: 'outer', v: side < 0 ? ring(0) : ring(sides), color: wall, decals: [] };
+  const outerX = side < 0 ? x0 : x1;
+  const disc = (share, discColor) => ({
+    pts: Array.from({ length: sides }, (_, i) => {
+      const a = -Math.PI / 2 + (i * Math.PI * 2) / sides;
+      return [outerX, y + radius * share * Math.cos(a), radius + radius * share * Math.sin(a)];
+    }),
+    color: discColor,
+    unlit: false,
+  });
+  outer.decals.push(disc(0.56, hub), disc(0.18, shadeColor(hub, 0.55)));
+  faces.push(outer);
+  return { verts, faces, layer: 0 };
+}
+
 // Paints a smaller rectangle onto one face of a part (windows, lights, stripes).
 // u runs along the face's first edge, v from that edge to the opposite one (bottom to top on sides,
 // back to front on the top face). 0..1 each.

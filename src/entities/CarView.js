@@ -1,24 +1,32 @@
-import { CAR_SIZE, DEPTH, EFFECTS, FLAT_TIRE, PALETTE, RENDER, SKIDS, TUMBLE, VOID } from '../config/tuning.js';
+import { BODY_LEAN, CAR_SIZE, DEPTH, EFFECTS, FLAT_TIRE, PALETTE, RENDER, SKIDS, TUMBLE, VOID } from '../config/tuning.js';
 import { degToRad } from '../utils/math.js';
 import { atlasMeta, frameFor } from '../render/carAtlas.js';
 import { LIGHT_BAR } from '../render/carModels.js';
 import * as Phaser from 'phaser';
 import { depthAt } from '../render/layers.js';
-import { Tumble, holeLipY } from '../render/Tumble.js';
+import { Tumble, holeLipY, stepHop } from '../render/Tumble.js';
 import { worldShadowOutline } from '../render/lowpoly.js';
 import { projection } from '../render/projection.js';
 
 const pick = { frame: 'dir0', rotation: 0 };
 const screen = { x: 0, y: 0 };
+const leanScreen = { x: 0, y: 0 };
+const lean = { worldX: 0, worldY: 0, rotation: 0, yaw: 0 };
 const CULL_MARGIN = 140; // screen units around the camera view where cars are still drawn
 
 // What a car looks like on screen. Reads the car's physics state and never changes it.
-// Used for the player, police cars and wrecks (look = { atlasKey, shadowPoints, lights }).
+// Used for the player, police cars and wrecks (look = { atlasKey, shadowPoints, lights }). A look with a
+// wheelsKey is drawn in two pieces, so the body visibly leans over wheels that stay on the road.
 export class CarView {
   // shadows: one Graphics shared by all cars, in the ground shadow layer (world coordinates).
   // layers: for a cruiser's siren light on the road and nearby props (police only).
   constructor(scene, look, shadows, layers = null) {
     this.sprite = scene.add.image(0, 0, look.atlasKey, 'dir0').setScale(1 / RENDER.bakeScale);
+    this.wheels = look.wheelsKey ? scene.add.image(0, 0, look.wheelsKey, 'dir0').setScale(1 / RENDER.bakeScale) : null;
+    this.showWheels = false;
+    this.hop = { z: 0, v: 0 }; // the little bounce after a knock
+    this.hopSide = 1;
+    this.lastHopTime = 0;
     this.shadows = shadows;
     // Normal blending (not additive): the lights sit between cars in the draw order, and a
     // blend change there would cost an extra draw call per police car.
@@ -52,7 +60,23 @@ export class CarView {
     else this.sprite.clearTint();
   }
 
+  // Knocked or over a curb: the car jumps on its wheels and lands again. Drawing only.
+  bump(impact) {
+    const strength = Math.min(1, impact / BODY_LEAN.hopFullImpact);
+    this.hop.v = Math.max(this.hop.v, BODY_LEAN.hopSpeed * strength);
+    this.hopSide = Math.random() < 0.5 ? -1 : 1;
+  }
+
+  updateHop(time) {
+    const dt = Math.max(0, Math.min(0.05, (time - this.lastHopTime) / 1000));
+    this.lastHopTime = time;
+    if (this.hop.z > 0 || this.hop.v > 0) stepHop(this.hop, dt, BODY_LEAN.hopGravity, BODY_LEAN.hopBounce);
+    return this.hop.z;
+  }
+
   setLook(look) {
+    this.hop.z = 0;
+    this.hop.v = 0;
     if (this.wasFalling) this.endFall();
     if (this.tumble) this.endTumble();
     this.setFrozen(false);
@@ -69,7 +93,12 @@ export class CarView {
   endTumble() {
     this.tumble.reset();
     this.shownScale = 1;
-    this.sprite.setScale(1 / RENDER.bakeScale);
+    this.setScales(1 / RENDER.bakeScale);
+  }
+
+  setScales(scale) {
+    this.sprite.setScale(scale);
+    if (this.wheels) this.wheels.setScale(scale);
   }
 
   showLook(look) {
@@ -86,6 +115,15 @@ export class CarView {
     this.hasLights = Boolean(look.lights);
     this.sprite.setTexture(look.atlasKey, 'dir0');
     this.sprite.setOrigin(meta.originX, meta.originY);
+    this.showWheels = Boolean(this.wheels && look.wheelsKey);
+    if (this.wheels) {
+      this.wheels.setVisible(this.showWheels);
+      if (this.showWheels) {
+        const wheelMeta = atlasMeta.get(look.wheelsKey);
+        this.wheelDirections = wheelMeta.directions;
+        this.wheels.setTexture(look.wheelsKey, 'dir0').setOrigin(wheelMeta.originX, wheelMeta.originY);
+      }
+    }
     this.hideLights();
   }
 
@@ -100,6 +138,7 @@ export class CarView {
   setAlpha(alpha) {
     this.alpha = alpha;
     this.sprite.setAlpha(alpha);
+    if (this.wheels) this.wheels.setAlpha(alpha);
   }
 
   // view: the camera's visible rectangle in screen units (camera.worldView). time: ms, for lights.
@@ -119,13 +158,32 @@ export class CarView {
         screen.y > view.y - CULL_MARGIN &&
         screen.y < view.bottom + CULL_MARGIN * 1.5);
     this.sprite.setVisible(visible);
+    if (this.wheels) this.wheels.setVisible(visible && this.showWheels);
     if (!visible) {
       this.hideLights();
       return false;
     }
-    frameFor(model.heading, projection, pick, this.directions);
     const depth = depthAt(model.x, model.y);
-    this.sprite.setFrame(pick.frame).setRotation(pick.rotation).setPosition(screen.x, screen.y).setDepth(depth);
+    const leaning = !tumbling && !model.isFalling;
+    if (leaning) bodyLean(model, lean);
+    else lean.worldX = lean.worldY = lean.rotation = lean.yaw = 0;
+    const hop = leaning ? this.updateHop(time) : 0;
+    const lift = hop * projection.lift;
+    if (this.showWheels) {
+      const share = BODY_LEAN.wheelsFollow;
+      frameFor(model.heading + lean.yaw, projection, pick, this.wheelDirections);
+      projection.toScreen(model.x + lean.worldX * share, model.y + lean.worldY * share, 0, leanScreen);
+      this.wheels.setFrame(pick.frame).setRotation(pick.rotation + lean.rotation * share).setPosition(leanScreen.x, leanScreen.y - lift).setDepth(depth - 0.01);
+    }
+    frameFor(model.heading + lean.yaw, projection, pick, this.directions);
+    projection.toScreen(model.x + lean.worldX, model.y + lean.worldY, 0, leanScreen);
+    this.sprite
+      .setFrame(pick.frame)
+      .setRotation(pick.rotation + lean.rotation + hop * BODY_LEAN.hopTilt * this.hopSide)
+      .setPosition(leanScreen.x, leanScreen.y - lift)
+      .setDepth(depth);
+    this.leanX = leanScreen.x - screen.x;
+    this.leanY = leanScreen.y - lift - screen.y;
     if (model.isFalling) {
       this.drawFalling(model);
       return true;
@@ -144,12 +202,12 @@ export class CarView {
       // It sits down on the flat corner, which leans whichever way that corner faces on screen, and rattles.
       const facing = Math.cos(projection.screenHeading(model.heading));
       this.sprite
-        .setRotation(pick.rotation + model.flatSide * facing * degToRad(FLAT_TIRE.leanDeg) * flat)
-        .setY(screen.y + Math.sin(time * FLAT_TIRE.rattleRate) * FLAT_TIRE.rattle * flat);
+        .setRotation(this.sprite.rotation + model.flatSide * facing * degToRad(FLAT_TIRE.leanDeg) * flat)
+        .setY(this.sprite.y + Math.sin(time * FLAT_TIRE.rattleRate) * FLAT_TIRE.rattle * flat);
     }
     if (!tumbling && model.scale !== this.shownScale) {
       this.shownScale = model.scale;
-      this.sprite.setScale(model.scale / RENDER.bakeScale);
+      this.setScales(model.scale / RENDER.bakeScale);
     }
     this.drawShadow(model);
     if (this.frozen) this.drawFrozenGlow(model);
@@ -179,16 +237,19 @@ export class CarView {
     const scale = (model.scale * (1 - (1 - VOID.fallScale) * progress)) / RENDER.bakeScale;
     const scaleY = scale * (1 - 0.3 * tip); // seen from above, a tipped car looks shorter
     const groundY = sprite.y;
+    const parts = this.showWheels ? [sprite, this.wheels] : [sprite];
     const y = groundY + progress * progress * VOID.fallDrop;
     // The nose goes first: turn the drawing the way the nose points across the screen.
     const across = Math.sin(projection.screenHeading(model.heading));
     const shade = Math.round(255 * (1 - 0.9 * progress ** 1.5));
-    sprite
-      .setPosition(sprite.x, y)
-      .setScale(scale, scaleY)
-      .setRotation(sprite.rotation + across * tip * ((VOID.fallTiltDeg * Math.PI) / 180))
-      .setTint((shade << 16) | (shade << 8) | shade)
-      .setAlpha(this.alpha * Math.min(1, (1 - progress) * 8));
+    for (const part of parts) {
+      part
+        .setPosition(sprite.x, y)
+        .setScale(scale, scaleY)
+        .setRotation(part.rotation + across * tip * ((VOID.fallTiltDeg * Math.PI) / 180))
+        .setTint((shade << 16) | (shade << 8) | shade)
+        .setAlpha(this.alpha * Math.min(1, (1 - progress) * 8));
+    }
     const outline = model.fallShape && model.fallShape.item.outline;
     if (!outline || outline.length === 0) return;
     // Hidden below the lip. A car that came in over the near side still has its tail over the road, so
@@ -196,17 +257,21 @@ export class CarView {
     const height = sprite.frame.cutHeight;
     const underside = groundY + (1 - sprite.originY) * height * scaleY;
     const lip = Math.max(holeLipY(outline, sprite.x, projection), underside);
-    const top = y - sprite.originY * height * scaleY;
-    const shown = Math.max(0, Math.min(height, (lip - top) / scaleY));
-    sprite.setCrop(0, 0, sprite.frame.cutWidth, shown);
+    for (const part of parts) {
+      const partHeight = part.frame.cutHeight;
+      const top = y - part.originY * partHeight * scaleY;
+      part.setCrop(0, 0, part.frame.cutWidth, Math.max(0, Math.min(partHeight, (lip - top) / scaleY)));
+    }
   }
 
   endFall() {
     this.wasFalling = false;
     this.shownScale = 1;
-    this.sprite.setCrop();
-    this.sprite.clearTint();
-    this.sprite.setScale(1 / RENDER.bakeScale).setAlpha(this.alpha);
+    for (const part of this.wheels ? [this.sprite, this.wheels] : [this.sprite]) {
+      part.setCrop();
+      part.clearTint();
+      part.setScale(1 / RENDER.bakeScale).setAlpha(this.alpha);
+    }
   }
 
   // Two glows over the light bar, alternating red / blue, and the same colours on the road below.
@@ -240,7 +305,7 @@ export class CarView {
       const on = phase === i;
       this.lights[i]
         .setVisible(true)
-        .setPosition(screen.x, screen.y)
+        .setPosition(screen.x + this.leanX, screen.y + this.leanY)
         .setAlpha((on ? 0.95 : 0.25) * this.alpha)
         .setScale(on ? 0.6 : 0.35)
         .setDepth(depth + 0.5);
@@ -248,7 +313,10 @@ export class CarView {
   }
 
   drawShadow(model) {
-    const count = worldShadowOutline(this.shadowPoints, model.x, model.y, model.heading, projection, this.outline, this.scratch, model.scale);
+    // The shadow follows the lean; the dark patch right under the car stays with the wheels.
+    const x = model.x + lean.worldX * BODY_LEAN.shadowShare;
+    const y = model.y + lean.worldY * BODY_LEAN.shadowShare;
+    const count = worldShadowOutline(this.shadowPoints, x, y, model.heading, projection, this.outline, this.scratch, model.scale);
     const g = this.shadows;
     this.drawContactShadow(model);
     if (count < 3) return;
@@ -279,17 +347,39 @@ export class CarView {
 
   hide() {
     this.sprite.setVisible(false);
+    if (this.wheels) this.wheels.setVisible(false);
     this.hideLights();
   }
 
   destroy() {
     this.sprite.destroy();
+    if (this.wheels) this.wheels.destroy();
     for (const light of this.lights) light.destroy();
     if (this.pool) {
       this.pool.destroy();
       this.glowOver.destroy();
     }
   }
+}
+
+// How the body is displaced by its suspension right now: a shift over the wheels, the tilt that shows up
+// on screen, and the nose drawn a little ahead of the turn. A roll reads as a tilt when the car faces up or
+// down the screen, a pitch when it faces across it.
+export function bodyLean(model, out) {
+  const h = model.handling;
+  const roll = model.chassisRoll;
+  const pitch = model.chassisPitch;
+  const side = (roll / degToRad(h.rollMaxDeg)) * BODY_LEAN.rollShift * model.scale;
+  const ahead = (pitch / degToRad(h.pitchMaxDeg)) * BODY_LEAN.pitchShift * model.scale;
+  const sin = Math.sin(model.heading);
+  const cos = Math.cos(model.heading);
+  out.worldX = cos * side + sin * ahead;
+  out.worldY = sin * side - cos * ahead;
+  const facing = projection.screenHeading(model.heading);
+  out.rotation = roll * Math.cos(facing) + pitch * Math.sin(facing);
+  const most = degToRad(BODY_LEAN.yawMaxDeg);
+  out.yaw = Math.max(-most, Math.min(most, model.angularVelocity * BODY_LEAN.yawLeadSeconds));
+  return out;
 }
 
 // Is the car sliding enough to leave tire marks and smoke?

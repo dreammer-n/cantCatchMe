@@ -91,15 +91,10 @@ export const UI = {
   titleSize: 15,
   infoSize: 13,
   hintSize: 14,
-  arrowSize: 22,
-  zoneAlpha: 0.12,
-  arrowIdleAlpha: 0.3,
-  arrowActiveAlpha: 0.9,
 };
 
 // Interface colors. World colors are in PALETTE below.
 export const COLORS = {
-  zone: 0xffffff,
   warning: 0xff3b30,
   warningBack: 0x14080a,
   uiText: '#e8edf2',
@@ -131,8 +126,17 @@ const SHARED_HANDLING = {
   slideFullSlip: 170, // sideways speed (units/s) that counts as a full slide for the settings below
   deepSlideStartDeg: 30, // slip angle where the extra speed loss of a deep slide starts ...
   deepSlideRangeDeg: 20, // ... and how many degrees later it is at full strength
-  rollMaxDeg: 5, // visual body lean in a full slide
-  rollResponse: 8,
+  // How the body moves on its springs. Drawing only: nothing in the physics reads these.
+  rollMaxDeg: 8, // body lean toward the outside of a hard turn ...
+  rollFullAccel: 800, // ... reached at this much sideways force (speed x turn rate)
+  rollSpring: 130, // stiffness: how quickly the weight shifts
+  rollDamping: 10, // low enough to overshoot and settle, like real suspension
+  pitchMaxDeg: 4, // the nose dipping when slowing or turning in, and lifting when accelerating ...
+  pitchFullAccel: 420, // ... reached at this much acceleration or braking
+  pitchTurnShare: 0.4, // a hard turn dips the nose this share of the way
+  selfAlign: 0, // radians per second per radian of slide: with no steering, the nose swings back toward the way the car is going
+  slideEngineLoss: 0, // share of engine power lost in a full slide (the tires are busy going sideways)
+  slideCountsAsSpeed: true, // top speed covers forward and sideways together, so turning can't add speed
   // The extras below are the player's advantage: police keep these at zero (see the presets).
   slideGripLoss: 0, // share of grip lost in a full slide
   counterSteerBonus: 0, // extra turn rate when steering into a full slide (0.5 = 50% faster)
@@ -142,6 +146,7 @@ const SHARED_HANDLING = {
 export const HANDLING_PRESETS = {
   grippy: {
     ...SHARED_HANDLING,
+    slideCountsAsSpeed: false, // kept as it was, to compare with
     label: 'Grippy',
     maxTurnRateDeg: 170,
     steerResponse: 14, // how fast the nose reaches full turn rate
@@ -157,17 +162,19 @@ export const HANDLING_PRESETS = {
     ...SHARED_HANDLING,
     label: 'Balanced',
     maxTurnRateDeg: 180,
-    steerResponse: 10,
+    steerResponse: 7.5,
     gripStraight: 9,
-    gripTurning: 5.5,
-    gripChangeRate: 4,
-    slideScrub: 0.45,
-    slideGripLoss: 0.12,
+    gripTurning: 4.8,
+    gripChangeRate: 3,
+    slideScrub: 0.5,
+    slideGripLoss: 0.15,
     counterSteerBonus: 0.5,
     deepSlideScrub: 40,
+    selfAlign: 6,
   },
   drifty: {
     ...SHARED_HANDLING,
+    slideCountsAsSpeed: false, // kept as it was, to compare with
     label: 'Drifty',
     maxTurnRateDeg: 185,
     steerResponse: 8,
@@ -598,6 +605,21 @@ export const TRAUMA = {
 };
 
 // [TUNE] Skid marks.
+// [TUNE] How the car's body is drawn moving on its suspension (the amounts of lean are in the handling above).
+export const BODY_LEAN = {
+  rollShift: 4.5, // world units the body moves over its wheels at full lean ...
+  pitchShift: 2.5, // ... and forward or back at full pitch
+  yawLeadSeconds: 0.035, // the nose is drawn this far ahead of the turn ...
+  yawMaxDeg: 6, // ... up to this much
+  shadowShare: 0.6, // how much of that movement the shadow follows
+  wheelsFollow: 0.55, // the wheels share this much of the body's movement, so the car stays in one piece
+  hopSpeed: 130, // knocks and curbs bounce the car (drawing only): upward speed from a hit this hard ...
+  hopFullImpact: 150, // ... or harder
+  hopGravity: 900,
+  hopBounce: 0.4, // it comes back up this share of the speed it landed with
+  hopTilt: 0.006, // radians of tilt per unit of height
+};
+
 export const SKIDS = {
   maxMarks: 900, // hard cap; the oldest mark is reused when full
   slipThreshold: 70, // sideways speed (units/s) above which tires leave marks
@@ -637,7 +659,7 @@ export const RENDER = {
   // Car drawings made at startup from the 3D model, evenly spaced around the compass.
   directions: 64,
   // Per model: wrecks barely turn, so fewer drawings (less memory) are enough.
-  carDirections: { player: 64, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, wreck: 32, wreckRoof: 16 },
+  carDirections: { playerBody: 64, playerWheels: 32, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, wreck: 32, wreckRoof: 16 },
   // 0 = snap to the nearest drawing, 1 = also rotate by the small leftover angle (smoother turning).
   residualRotation: 1,
   // Pixels per world unit in the drawings baked at startup (cars and props).
@@ -750,6 +772,7 @@ export const PALETTE = {
   pillarCap: 0xc2bbab,
   crateArrow: 0x5ff5e0, // stays teal, like the Shockwave button: orange would look like the red warnings
   chunkTire: 0x17191e,
+  chunkTireWall: 0x33363e,
   chunkHub: 0x5a5e66,
   chunkMetal: 0x2a2826,
   chunkPanel: 0x3d3833,
@@ -781,10 +804,15 @@ export const EFFECTS = {
   maxRings: 6, // ground shockwave rings
   chunksSmall: 3, // pieces thrown out by a police wreck ...
   chunksBig: 5, // ... and by the player's crash
-  chunkGravity: 620,
-  chunkBounce: 0.5,
-  chunkScrape: 3,
+  chunkGravity: 900,
+  chunkBounce: 0.38, // bumpers and panels thud and scrape ...
+  chunkScrape: 4.5,
   chunkSeconds: 1.8,
+  tireBounce: 0.64, // ... tires bounce and roll on
+  tireScrape: 0.9,
+  tireSeconds: 2.6,
+  chunkShadowRadius: 15,
+  chunkShadowAlpha: 0.6,
   ringRadius: 170, // world units a wreck's ground ring reaches
   ringRadiusBig: 240,
   ringMs: 360,
@@ -818,8 +846,7 @@ export const EFFECTS = {
 // Built in height bands so each reads as its own flat-shaded surface: dark lower sills and bumpers,
 // body sides, a sloped hood and boot, a glass cabin and a flat roof. [TUNE]
 export const CAR_MODEL = {
-  wheelHeight: 13,
-  wheelLength: 16,
+  wheelHeight: 14, // wheels are round: this is also their length
   wheelInner: 19, // tires sit outside the lower body (x 19..23.5) so they always show
   wheelOuter: 23.5,
   wheelBase: 0.32, // axles sit this share of the length from the centre

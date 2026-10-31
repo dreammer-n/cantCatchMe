@@ -66,7 +66,7 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
     const layout = atlasLayout(measureCar(name, pr));
     return sum + (layout.width * layout.height * 4) / 1e6;
   }, 0);
-  check('all the vehicle sheets stay within budget', mb < 26, `${mb.toFixed(1)} MB graphics memory`);
+  check('all the vehicle sheets stay within budget', mb < 27, `${mb.toFixed(1)} MB graphics memory`);
 }
 
 // ---- The Bearcat ------------------------------------------------------------------------------

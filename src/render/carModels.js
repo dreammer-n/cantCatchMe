@@ -1,8 +1,10 @@
 import { CAR_MODEL, CAR_SIZE, PALETTE } from '../config/tuning.js';
-import { box, decal, frustum, hexa, shadeColor } from './lowpoly.js';
+import { box, decal, frustum, hexa, roundWheel, shadeColor } from './lowpoly.js';
 
 // Low-poly car models built from a handful of solids. Original designs:
 //   player  red compact muscle coupe with cream racing stripes and a spoiler
+//   playerBody, playerWheels  the same car in two pieces, so the body can lean over its wheels. The lower
+//     body and bumpers belong to the body: only the wheels are separate, or the car looks as if it comes apart
 //   police  white patrol car with a blue side stripe, push bar and red / blue light bar
 //   interceptor  the same patrol car in black and white: dark hood and boot, no stripes
 //   wreck   the same body burnt out (used for destroyed police cars and the player's crash)
@@ -90,8 +92,7 @@ function buildCar(style) {
       const y = end * L * m.wheelBase;
       const x0 = side < 0 ? -m.wheelOuter : m.wheelInner;
       const x1 = side < 0 ? -m.wheelInner : m.wheelOuter;
-      const wheel = box(x0, x1, y - m.wheelLength / 2, y + m.wheelLength / 2, 0, m.wheelHeight, style.tire, 0);
-      decal(wheel, side < 0 ? 'left' : 'right', 0.3, 0.7, 0.22, 0.66, style.hub);
+      const wheel = roundWheel({ x0, x1, y, radius: m.wheelHeight / 2, color: style.tire, hub: style.hub, side });
       wheel.tag = 'wheel';
       parts.push(wheel);
     }
@@ -199,8 +200,7 @@ function buildBearcat() {
     for (const end of [-1, 1]) {
       const y = end * 26;
       const x0 = side < 0 ? -24.5 : 19.5;
-      const wheel = box(x0, x0 + 5, y - 10, y + 10, 0, 17, PALETTE.tire, 0);
-      decal(wheel, side < 0 ? 'left' : 'right', 0.28, 0.72, 0.22, 0.72, PALETTE.hub);
+      const wheel = roundWheel({ x0, x1: x0 + 5, y, radius: 9, color: PALETTE.tire, hub: PALETTE.hub, side });
       wheel.tag = 'wheel';
       parts.push(wheel);
     }
@@ -304,7 +304,9 @@ const meshes = new Map();
 
 export function carMesh(name) {
   if (!meshes.has(name)) {
-    if (name === 'wreckRoof') meshes.set(name, flipOver(buildCar(STYLES.wreck)));
+    if (name === 'playerBody') meshes.set(name, buildCar(STYLES.player).filter((part) => part.tag !== 'wheel'));
+    else if (name === 'playerWheels') meshes.set(name, buildCar(STYLES.player).filter((part) => part.tag === 'wheel'));
+    else if (name === 'wreckRoof') meshes.set(name, flipOver(buildCar(STYLES.wreck)));
     else if (name === 'bearcat') meshes.set(name, buildBearcat());
     else if (name === 'helicopter') meshes.set(name, buildHelicopter());
     else meshes.set(name, buildCar(STYLES[name]));

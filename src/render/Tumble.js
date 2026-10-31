@@ -85,13 +85,27 @@ export function stepChunk(chunk, dt, gravity, bounce, scrape) {
   chunk.y += chunk.vy * dt;
   chunk.z += chunk.vz * dt;
   chunk.angle += chunk.spin * dt;
+  chunk.squash = (chunk.squash || 0) * Math.exp(-10 * dt);
   if (chunk.z <= 0) {
     chunk.z = 0;
+    // It flattens for a moment as it lands: that, and its shadow, is what makes the bounce read.
+    if (chunk.vz < -60) chunk.squash = Math.min(0.45, -chunk.vz / 1300);
     chunk.vz = Math.abs(chunk.vz) * bounce;
-    if (chunk.vz < 18) chunk.vz = 0;
+    if (chunk.vz < 30) chunk.vz = 0;
     const keep = Math.exp(-scrape * dt);
     chunk.vx *= keep;
     chunk.vy *= keep;
     chunk.spin *= keep;
+  }
+}
+
+// One step of a car's little bounce after a knock { z, v }: up, down, and a smaller bounce or two.
+export function stepHop(hop, dt, gravity, bounce) {
+  hop.v -= gravity * dt;
+  hop.z += hop.v * dt;
+  if (hop.z <= 0) {
+    hop.z = 0;
+    hop.v = -hop.v * bounce;
+    if (hop.v < 30) hop.v = 0;
   }
 }

@@ -1,6 +1,6 @@
 import { COLLISION, PALETTE, PILLARS, RENDER, ROADBLOCK, SCENERY, WORLD } from '../config/tuning.js';
 import { glyphBars, glyphWidth } from './blockFont.js';
-import { box, decal, frustum, glowing, hexa, ngon, rect } from './lowpoly.js';
+import { box, decal, frustum, glowing, hexa, ngon, rect, roundWheel } from './lowpoly.js';
 
 // Low-poly placeholder props, built from a few solids each. Original designs.
 // Local axes: x = right, y = forward, z = up; each prop is centred on its ground point.
@@ -197,9 +197,7 @@ function civilianWheels() {
     for (const end of [-1, 1]) {
       const y = end * 27;
       const x0 = side < 0 ? -23 : 19;
-      const wheel = box(x0, x0 + 4, y - 8, y + 8, 0, 12, PALETTE.tire, 0);
-      decal(wheel, side < 0 ? 'left' : 'right', 0.3, 0.7, 0.22, 0.66, PALETTE.hub);
-      parts.push(wheel);
+      parts.push(roundWheel({ x0, x1: x0 + 4, y, radius: 6, color: PALETTE.tire, hub: PALETTE.hub, side, sides: 8 }));
     }
   }
   return parts;

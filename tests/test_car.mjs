@@ -83,7 +83,7 @@ check('presets ordered grippy < balanced < drifty', drifts[0] < drifts[1] && dri
   const gap = Math.atan2(Math.sin(moving - car.heading), Math.cos(moving - car.heading));
   check('turning right: car slides to the left of its nose (negative slip)', peakSlip < -0.2, `${fmt((peakSlip * 180) / Math.PI)} deg`);
   check('slipAngle equals the real gap between nose and travel', Math.abs(gap - car.slipAngle) < 0.001, `${fmt((gap * 180) / Math.PI)} deg`);
-  check('body leans away from the turn (visual roll, within its limit)', car.chassisRoll < 0 && Math.abs(car.chassisRoll) <= (HANDLING_PRESETS.balanced.rollMaxDeg * Math.PI) / 180 + 1e-9, `${fmt((car.chassisRoll * 180) / Math.PI)} deg`);
+  check('body leans away from the turn (visual roll, near its limit)', car.chassisRoll < 0 && Math.abs(car.chassisRoll) <= ((HANDLING_PRESETS.balanced.rollMaxDeg * Math.PI) / 180) * 1.15, `${fmt((car.chassisRoll * 180) / Math.PI)} deg`);
   for (let i = 0; i < 120; i++) car.stepFor(0, 1 / 60, PHYSICS.maxStepSeconds);
   check('slip and roll settle back to zero on a straight', Math.abs(car.slipAngle) < 0.01 && Math.abs(car.chassisRoll) < 0.01);
 }
@@ -150,7 +150,78 @@ check('presets ordered grippy < balanced < drifty', drifts[0] < drifts[1] && dri
 }
 
 // Police keep their handling: none of the player's slide extras.
-check('police have no slide extras', POLICE_HANDLING.slideGripLoss === 0 && POLICE_HANDLING.counterSteerBonus === 0 && POLICE_HANDLING.deepSlideScrub === 0);
+check('police have no slide extras', POLICE_HANDLING.slideGripLoss === 0 && POLICE_HANDLING.counterSteerBonus === 0 && POLICE_HANDLING.deepSlideScrub === 0 && POLICE_HANDLING.selfAlign === 0 && POLICE_HANDLING.slideEngineLoss === 0);
+
+// The feel of a turn: weight, and a nose that isn't stuck to the steering.
+{
+  const B = HANDLING_PRESETS.balanced;
+  const deg = (r) => (r * 180) / Math.PI;
+  const steps = (car, steer, seconds, each) => {
+    for (let i = 0; i < Math.round(seconds * 60); i++) {
+      car.stepFor(steer, 1 / 60, PHYSICS.maxStepSeconds);
+      if (each) each(i);
+    }
+  };
+  const car = new Car(B);
+  car.launch(300);
+  let rollAt200 = 0, turnAt100 = 0, peakRoll = 0, slowest = Infinity, peakPitch = 0;
+  steps(car, 1, 0.8, (i) => {
+    if (i === 5) turnAt100 = car.heading;
+    if (i === 11) rollAt200 = deg(car.chassisRoll);
+    peakRoll = Math.min(peakRoll, deg(car.chassisRoll));
+    peakPitch = Math.max(peakPitch, deg(car.chassisPitch));
+    slowest = Math.min(slowest, car.speed);
+  });
+  const settledRoll = deg(car.chassisRoll);
+  check('the nose takes a moment to come round', deg(turnAt100) < 8 && deg(turnAt100) > 3, `${fmt(deg(turnAt100))} deg after 0.1 s`);
+  check('the body leans to the outside straight away, before any big slide', rollAt200 < -2.5, `${fmt(rollAt200)} deg after 0.2 s`);
+  check('the lean overshoots a little and settles, like real suspension', peakRoll < settledRoll - 0.15, `${fmt(peakRoll)} then ${fmt(settledRoll)} deg`);
+  check('the nose dips in a hard turn', peakPitch > 1, `${fmt(peakPitch)} deg`);
+  check('a hard turn costs some speed, not a lot', slowest < 295 && slowest > 200, `${fmt(slowest)} of 300`);
+  let fastest = 0;
+  const entry = new Car(B);
+  entry.launch(300);
+  steps(entry, 1, 1, () => { fastest = Math.max(fastest, entry.speed); });
+  check('turning never adds speed', fastest <= 300.5, `fastest ${fmt(fastest)}`);
+  const slip = car.driftAngleDeg;
+  check('the tail really steps out', slip > 28 && slip < 50, `${fmt(slip)} deg between nose and travel`);
+  let furthest = car.heading;
+  let backSwing = 0;
+  steps(car, 0, 1.5, () => {
+    furthest = Math.max(furthest, car.heading);
+    backSwing = Math.max(backSwing, deg(furthest - car.heading));
+  });
+  check('let go, and the nose carries on a moment, then swings back as the tail catches', backSwing > 3, `${fmt(backSwing)} deg back`);
+  check('then it all settles', car.driftAngleDeg < 2 && Math.abs(deg(car.chassisRoll)) < 0.3, `${fmt(car.driftAngleDeg)} deg of slide`);
+  check('and it recovers its speed', car.speed > 295, `${fmt(car.speed)}`);
+
+  // Accelerating lifts the nose.
+  const start = new Car(B);
+  let lift = 0;
+  steps(start, 0, 0.5, () => { lift = Math.min(lift, deg(start.chassisPitch)); });
+  check('pulling away lifts the nose', lift < -1, `${fmt(lift)} deg`);
+
+  // A step of no time at all must not poison the numbers the drawing reads.
+  const still = new Car(B);
+  still.launch(300);
+  steps(still, 1, 0.3);
+  still.stepFor(1, 0, PHYSICS.maxStepSeconds);
+  steps(still, 1, 0.1);
+  check('a step of no time leaves the lean valid', Number.isFinite(still.chassisRoll) && Number.isFinite(still.chassisPitch) && Number.isFinite(still.longAccel), `pitch ${still.chassisPitch}`);
+
+  // Drawing only: the amount of lean changes nothing about where the car goes.
+  const path = (handling) => {
+    const c = new Car(handling);
+    c.launch(300);
+    steps(c, 1, 0.7);
+    steps(c, -1, 0.4);
+    steps(c, 0, 0.6);
+    return c;
+  };
+  const a = path(B);
+  const b = path({ ...B, rollMaxDeg: 20, rollSpring: 50, rollDamping: 3, pitchMaxDeg: 9, pitchTurnShare: 1 });
+  check('the lean is drawing only: it never changes the path', a.x === b.x && a.y === b.y && a.heading === b.heading);
+}
 
 // No outer wall: the old map edges (0 and 6000) and everything beyond them are just open road.
 for (const [name, x, y, heading] of [['north', 500, 200, 0], ['west', 200, 500, -Math.PI / 2], ['east', 5800, 500, Math.PI / 2], ['south', 500, 5800, Math.PI]]) {

@@ -60,6 +60,15 @@ rubber marks. Kaboom is a teal ring (`#7ff7ff`) sweeping out over the ground.
 their faces in the sun. **Planted medians:** L-shaped, with rows of pines. **Parked cars:** teal vans, pink hatchbacks,
 yellow sedans. **Road paint:** white arrows in the lanes, crisp stalls and crossings.
 
+## Weight in the cars
+
+Cars must never look like a rotated picture. In a turn the body leans to the outside (up to 8 degrees), the wheels stay
+on the road, the tail slides out with smoke from the rear wheels, and the body settles with a small bounce afterwards.
+Wheels are round: ten-sided, with a lighter sidewall and a hub. Knocks make the car jump. Wreckage must be seen to fall:
+every flying piece has a shadow, tires bounce and roll, panels thud down.
+
+The screen has no steering arrows or press flash: the car's own response is the feedback.
+
 ## Tactical units
 
 - **SWAT Bearcat:** a tall slab-sided truck in dark grey (`#565e69`), kept clearly lighter than the road, with a heavy

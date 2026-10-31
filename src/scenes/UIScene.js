@@ -15,7 +15,7 @@ const threatPoint = { x: 0, y: 0 };
 const edge = { x: 0, y: 0, dx: 0, dy: 0 };
 
 // Everything drawn over the world during a run: the HUD (HTML), the pause menu (HTML), the
-// steering feedback, the arrow pointing at an off-screen Shockwave crate and the red warning
+// arrow pointing at an off-screen Shockwave crate and the red warning
 // chevrons for police arriving from out of sight (canvas).
 export class UIScene extends Phaser.Scene {
   constructor() {
@@ -77,7 +77,7 @@ export class UIScene extends Phaser.Scene {
     }
     const sim = this.world.sim;
     if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.wrecks, running ? sim.powerUps.label : null);
-    this.drawOverlay(running && !this.paused ? command.steer : 0, running && !this.paused);
+    this.drawOverlay(running && !this.paused);
     if (this.devPanel && time >= this.nextReadoutAt) {
       this.nextReadoutAt = time + DEV_PANEL.readoutRefreshMs;
       this.devPanel.setReadout(this.describeRun());
@@ -154,30 +154,13 @@ export class UIScene extends Phaser.Scene {
     this.cameras.main.setSize(width, height);
   }
 
-  drawOverlay(steer, active) {
+  drawOverlay(active) {
     const g = this.zones;
     g.clear();
     if (!active) return;
     const { width, height } = this.scale;
-    const pointerSteering = this.controls.lastDevice === 'touch' || this.controls.lastDevice === 'mouse';
-    if (steer !== 0 && pointerSteering) {
-      g.fillStyle(COLORS.zone, UI.zoneAlpha);
-      g.fillRect(steer < 0 ? 0 : width / 2, 0, width / 2, height);
-    }
-    // Arrow hints in the bottom corners (touch / mouse players).
-    if (this.touch || pointerSteering) {
-      const size = UI.arrowSize * this.uiScale;
-      const y = this.safe.bottom - size * 2.2;
-      this.drawArrow(g, this.safe.left + size, y, size, -1, steer === -1);
-      this.drawArrow(g, this.safe.right - size, y, size, 1, steer === 1);
-    }
     this.drawCrateArrow(g, width, height);
     this.drawThreats(g, width, height);
-  }
-
-  drawArrow(g, x, y, size, direction, lit) {
-    g.fillStyle(COLORS.zone, lit ? UI.arrowActiveAlpha : UI.arrowIdleAlpha);
-    g.fillTriangle(x + direction * size, y, x - direction * size * 0.6, y - size, x - direction * size * 0.6, y + size);
   }
 
   // Where the line from the screen centre to p leaves the area kept clear of the HUD. Written into

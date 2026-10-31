@@ -1,11 +1,12 @@
 import * as Phaser from 'phaser';
-import { DEPTH, EFFECTS, FLAMER, FREEZE, PALETTE } from '../config/tuning.js';
+import { DEPTH, EFFECTS, FLAMER, FREEZE, PALETTE, RENDER } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { stepChunk } from './Tumble.js';
 import { projection } from './projection.js';
 
 const screen = { x: 0, y: 0 };
 const BURST_SIZE = 160; // pixels across the starburst drawing
+const shadowShift = { x: 0, y: 0 };
 const CHUNK_TEXTURES = ['fx-tire', 'fx-bumper', 'fx-panel', 'fx-tire', 'fx-panel'];
 const SCORCH_ALPHA = 0.85;
 
@@ -71,14 +72,19 @@ export function makeEffectTextures(scene) {
   if (!scene.textures.exists('fx-tire')) {
     const texture = scene.textures.createCanvas('fx-tire', 22, 22);
     const ctx = texture.context;
+    // Many-sided, like the wheels on the cars, with bolts so that its spin can be seen.
+    const disc = (color, radius) => {
+      ctx.fillStyle = cssHex(color);
+      ctx.beginPath();
+      for (let i = 0; i < 10; i += 1) ctx.lineTo(11 + radius * Math.cos((i * Math.PI) / 5), 11 + radius * Math.sin((i * Math.PI) / 5));
+      ctx.closePath();
+      ctx.fill();
+    };
+    disc(PALETTE.chunkTire, 10.8);
+    disc(PALETTE.chunkTireWall, 7.6);
+    disc(PALETTE.chunkHub, 5);
     ctx.fillStyle = cssHex(PALETTE.chunkTire);
-    ctx.beginPath();
-    ctx.arc(11, 11, 10.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = cssHex(PALETTE.chunkHub);
-    ctx.beginPath();
-    ctx.arc(11, 11, 4.5, 0, Math.PI * 2);
-    ctx.fill();
+    for (let i = 0; i < 3; i += 1) ctx.fillRect(10 + 3.4 * Math.cos((i * Math.PI * 2) / 3), 10 + 3.4 * Math.sin((i * Math.PI * 2) / 3), 2, 2);
     texture.refresh();
   }
   const polygon = (key, width, height, color, points) => {
@@ -252,6 +258,8 @@ export class Effects {
 
     this.chunks = Array.from({ length: EFFECTS.maxChunks }, () => ({
       image: scene.add.image(0, 0, 'fx-tire').setDepth(DEPTH.effects + 2).setVisible(false),
+      // Without a shadow, nothing shows how high a piece is: from this camera it would seem to float.
+      shadow: this.makeChunkShadow(scene, layers),
       x: 0,
       y: 0,
       z: 0,
@@ -350,24 +358,39 @@ export class Effects {
   }
 
   // Tires, bumpers and panels fly out, bounce and scrape to a stop.
+  makeChunkShadow(scene, layers) {
+    const shadow = scene.add.image(0, 0, 'fx-glow').setTint(RENDER.shadowColor).setVisible(false);
+    layers.shadows.add(shadow);
+    return shadow;
+  }
+
   throwChunks(x, y, count) {
     for (let i = 0; i < count; i += 1) {
       const chunk = this.chunks[this.nextChunk];
       this.nextChunk = (this.nextChunk + 1) % this.chunks.length;
       const angle = ((i + Math.random() * 0.8) / count) * Math.PI * 2;
       const speed = 110 + Math.random() * 200;
+      const texture = CHUNK_TEXTURES[i % CHUNK_TEXTURES.length];
+      const tire = texture === 'fx-tire';
       Object.assign(chunk, {
         x,
         y,
         z: 16,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        vz: 170 + Math.random() * 190,
+        vz: 300 + Math.random() * 220,
         spin: (Math.random() - 0.5) * 22,
         angle: Math.random() * 6,
         age: 0,
+        tumble: Math.random() * 6,
+        tumbleSpeed: 7 + Math.random() * 9,
+        squash: 0,
+        bounce: tire ? EFFECTS.tireBounce : EFFECTS.chunkBounce,
+        scrape: tire ? EFFECTS.tireScrape : EFFECTS.chunkScrape,
+        seconds: tire ? EFFECTS.tireSeconds : EFFECTS.chunkSeconds,
       });
-      chunk.image.setTexture(CHUNK_TEXTURES[i % CHUNK_TEXTURES.length]).setAlpha(1).setVisible(true);
+      chunk.image.setTexture(texture).setAlpha(1).setVisible(true);
+      chunk.shadow.setVisible(true);
     }
   }
 
@@ -502,11 +525,31 @@ export class Effects {
     for (const chunk of this.chunks) {
       if (!chunk.image.visible || dt === 0) continue;
       chunk.age += dt;
-      stepChunk(chunk, dt, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkScrape);
+      stepChunk(chunk, dt, EFFECTS.chunkGravity, chunk.bounce, chunk.scrape);
       projection.toScreen(chunk.x, chunk.y, chunk.z, screen);
-      const left = EFFECTS.chunkSeconds - chunk.age;
-      chunk.image.setPosition(screen.x, screen.y).setRotation(chunk.angle).setAlpha(Math.min(1, left * 3));
-      if (left <= 0) chunk.image.setVisible(false);
+      const left = chunk.seconds - chunk.age;
+      const alpha = Math.min(1, left * 3);
+      // In the air it turns over; on the road it lies flat.
+      const flying = chunk.z > 0;
+      if (flying) chunk.tumble += chunk.tumbleSpeed * dt;
+      const wide = flying ? Math.max(0.35, Math.abs(Math.cos(chunk.tumble))) : 1;
+      const tall = (chunk.vz === 0 && !flying ? 0.74 : 1) * (1 - chunk.squash);
+      chunk.image
+        .setPosition(screen.x, screen.y)
+        .setRotation(chunk.angle)
+        .setScale(wide, tall)
+        .setAlpha(alpha)
+        .setDepth(chunk.z > 3 ? DEPTH.effects + 2 : DEPTH.objects + projection.depthOf(chunk.x, chunk.y));
+      projection.shadowOffset(chunk.z, shadowShift);
+      const high = Math.min(1, chunk.z / 260);
+      chunk.shadow
+        .setPosition(chunk.x + shadowShift.x, chunk.y + shadowShift.y)
+        .setScale((EFFECTS.chunkShadowRadius * (1 - 0.4 * high)) / 32)
+        .setAlpha(EFFECTS.chunkShadowAlpha * (1 - 0.5 * high) * alpha);
+      if (left <= 0) {
+        chunk.image.setVisible(false);
+        chunk.shadow.setVisible(false);
+      }
     }
     const g = this.ring;
     g.clear();
@@ -525,7 +568,10 @@ export class Effects {
   clear() {
     for (const emitter of [this.smoke, this.darkSmoke, this.fireball, this.fire, this.debris, this.flames, this.frost, this.trailFire]) emitter.killAll();
     for (const glow of this.firePatches) glow.setVisible(false);
-    for (const chunk of this.chunks) chunk.image.setVisible(false);
+    for (const chunk of this.chunks) {
+      chunk.image.setVisible(false);
+      chunk.shadow.setVisible(false);
+    }
     for (const ring of this.rings) {
       this.scene.tweens.killTweensOf(ring);
       ring.setVisible(false);

@@ -103,6 +103,13 @@ out along the ground and the road keeps a burn for 45 s.
   drawn. The rotor is a Graphics object redrawn each frame in screen space. Its shadow goes in the shared car shadow
   layer, thrown far away by `projection.shadowOffset(height)`. The searchlight is one additive glow in each ground-lights
   layer (on the road, and a faint wash over cars and props), plus one screen-space beam.
+- **Body lean** (`bodyLean` in `CarView`) reads `chassisRoll`, `chassisPitch` and the turn rate. It shifts the body over the
+  ground, tilts it on screen (a roll shows as a tilt when the car faces up or down the screen, a pitch when it faces
+  across) and picks a drawing slightly ahead of the true heading. The player's car has separate sheets for the wheels and
+  for everything else, wheels drawn first. The wheels share `BODY_LEAN.wheelsFollow` of the movement, so the car stays in
+  one piece. Police lean as one sprite, to save memory. Bearcats too. Wrecks and falling cars don't lean. Physics stays flat.
+- **Flying wreckage** is flat images with a soft shadow in the ground shadow layer, thrown away from the piece by
+  `projection.shadowOffset(height)`: without it, height can't be seen from this camera and pieces seem to float.
 - **Flat tires** are drawn by `CarView` from `Car.flatness`: a small lean (flipped according to which way the flat corner
   faces on screen) and a rattle. The lean is drawing only; physics stays flat.
 - **Spike strips** lie flat in the raised ground band (`Scenery.syncSpikes`), under the cars, with no shadow.

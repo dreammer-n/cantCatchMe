@@ -3,6 +3,7 @@ import { DEBUG } from '../config/debug.js';
 import {
   AUDIO,
   BEARCAT,
+  BODY_LEAN,
   CAR_SIZE,
   CRASH,
   DEFAULT_HANDLING_PRESET,
@@ -119,7 +120,8 @@ export class GameScene extends Phaser.Scene {
 
   makeLooks() {
     const look = (name, lights, lightSpot) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights, lightSpot });
-    return { player: look('player', false), police: look('police', true), interceptor: look('interceptor', true), bearcat: look('bearcat', true, BEARCAT_LIGHTS), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
+    const player = { ...look('playerBody', false), shadowPoints: carShadowPoints('player'), wheelsKey: ensureCarAtlas(this, 'playerWheels') };
+    return { player, police: look('police', true), interceptor: look('interceptor', true), bearcat: look('bearcat', true, BEARCAT_LIGHTS), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
   }
 
   // ------------------------------------------------------------------------------------------
@@ -342,6 +344,7 @@ export class GameScene extends Phaser.Scene {
           this.rig.addTrauma(TRAUMA.pulse);
           break;
         case 'bump':
+          if (e.player) this.playerView.bump(e.impact);
           this.audio.play('bump', e.impact / 250);
           this.rig.addTrauma(TRAUMA.bump);
           this.effects.impact(e.x, e.y, EFFECTS.burstBump);
@@ -353,6 +356,7 @@ export class GameScene extends Phaser.Scene {
           this.punch(HITSTOP.scrapeMs);
           break;
         case 'curb':
+          this.playerView.bump(BODY_LEAN.hopFullImpact * 0.45);
           this.audio.play('bump', 0.3);
           this.rig.addTrauma(TRAUMA.curb);
           break;
