@@ -32,7 +32,7 @@ pines `#3f8a46`/`#2f6e3a`; leafy `#5f9f3f`; lamp `#fff1bf`; player car crimson `
 
 ## Player car
 
-Original compact muscle-coupe built in height bands: dark tyres with grey hubs and dark sills/bumpers at the
+Original compact muscle-coupe built in height bands: dark tires with grey hubs and dark sills/bumpers at the
 bottom, red body with a sloped hood and boot, glass cabin (sloped windscreen and rear window, side windows with
 a red pillar) and a flat red roof; cream racing stripe over hood, roof and boot; small rear spoiler; glowing
 head/tail lights. Tops are the brightest surfaces, one side lit, the other in shade.
@@ -49,10 +49,10 @@ dark brown wreck (`#3d3833`) with a crumpled roof, smoke and short flames, then 
 
 All drawn in code at startup. **Explosions:** a white flash, a jagged comic star (dark ink, orange `#ff7a18`, yellow
 `#ffd21f`, white) and solid flame clouds that cool from white through yellow and orange to dark red, with the wreck
-flying up out of them. **Wreckage:** tyres, bumpers and panels that bounce away; the car lands on its roof or
-wheels. **Smoke:** solid cloud puffs shaded on one side, cream for tyres and dark for wrecks; they swell, hold and
+flying up out of them. **Wreckage:** tires, bumpers and panels that bounce away; the car lands on its roof or
+wheels. **Smoke:** solid cloud puffs shaded on one side, cream for tires and dark for wrecks; they swell, hold and
 fade rather than drifting as haze. **Also:** four-pointed sparks, dark ragged burns that stay on the road, long
-rubber marks. The Shockwave is a teal ring (`#7ff7ff`) sweeping out over the ground.
+rubber marks. Kaboom is a teal ring (`#7ff7ff`) sweeping out over the ground.
 
 ## Set dressing
 
@@ -60,17 +60,36 @@ rubber marks. The Shockwave is a teal ring (`#7ff7ff`) sweeping out over the gro
 their faces in the sun. **Planted medians:** L-shaped, with rows of pines. **Parked cars:** teal vans, pink hatchbacks,
 yellow sedans. **Road paint:** white arrows in the lanes, crisp stalls and crossings.
 
-## Shockwave gift box
+## Tactical units
 
-A wrapped gift box, orange-red (`#e8572a`) with a cream ribbon and a bow, bobbing over a soft pulsing warm glow.
-When it is off screen, an arrow at the screen edge points to it. The arrow stays teal, like the Shockwave button,
-because an orange one would look too much like the red police warnings.
+- **SWAT Bearcat:** a tall slab-sided truck in dark grey (`#565e69`), kept clearly lighter than the road, with a heavy
+  near-black lower hull, a barred ram plate wider than the body, slit windows, a yellow stripe and small roof lights.
+- **Helicopter:** bright police blue (`#2f62d6`) with a white band and tail fin, so it stands out against the road from
+  above. Its shadow falls far off to the upper left, which shows how high it is.
+- **Searchlight:** warm white (`#fff4c9`), the only light that follows the player.
+- **Flare:** a spitting red star and a closing ring on the road. Red means danger, as on the warning arrows.
+- **Spike strip:** a low near-black bar with yellow hazard paint and rows of bright steel teeth.
+- **Flat tire:** one corner only: the car sits down on it and rattles, with sparks, smoke and a dark scrape line from that wheel.
+- **Smashed frozen car:** a white flash, a burst of ice sparkles and flying panels. No fire, so it reads differently from a wreck.
+
+## The lucky die
+
+The power-up is our own: a big violet die (`#8f5cff`, a colour nothing else in the game uses) with cream spots and a
+bevelled top, over a soft pulsing glow. It bounces after the car from the moment it appears, squashing as it lands
+and showing new numbers each bounce, then sinks into the car. A die suits it: you never know what you will get. When
+it is off screen, a teal arrow at the screen edge points to it, matching the power-up button.
+
+## Power-ups
+
+**Monster:** the car itself, huge. **Cold Snap:** a frost ring (`#7fe9ff`), white and cyan sparkles, icy blue cars (`#9fdcff`).
+**Stonewall:** rough grey stone (`#a39c8e`) with a pale top, in clouds of dust. **Scorcher:** yellow to deep orange flame
+clouds over a glowing road.
 
 ## Interface
 
 System font (no download), heavy italic for the logo, titles and pop-ups. Cream text (`#f4efe6`) on
 dark translucent panels; red primary buttons (`#e0473c`) with a darker red "lip"; yellow (`#f0c04a`)
-for best times, combos and the NEW BEST badge; teal for the Shockwave button. Big touch targets
+for best times, combos and the NEW BEST badge; teal for the power-up button. Big touch targets
 (48–84 px), everything inside the phone's safe area.
 
 ## Still to decide (owner)

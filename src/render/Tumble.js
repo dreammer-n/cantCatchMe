@@ -57,6 +57,26 @@ export class Tumble {
   }
 }
 
+// Where the near lip of a hole is, on screen, in line with a point sx across the screen: anything
+// that has dropped below this line is hidden by the road. outline: the hole's edge in world units.
+// Returns Infinity if the hole doesn't reach that far across.
+export function holeLipY(outline, sx, proj) {
+  const a = { x: 0, y: 0 };
+  const b = { x: 0, y: 0 };
+  let lip = -Infinity;
+  for (let i = 0; i < outline.length; i += 1) {
+    proj.toScreen(outline[i].x, outline[i].y, 0, a);
+    const next = outline[(i + 1) % outline.length];
+    proj.toScreen(next.x, next.y, 0, b);
+    if ((a.x <= sx && b.x >= sx) || (b.x <= sx && a.x >= sx)) {
+      const span = b.x - a.x;
+      const y = span === 0 ? Math.max(a.y, b.y) : a.y + ((sx - a.x) / span) * (b.y - a.y);
+      lip = Math.max(lip, y);
+    }
+  }
+  return lip === -Infinity ? Infinity : lip;
+}
+
 // One step of a flying debris chunk { x, y, z, vx, vy, vz, spin, angle }: it arcs under gravity,
 // bounces when it lands, and scrapes to a stop along the road.
 export function stepChunk(chunk, dt, gravity, bounce, scrape) {

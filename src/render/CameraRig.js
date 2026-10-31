@@ -1,4 +1,4 @@
-import { CAMERA, TRAUMA } from '../config/tuning.js';
+import { CAMERA, GIANT, TRAUMA } from '../config/tuning.js';
 import { clamp, lerp, smoothFactor } from '../utils/math.js';
 import { projection } from './projection.js';
 
@@ -30,7 +30,9 @@ export class CameraRig {
   // baseHalfW / baseHalfH: half the view in screen units at zoom factor 1.
   update(car, dt, baseHalfW, baseHalfH) {
     const speedShare = clamp((car.speed - CAMERA.zoomStartSpeed) / (CAMERA.zoomFullSpeed - CAMERA.zoomStartSpeed), 0, 1);
-    this.zoom += (lerp(1, CAMERA.zoomOut, speedShare) - this.zoom) * smoothFactor(CAMERA.zoomSharpness, dt);
+    const giantShare = clamp((car.scale - 1) / (GIANT.scale - 1), 0, 1);
+    const wanted = lerp(1, CAMERA.zoomOut, speedShare) * lerp(1, CAMERA.giantZoom, giantShare);
+    this.zoom += (wanted - this.zoom) * smoothFactor(CAMERA.zoomSharpness, dt);
 
     // Velocity as seen on screen x lead time, limited to an ellipse the shape of the view. That
     // puts the car the same share of the view behind the centre in every direction and on every screen.

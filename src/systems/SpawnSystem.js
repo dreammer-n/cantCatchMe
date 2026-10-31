@@ -1,4 +1,4 @@
-import { HEAT, INTERCEPTOR, POLICE, ROADBLOCK, SPAWN, WORLD } from '../config/tuning.js';
+import { BEARCAT, HEAT, INTERCEPTOR, POLICE, ROADBLOCK, SPAWN, WORLD } from '../config/tuning.js';
 import { projection } from '../render/projection.js';
 import { clamp, degToRad, lerp, tableLookup } from '../utils/math.js';
 import { nearestRoadPoint, pointOnRoad } from './WorldLayout.js';
@@ -13,6 +13,7 @@ export function difficultyAt(time) {
     targetPolice: Math.min(POLICE.maxActive, Math.round(tableLookup(HEAT.police, time))),
     interval: lerp(SPAWN.intervalStart, SPAWN.intervalEnd, clamp(time / SPAWN.intervalRampSeconds, 0, 1)),
     interceptorShare: tableLookup(HEAT.interceptorShare, time),
+    bearcatShare: tableLookup(HEAT.bearcatShare, time),
     speedFactor: tableLookup(HEAT.speedFactor, time),
     turnDeg: tableLookup(HEAT.turnDeg, time),
     reaction: tableLookup(HEAT.reaction, time),
@@ -61,12 +62,13 @@ export class SpawnDirector {
     this.cooldown = this.trySpawn(sim, view, level) ? level.interval : 0.15;
   }
 
-  // A car already at speed, off screen, in a lane of a road leading toward the player. Chasers come
-  // from anywhere. Interceptors come in from the sides, along cross streets.
+  // A car already at speed, off screen, in a lane of a road leading toward the player. Chasers and
+  // Bearcats come from anywhere. Interceptors come in from the sides, along cross streets.
   trySpawn(sim, view, level) {
     const player = sim.player;
     const rng = sim.rng;
-    const interceptor = rng() < level.interceptorShare;
+    const bearcat = sim.bearcats < BEARCAT.maxActive && rng() < level.bearcatShare;
+    const interceptor = !bearcat && rng() < level.interceptorShare;
     const ahead = rng() < SPAWN.aheadShare;
     const side = rng() < 0.5 ? -1 : 1;
     const dir = travelDirection(player);
@@ -106,9 +108,9 @@ export class SpawnDirector {
       if (sim.isNearCar(x, y, 110)) continue;
 
       sim.spawnPolice(x, y, heading, {
-        role: interceptor ? 'interceptor' : 'chaser',
-        speedFactor: level.speedFactor + (interceptor ? INTERCEPTOR.speedBonus : 0),
-        turnDeg: level.turnDeg + (interceptor ? INTERCEPTOR.turnBonusDeg : 0),
+        role: bearcat ? 'bearcat' : interceptor ? 'interceptor' : 'chaser',
+        speedFactor: bearcat ? level.speedFactor * BEARCAT.speedShare : level.speedFactor + (interceptor ? INTERCEPTOR.speedBonus : 0),
+        turnDeg: bearcat ? BEARCAT.turnDeg : level.turnDeg + (interceptor ? INTERCEPTOR.turnBonusDeg : 0),
         aimSide: rng() * 2 - 1,
         launchShare: lerp(SPAWN.speedMin, SPAWN.speedMax, rng()),
         reaction: interceptor ? level.reaction : 1,
@@ -118,8 +120,9 @@ export class SpawnDirector {
     return false;
   }
 
-  // Parked cruisers across a crossing ahead, placed where the camera can't see yet. The lots at the
-  // crossing's corners stay open, so there is always a way round.
+  // Parked cruisers angled across a crossing ahead, with a spike strip in the gap between them, placed
+  // where the camera can't see yet. The lots at the crossing's corners stay open, so there is always a
+  // way round.
   tryRoadblock(sim, view) {
     let parked = 0;
     for (const police of sim.police) if (police.alive && police.parked) parked += 1;
@@ -135,7 +138,7 @@ export class SpawnDirector {
       if (!sim.world.isClear(x, y, ROADBLOCK.clearance) || sim.isNearCar(x, y, ROADBLOCK.clearance)) continue;
       for (let i = 0; i < ROADBLOCK.cars; i += 1) {
         const offset = (i - (ROADBLOCK.cars - 1) / 2) * ROADBLOCK.spacing;
-        const heading = (northSouth ? Math.PI / 2 : 0) + (sim.rng() - 0.5) * ROADBLOCK.angleJitter;
+        const heading = (northSouth ? Math.PI / 2 : 0) + (i === 0 ? -1 : 1) * degToRad(ROADBLOCK.angleDeg);
         sim.spawnPolice(x + (northSouth ? offset : 0), y + (northSouth ? 0 : offset), heading, {
           role: 'roadblock',
           speedFactor: 1,
@@ -144,6 +147,7 @@ export class SpawnDirector {
           launchShare: 0,
         });
       }
+      sim.addSpikeStrip(x, y, northSouth);
       return true;
     }
     return false;

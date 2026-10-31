@@ -1,9 +1,10 @@
 import { Car } from '../entities/Car.js';
+import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { COLLISION, CONES, CRASH, EXPLOSION, NEAR_MISS, PHYSICS, POLICE, START, VOID, WRECK } from '../config/tuning.js';
+import { BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
-import { CAR_REACH, StaticWorld, collideCars, collideWithWorld } from './CollisionSystem.js';
+import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
 import { steerPolice } from './PoliceAI.js';
 import { PowerUps } from './PowerUpSystem.js';
 import { RunStats } from './ScoreSystem.js';
@@ -26,6 +27,9 @@ export class ChaseSimulation {
     this.bodies = []; // player + police on the map, kept sorted by x for the collision sweep
     this.spawner = new SpawnDirector();
     this.powerUps = new PowerUps();
+    this.helicopter = new Helicopter();
+    this.shattering = [];
+    this.spikeStrips = Array.from({ length: ROADBLOCK.maxSpikes }, () => ({ active: false, x: 0, y: 0, northSouth: true, time: 0, shape: null }));
     this.stats = new RunStats();
     this.events = [];
     this.result = { impact: 0, shape: null };
@@ -49,7 +53,9 @@ export class ChaseSimulation {
     this.chunks.update(START.x, START.y);
     for (const cone of this.cones) resetCone(cone);
     this.spawner.reset();
-    this.powerUps.reset();
+    this.powerUps.reset(this);
+    this.helicopter.reset(this);
+    for (const strip of this.spikeStrips) this.removeSpikeStrip(strip);
     this.stats.reset();
     this.events.length = 0;
   }
@@ -78,6 +84,12 @@ export class ChaseSimulation {
     return count;
   }
 
+  get bearcats() {
+    let count = 0;
+    for (const police of this.police) if (police.alive && police.armored) count += 1;
+    return count;
+  }
+
   get activeCars() {
     return this.bodies.length - 1;
   }
@@ -98,20 +110,24 @@ export class ChaseSimulation {
     const player = this.player;
 
     // 1. Driving.
-    if (player.isFalling) player.fall(dt, VOID.fallSeconds, VOID.fallFriction);
-    else if (running) player.stepFor(steer, dt, PHYSICS.maxStepSeconds);
+    if (player.isFalling) {
+      player.fall(dt, VOID.fallSeconds, VOID.fallFriction);
+      keepInsideHole(player, VOID.fallInset);
+    } else if (running) player.stepFor(steer, dt, PHYSICS.maxStepSeconds);
     else player.slide(dt, WRECK.friction, WRECK.spinFriction);
     this.chunks.update(player.x, player.y);
+    this.powerUps.tick(this, dt);
+    this.helicopter.update(this, dt);
     for (const police of this.police) {
-      if (police.alive && police.parked) {
-        police.model.slide(dt, WRECK.friction, WRECK.spinFriction);
-      } else if (police.alive) {
-        steerPolice(police, player, dt, this.rng, this.world);
-        police.model.stepFor(police.steer, dt, PHYSICS.maxStepSeconds);
-        police.age += dt;
+      if (police.alive) {
+        this.drivePolice(police, dt);
       } else if (police.state === 'wreck') {
-        if (police.model.isFalling) police.model.fall(dt, VOID.fallSeconds, VOID.fallFriction);
-        else police.model.slide(dt, WRECK.friction, WRECK.spinFriction);
+        if (police.model.isFalling) {
+          police.model.fall(dt, VOID.fallSeconds, VOID.fallFriction);
+          keepInsideHole(police.model, VOID.fallInset);
+        } else {
+          police.model.slide(dt, WRECK.friction, WRECK.spinFriction);
+        }
         police.wreckTime += dt;
       }
     }
@@ -127,9 +143,9 @@ export class ChaseSimulation {
       this.touchingCar = police.model;
       collideWithWorld(police.model, this.world, this.result, this.onConeTouch);
       if (this.result.voidShape) {
-        police.model.startFall();
+        police.model.startFall(this.result.voidShape);
         this.wreckPolice(police, 'void');
-      } else if (police.alive && this.result.impact > CRASH.policeObstacleImpact) {
+      } else if (police.alive && this.result.impact > this.obstacleLimit(police, this.result.shape)) {
         this.wreckPolice(police, 'obstacle');
       }
     }
@@ -151,6 +167,29 @@ export class ChaseSimulation {
     this.stats.update(dt);
     this.updatePoliceLife(dt, view);
     this.updateCones(dt, view);
+    this.updateSpikeStrips(dt, view);
+  }
+
+  drivePolice(police, dt) {
+    const car = police.model;
+    const burning = police.burning > 0;
+    if (police.frozen > 0) {
+      car.halt();
+      police.frozen -= dt;
+      if (police.frozen <= 0) police.thaw();
+    } else if (police.parked) {
+      car.slide(dt, WRECK.friction, WRECK.spinFriction);
+    } else if (burning) {
+      car.stepFor(police.burnSteer, dt, PHYSICS.maxStepSeconds);
+    } else {
+      steerPolice(police, this.player, dt, this.rng, this.world);
+      car.stepFor(police.steer, dt, PHYSICS.maxStepSeconds);
+    }
+    police.age += dt;
+    if (burning) {
+      police.burning -= dt;
+      if (police.burning <= 0) this.wreckPolice(police, 'fire');
+    }
   }
 
   collidePlayerWithWorld(running) {
@@ -159,9 +198,13 @@ export class ChaseSimulation {
     collideWithWorld(player, this.world, this.result, this.onConeTouch);
     if (!running) return;
     if (this.result.voidShape) {
-      player.startFall();
+      player.startFall(this.result.voidShape);
       this.emit('fall', { x: player.x, y: player.y });
       return;
+    }
+    if (this.result.spikes && player.flatTime <= 0) {
+      player.puncture(FLAT_TIRE.seconds, this.rng() < 0.5 ? -1 : 1);
+      this.emit('flat', { x: player.x, y: player.y });
     }
     if (this.result.impact > CRASH.playerImpact) this.crashPlayer('obstacle');
     else if (this.result.impact > 60) this.emit('bump', { x: player.x, y: player.y, impact: this.result.impact, player: true });
@@ -181,17 +224,66 @@ export class ChaseSimulation {
       }
       bodies[j + 1] = body;
     }
+    const player = this.player;
+    // The largest two cars there can be: a Giant player and a Bearcat, or two Bearcats.
+    const reach = (CAR_REACH * (Math.max(player.scale, BEARCAT.scale) + BEARCAT.scale)) / 2;
     for (let i = 0; i < bodies.length; i += 1) {
       const a = bodies[i];
       if (a.model.isFalling) continue;
       for (let j = i + 1; j < bodies.length; j += 1) {
         const b = bodies[j];
-        if (b.model.x - a.model.x > CAR_REACH) break;
-        if (b.model.isFalling || Math.abs(b.model.y - a.model.y) > CAR_REACH) continue;
+        if (b.model.x - a.model.x > reach) break;
+        if (b.model.isFalling || Math.abs(b.model.y - a.model.y) > reach) continue;
+        const ice = this.frozenAgainstPlayer(a, b);
+        const { vx, vy, heading, angularVelocity } = player;
         const impact = collideCars(a.model, b.model);
-        if (impact > 0) this.onCarsTouch(a, b, impact);
+        if (carContact.touched && player.crushing && (a.isPlayer || b.isPlayer)) {
+          this.crush(a.isPlayer ? b : a);
+        } else if (ice && impact > FREEZE.shatterImpact) {
+          // The ice gives way, so the player doesn't bounce off it: undo the collision's shove.
+          player.vx = vx * FREEZE.shatterKeep;
+          player.vy = vy * FREEZE.shatterKeep;
+          player.heading = heading;
+          player.angularVelocity = angularVelocity;
+          this.shattering.push(ice);
+        } else if (impact > 0) {
+          this.onCarsTouch(a, b, impact);
+        }
       }
     }
+    // Removed after the loop, which is still walking the list of bodies.
+    while (this.shattering.length) this.shatter(this.shattering.pop());
+  }
+
+  // The frozen police car in this pair, if the other one is the player, in a run still going.
+  frozenAgainstPlayer(a, b) {
+    if (this.state !== 'running') return null;
+    if (a.isPlayer) return b.alive && b.frozen > 0 ? b : null;
+    if (b.isPlayer) return a.alive && a.frozen > 0 ? a : null;
+    return null;
+  }
+
+  // A frozen police car smashed to bits. No wreck is left in the way and nothing explodes.
+  shatter(police) {
+    const { x, y } = police.model;
+    police.wreck('shatter');
+    const combo = this.stats.addWreck();
+    this.emit('shatter', { x, y, combo });
+    if (combo >= 2) this.emit('combo', { count: combo, x, y });
+    this.removePolice(police, 'wreckGone');
+  }
+
+  // The Giant car flattens any police car it touches, and throws it clear.
+  crush(police) {
+    if (!police.alive) return;
+    const car = police.model;
+    const dx = car.x - this.player.x;
+    const dy = car.y - this.player.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    car.vx += (dx / distance) * GIANT.crushFling;
+    car.vy += (dy / distance) * GIANT.crushFling;
+    this.emit('crush', { x: car.x, y: car.y });
+    this.wreckPolice(police, 'giant');
   }
 
   onCarsTouch(a, b, impact) {
@@ -200,7 +292,9 @@ export class ChaseSimulation {
       police.lastTouch = this.time;
       police.nearArmed = false;
       if (this.state !== 'running') return;
-      if (impact > CRASH.playerImpact) {
+      if (police.alive && police.armored && police.frozen <= 0 && impact > BEARCAT.fatalImpact) {
+        this.crashPlayer('bearcat');
+      } else if (impact > CRASH.playerImpact) {
         if (!police.alive) this.crashPlayer('wreck');
         else this.crashPlayer(police.parked ? 'roadblock' : 'police');
         if (police.alive && impact > CRASH.policeCarImpact) this.wreckPolice(police, 'player');
@@ -210,20 +304,18 @@ export class ChaseSimulation {
       return;
     }
     if (impact <= CRASH.policeCarImpact) return;
-    if (a.alive && b.alive) {
-      this.wreckPolice(a, 'police');
-      this.wreckPolice(b, 'police');
-    } else if (a.alive) {
-      this.wreckPolice(a, 'wreck');
-    } else if (b.alive) {
-      this.wreckPolice(b, 'wreck');
-    }
+    // A Bearcat shrugs off all but the hardest hits. Whatever hits it comes off worse.
+    const hard = impact > BEARCAT.carImpact;
+    if (a.alive && (!a.armored || hard)) this.wreckPolice(a, b.alive ? 'police' : 'wreck');
+    if (b.alive && (!b.armored || hard)) this.wreckPolice(b, a.alive ? 'police' : 'wreck');
   }
 
   crashPlayer(cause) {
     if (this.state !== 'running') return;
     const player = this.player;
     this.state = 'crashed';
+    player.crushing = false;
+    player.flatTime = 0;
     player.mass = COLLISION.wreckMass;
     this.crash = { cause, x: player.x, y: player.y, time: this.time };
     if (cause !== 'void') this.throwWreck(player);
@@ -264,7 +356,7 @@ export class ChaseSimulation {
         const dy = car.y - blast.y;
         const distance = Math.hypot(dx, dy);
         if (distance > EXPLOSION.radius) continue;
-        if (police.alive && distance < EXPLOSION.chainRadius) {
+        if (police.alive && !police.armored && distance < EXPLOSION.chainRadius) {
           this.wreckPolice(police, 'explosion');
           continue;
         }
@@ -272,7 +364,7 @@ export class ChaseSimulation {
         car.vx += (dx / Math.max(1, distance)) * push;
         car.vy += (dy / Math.max(1, distance)) * push;
       }
-      if (!blast.player && this.state === 'running' && !this.player.isFalling) {
+      if (!blast.player && this.state === 'running' && !this.player.isFalling && !this.player.crushing) {
         const dx = this.player.x - blast.x;
         const dy = this.player.y - blast.y;
         const distance = Math.hypot(dx, dy);
@@ -302,9 +394,59 @@ export class ChaseSimulation {
     this.runExplosions();
   }
 
+  // How hard a police car must hit this prop to be wrecked. Pillars are deadly; Bearcats are tough.
+  obstacleLimit(police, shape) {
+    if (shape && shape.item.isPillar) return PILLARS.lethalImpact;
+    return police.armored ? BEARCAT.obstacleImpact : CRASH.policeObstacleImpact;
+  }
+
+  // ---- Spike strips, laid across roadblocks ----------------------------------------------------
+
+  addSpikeStrip(x, y, northSouth) {
+    const strip = this.spikeStrips.find((candidate) => !candidate.active);
+    if (!strip) return;
+    strip.active = true;
+    strip.x = x;
+    strip.y = y;
+    strip.northSouth = northSouth;
+    strip.time = 0;
+    strip.shape = this.world.add({
+      kind: 'spikes',
+      isSpikes: true,
+      x,
+      y,
+      heading: northSouth ? 0 : Math.PI / 2,
+      collider: { type: 'box', hw: ROADBLOCK.spikeHalfLength, hl: ROADBLOCK.spikeHalfDepth },
+      breakable: false,
+    });
+  }
+
+  removeSpikeStrip(strip) {
+    if (strip.shape) this.world.remove(strip.shape);
+    strip.shape = null;
+    strip.active = false;
+  }
+
+  updateSpikeStrips(dt, view) {
+    for (const strip of this.spikeStrips) {
+      if (!strip.active) continue;
+      strip.time += dt;
+      const offScreen = !isOnScreen(strip.x, strip.y, view, 100);
+      if (offScreen && (strip.time > ROADBLOCK.spikeSeconds || !this.chunks.contains(strip.x, strip.y))) this.removeSpikeStrip(strip);
+    }
+  }
+
+  // The Freeze power-up: every police car close around the player stops dead.
+  freezePolice(x, y, radius, seconds) {
+    for (const police of this.police) {
+      if (!police.alive || police.model.isFalling) continue;
+      if (Math.hypot(police.model.x - x, police.model.y - y) <= radius) police.freeze(seconds);
+    }
+  }
+
   // Boxed in by police (or stuck against something) for too long: busted.
   checkPinned(dt) {
-    if (this.time < CRASH.pinnedGrace || this.player.speed >= CRASH.pinnedSpeed) {
+    if (this.time < CRASH.pinnedGrace || this.player.speed >= CRASH.pinnedSpeed || this.player.crushing) {
       this.pinnedTime = 0;
       return;
     }
@@ -346,7 +488,7 @@ export class ChaseSimulation {
       }
       const far = !this.chunks.contains(car.x, car.y);
       if (police.alive) {
-        police.stuckTime = !police.parked && car.speed < POLICE.stuckSpeed ? police.stuckTime + dt : 0;
+        police.stuckTime = !police.parked && police.frozen <= 0 && car.speed < POLICE.stuckSpeed ? police.stuckTime + dt : 0;
         const onScreen = isOnScreen(car.x, car.y, view, 60);
         if (police.stuckTime > POLICE.stuckSeconds) {
           if (onScreen) this.wreckPolice(police, 'stuck');
@@ -389,11 +531,22 @@ export class ChaseSimulation {
 
   // Breakable props: knocked flying when a car touches them; back in place a while later, out of sight.
   knockCone(shape, car) {
-    const cone = shape.cone;
+    if (shape.item.isPillar) {
+      this.powerUps.crumblePillar(this, shape.item.pillar);
+      return;
+    }
+    if (shape.item.isDrop) {
+      this.helicopter.crumble(this, shape.item.drop);
+      return;
+    }
+    const cone = shape.cone || this.chunks.makeBreakable(shape);
     if (!cone || cone.state !== 'standing') return;
     cone.state = 'flying';
     cone.timer = 0;
-    const feel = CONES.kinds[cone.item.kind] || CONES;
+    if (cone.wasSolid) shape.solid = false;
+    const feel = cone.wasSolid ? CONES.kinds.crushed : CONES.kinds[cone.item.kind] || CONES;
+    cone.flySeconds = feel.flySeconds || CONES.flySeconds;
+    cone.hop = feel.hop || CONES.hop;
     const jitter = (this.rng() - 0.5) * 80;
     cone.vx = car.vx * feel.knockSpeed + jitter;
     cone.vy = car.vy * feel.knockSpeed - jitter;
@@ -407,8 +560,10 @@ export class ChaseSimulation {
       cone.vy += rightY * side * feel.sideKick;
     }
     cone.spin = (this.rng() - 0.5) * feel.spin;
-    car.vx *= feel.slowdown;
-    car.vy *= feel.slowdown;
+    if (!car.plowing) {
+      car.vx *= feel.slowdown;
+      car.vy *= feel.slowdown;
+    }
     this.emit('cone', { cone, x: cone.x, y: cone.y, player: car === this.player });
   }
 
@@ -423,7 +578,7 @@ export class ChaseSimulation {
         cone.x += cone.vx * dt;
         cone.y += cone.vy * dt;
         cone.angle += cone.spin * dt;
-        if (cone.timer > CONES.flySeconds) {
+        if (cone.timer > cone.flySeconds) {
           cone.state = 'gone';
           cone.timer = 0;
         }

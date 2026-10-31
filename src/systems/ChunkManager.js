@@ -62,6 +62,18 @@ export class ChunkManager {
     this.active.delete(key);
   }
 
+  // A solid prop flattened by the Giant car: it now behaves like a breakable one, until it comes back.
+  makeBreakable(shape) {
+    const chunk = this.active.get(`${chunkCoord(shape.x)},${chunkCoord(shape.y)}`);
+    if (!chunk) return null;
+    const cone = { item: shape.item, shape, wasSolid: true };
+    resetCone(cone);
+    shape.cone = cone;
+    chunk.cones.push(cone);
+    this.cones.push(cone);
+    return cone;
+  }
+
   // Is this point on a loaded chunk?
   contains(x, y) {
     const r = CHUNKS.activeRadius;
@@ -79,4 +91,7 @@ export function resetCone(cone) {
   cone.angle = 0;
   cone.spin = 0;
   cone.timer = 0;
+  cone.flySeconds = 0;
+  cone.hop = 0;
+  if (cone.wasSolid) cone.shape.solid = true;
 }

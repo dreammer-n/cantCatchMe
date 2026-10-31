@@ -1,9 +1,10 @@
-import { CAR_SIZE, DEPTH, EFFECTS, PALETTE, RENDER, SKIDS, TUMBLE, VOID } from '../config/tuning.js';
+import { CAR_SIZE, DEPTH, EFFECTS, FLAT_TIRE, PALETTE, RENDER, SKIDS, TUMBLE, VOID } from '../config/tuning.js';
+import { degToRad } from '../utils/math.js';
 import { atlasMeta, frameFor } from '../render/carAtlas.js';
 import { LIGHT_BAR } from '../render/carModels.js';
 import * as Phaser from 'phaser';
 import { depthAt } from '../render/layers.js';
-import { Tumble } from '../render/Tumble.js';
+import { Tumble, holeLipY } from '../render/Tumble.js';
 import { worldShadowOutline } from '../render/lowpoly.js';
 import { projection } from '../render/projection.js';
 
@@ -38,11 +39,23 @@ export class CarView {
     this.flashOffset = Math.random() * 1000;
     this.alpha = 1;
     this.wasFalling = false;
+    this.frozen = false;
+    this.shownScale = 1;
     this.setLook(look);
   }
 
+  // Frozen solid: an icy tint, lights out, a pool of cold light underneath.
+  setFrozen(frozen) {
+    if (frozen === this.frozen) return;
+    this.frozen = frozen;
+    if (frozen) this.sprite.setTint(PALETTE.ice);
+    else this.sprite.clearTint();
+  }
+
   setLook(look) {
+    if (this.wasFalling) this.endFall();
     if (this.tumble) this.endTumble();
+    this.setFrozen(false);
     this.showLook(look);
   }
 
@@ -55,6 +68,7 @@ export class CarView {
 
   endTumble() {
     this.tumble.reset();
+    this.shownScale = 1;
     this.sprite.setScale(1 / RENDER.bakeScale);
   }
 
@@ -62,6 +76,7 @@ export class CarView {
     this.currentLook = look;
     const meta = atlasMeta.get(look.atlasKey);
     this.atlasKey = look.atlasKey;
+    this.lightSpot = look.lightSpot || LIGHT_BAR;
     this.directions = meta.directions;
     this.shadowPoints = look.shadowPoints;
     if (!this.scratch || this.scratch.length < this.shadowPoints.length) {
@@ -112,35 +127,86 @@ export class CarView {
     const depth = depthAt(model.x, model.y);
     this.sprite.setFrame(pick.frame).setRotation(pick.rotation).setPosition(screen.x, screen.y).setDepth(depth);
     if (model.isFalling) {
-      this.drawFalling(model.fallProgress);
+      this.drawFalling(model);
       return true;
     }
     if (tumbling) {
       this.sprite
         .setRotation(pick.rotation + this.tumble.spin)
         .setY(screen.y - this.tumble.z * projection.lift)
-        .setScale(1 / RENDER.bakeScale, this.tumble.squash / RENDER.bakeScale);
+        .setScale(model.scale / RENDER.bakeScale, (model.scale * this.tumble.squash) / RENDER.bakeScale);
       // In the air it flies up out of the flames, so it stays in view.
       if (this.tumble.z > TUMBLE.overFlamesHeight) this.sprite.setDepth(DEPTH.effects + 2);
     }
-    if (this.wasFalling) {
-      this.wasFalling = false;
-      this.sprite.setScale(1 / RENDER.bakeScale).setAlpha(this.alpha);
+    if (this.wasFalling) this.endFall();
+    const flat = model.flatness;
+    if (flat > 0 && !tumbling) {
+      // It sits down on the flat corner, which leans whichever way that corner faces on screen, and rattles.
+      const facing = Math.cos(projection.screenHeading(model.heading));
+      this.sprite
+        .setRotation(pick.rotation + model.flatSide * facing * degToRad(FLAT_TIRE.leanDeg) * flat)
+        .setY(screen.y + Math.sin(time * FLAT_TIRE.rattleRate) * FLAT_TIRE.rattle * flat);
+    }
+    if (!tumbling && model.scale !== this.shownScale) {
+      this.shownScale = model.scale;
+      this.sprite.setScale(model.scale / RENDER.bakeScale);
     }
     this.drawShadow(model);
-    if (this.hasLights) this.updateLights(model, time, depth);
+    if (this.frozen) this.drawFrozenGlow(model);
+    else if (this.hasLights) this.updateLights(model, time, depth);
     return true;
   }
 
-  // Into a hole: it shrinks with distance, sinks faster and faster, and fades into the dark.
-  // No shadow: the ground it would land on is gone.
-  drawFalling(progress) {
-    this.wasFalling = true;
-    this.sprite
-      .setScale((1 - (1 - VOID.fallScale) * progress) / RENDER.bakeScale)
-      .setPosition(this.sprite.x, this.sprite.y + progress * progress * VOID.fallDrop)
-      .setAlpha(this.alpha * (1 - progress * progress));
+  drawFrozenGlow(model) {
     this.hideLights();
+    if (!this.pool) return;
+    this.pool
+      .setVisible(true)
+      .setPosition(model.x, model.y)
+      .setScale(EFFECTS.sirenPoolRadius / 32)
+      .setTint(PALETTE.frost)
+      .setAlpha(EFFECTS.frozenGlowAlpha * this.alpha);
+  }
+
+  // Over the edge: the nose tips down, it drops faster and faster into the dark, and the near lip of
+  // the hole hides it as it goes. No shadow: the ground it would land on is gone.
+  drawFalling(model) {
+    this.wasFalling = true;
+    this.hideLights();
+    const sprite = this.sprite;
+    const progress = model.fallProgress;
+    const tip = Math.min(1, progress / VOID.fallTipShare);
+    const scale = (model.scale * (1 - (1 - VOID.fallScale) * progress)) / RENDER.bakeScale;
+    const scaleY = scale * (1 - 0.3 * tip); // seen from above, a tipped car looks shorter
+    const groundY = sprite.y;
+    const y = groundY + progress * progress * VOID.fallDrop;
+    // The nose goes first: turn the drawing the way the nose points across the screen.
+    const across = Math.sin(projection.screenHeading(model.heading));
+    const shade = Math.round(255 * (1 - 0.9 * progress ** 1.5));
+    sprite
+      .setPosition(sprite.x, y)
+      .setScale(scale, scaleY)
+      .setRotation(sprite.rotation + across * tip * ((VOID.fallTiltDeg * Math.PI) / 180))
+      .setTint((shade << 16) | (shade << 8) | shade)
+      .setAlpha(this.alpha * Math.min(1, (1 - progress) * 8));
+    const outline = model.fallShape && model.fallShape.item.outline;
+    if (!outline || outline.length === 0) return;
+    // Hidden below the lip. A car that came in over the near side still has its tail over the road, so
+    // nothing above its own undercarriage line is hidden: only what has actually dropped.
+    const height = sprite.frame.cutHeight;
+    const underside = groundY + (1 - sprite.originY) * height * scaleY;
+    const lip = Math.max(holeLipY(outline, sprite.x, projection), underside);
+    const top = y - sprite.originY * height * scaleY;
+    const shown = Math.max(0, Math.min(height, (lip - top) / scaleY));
+    sprite.setCrop(0, 0, sprite.frame.cutWidth, shown);
+  }
+
+  endFall() {
+    this.wasFalling = false;
+    this.shownScale = 1;
+    this.sprite.setCrop();
+    this.sprite.clearTint();
+    this.sprite.setScale(1 / RENDER.bakeScale).setAlpha(this.alpha);
   }
 
   // Two glows over the light bar, alternating red / blue, and the same colours on the road below.
@@ -164,12 +230,13 @@ export class CarView {
     }
     const cos = Math.cos(model.heading);
     const sin = Math.sin(model.heading);
-    const ly = LIGHT_BAR.centreY;
+    const spot = this.lightSpot;
+    const ly = spot.centreY * model.scale;
     for (let i = 0; i < 2; i += 1) {
-      const lx = (i === 0 ? -1 : 1) * LIGHT_BAR.halfWidth * 0.5;
+      const lx = (i === 0 ? -1 : 1) * spot.halfWidth * 0.5 * model.scale;
       const wx = model.x + lx * cos + ly * sin;
       const wy = model.y + lx * sin - ly * cos;
-      projection.toScreen(wx, wy, LIGHT_BAR.topZ, screen);
+      projection.toScreen(wx, wy, spot.topZ * model.scale, screen);
       const on = phase === i;
       this.lights[i]
         .setVisible(true)
@@ -181,7 +248,7 @@ export class CarView {
   }
 
   drawShadow(model) {
-    const count = worldShadowOutline(this.shadowPoints, model.x, model.y, model.heading, projection, this.outline, this.scratch);
+    const count = worldShadowOutline(this.shadowPoints, model.x, model.y, model.heading, projection, this.outline, this.scratch, model.scale);
     const g = this.shadows;
     this.drawContactShadow(model);
     if (count < 3) return;
@@ -196,8 +263,8 @@ export class CarView {
   // Footprint-shaped dark patch directly under the car (no offset), the same at every heading.
   drawContactShadow(model) {
     const g = this.shadows;
-    const hw = CAR_SIZE.width / 2 + RENDER.contactShadow.grow;
-    const hl = CAR_SIZE.length / 2 + RENDER.contactShadow.grow;
+    const hw = (CAR_SIZE.width / 2) * model.scale + RENDER.contactShadow.grow;
+    const hl = (CAR_SIZE.length / 2) * model.scale + RENDER.contactShadow.grow;
     const fx = Math.sin(model.heading);
     const fy = -Math.cos(model.heading);
     g.fillStyle(RENDER.shadowColor, RENDER.contactShadow.alpha * this.alpha);
@@ -225,21 +292,21 @@ export class CarView {
   }
 }
 
-// Is the car sliding enough to leave tyre marks and smoke?
+// Is the car sliding enough to leave tire marks and smoke?
 export function isSkidding(model) {
   return Math.abs(model.lateralSpeed) > SKIDS.slipThreshold;
 }
 
-// World positions of the two rear tyres, written into `out` (no new objects each frame).
+// World positions of the two rear tires, written into `out` (no new objects each frame).
 export function rearWheels(model, out) {
   const { x, y, heading } = model;
   const fx = Math.sin(heading);
   const fy = -Math.cos(heading);
-  const back = CAR_SIZE.length * SKIDS.rearAxle;
-  const side = CAR_SIZE.width * SKIDS.wheelSpread;
+  const back = CAR_SIZE.length * SKIDS.rearAxle * model.scale;
+  const side = CAR_SIZE.width * SKIDS.wheelSpread * model.scale;
   const cx = x - fx * back;
   const cy = y - fy * back;
-  out[0].x = cx + fy * side; // left tyre (right vector is (-fy, fx))
+  out[0].x = cx + fy * side; // left tire (right vector is (-fy, fx))
   out[0].y = cy - fx * side;
   out[1].x = cx - fy * side;
   out[1].y = cy + fx * side;

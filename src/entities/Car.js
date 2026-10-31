@@ -1,3 +1,4 @@
+import { FLAT_TIRE } from '../config/tuning.js';
 import { degToRad, smoothFactor, wrapAngle } from '../utils/math.js';
 
 // Arcade driving model shared by the player and (from Milestone 2) the police.
@@ -29,8 +30,17 @@ export class Car {
     this.slipAngle = 0; // radians, signed: + = moving to the right of where the nose points
     this.chassisRoll = 0; // radians, visual only: nothing in the physics reads it
     this.onCurb = false; // set by the collision system
+    this.scale = 1; // size: 1 = normal, bigger while Giant. Physics: collisions use it too
+    this.scaleVelocity = 0;
+    this.scaleTarget = 1;
+    this.crushing = false; // Giant: nothing can hurt it, and it flattens what it touches
+    this.plowing = false; // SWAT Bearcat: light props and curbs don't slow it
+    this.flatTime = 0; // seconds of flat tire left
+    this.flatSeconds = 0; // how long it lasts in all
+    this.flatSide = 1; // the corner that has gone: -1 left, 1 right
     this.isFalling = false; // over a hole: no steering, no engine (see fall)
     this.fallProgress = 0; // 0 at the edge .. 1 fully fallen
+    this.fallShape = null; // the hole it went into
   }
 
   setHandling(handling) {
@@ -39,8 +49,18 @@ export class Car {
 
   // One physics step. steer: -1 left, 0 straight, 1 right (police use values in between).
   // dt in seconds (keep it small, see stepFor).
-  step(steer, dt) {
+  step(steerInput, dt) {
     const h = this.handling;
+    let steer = steerInput;
+    if (this.flatTime > 0) this.flatTime = Math.max(0, this.flatTime - dt);
+    const flat = this.flatness;
+    if (flat > 0) {
+      // The flat corner drags the car toward it all the time, and the steering only half answers. The
+      // driver can just about hold it straight against the pull, but can't turn away from it.
+      const shimmy = Math.sin(this.flatTime * FLAT_TIRE.shimmyRate) * FLAT_TIRE.shimmy;
+      const answer = 1 - (1 - FLAT_TIRE.steerShare) * flat;
+      steer = Math.max(-1, Math.min(1, steer * answer + this.flatSide * (FLAT_TIRE.pull + shimmy) * flat));
+    }
     const slide = Math.min(1, Math.abs(this.lateralSpeed) / h.slideFullSlip);
 
     // Steering toward the direction of the slide (counter-steering) turns the nose faster.
@@ -63,19 +83,20 @@ export class Car {
     // Grip drops while steering and while already sliding, and recovers gradually afterwards.
     // Part-steering (police) blends between the two; for the player (-1/0/1) it is one or the other.
     const lock = Math.min(1, Math.abs(steer));
-    const targetGrip = (h.gripStraight + (h.gripTurning - h.gripStraight) * lock) * (1 - h.slideGripLoss * slide);
+    const targetGrip = (h.gripStraight + (h.gripTurning - h.gripStraight) * lock) * (1 - h.slideGripLoss * slide) * (1 - (1 - FLAT_TIRE.gripShare) * flat);
     this.grip += (targetGrip - this.grip) * smoothFactor(h.gripChangeRate, dt);
 
-    // Tyres kill sideways motion; sliding scrubs a little forward speed, deep slides a bit more.
+    // Tires kill sideways motion; sliding scrubs a little forward speed, deep slides a bit more.
     lateral *= Math.exp(-this.grip * dt);
     const slip = Math.atan2(Math.abs(lateral), Math.max(1, Math.abs(forward)));
     const deepSlide = Math.min(1, Math.max(0, (slip - degToRad(h.deepSlideStartDeg)) / degToRad(h.deepSlideRangeDeg)));
     forward -= (h.slideScrub * Math.abs(lateral) + h.deepSlideScrub * deepSlide) * dt;
 
-    // Engine always drives toward top speed (no brake, no reverse). Tyres on a curb find little traction.
-    const drive = this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration;
-    if (forward < h.topSpeed) forward = Math.min(h.topSpeed, forward + drive * dt);
-    else forward = h.topSpeed + (forward - h.topSpeed) * Math.exp(-h.overspeedDrag * dt);
+    // Engine always drives toward top speed (no brake, no reverse). Tires on a curb find little traction.
+    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * (1 - (1 - FLAT_TIRE.accelShare) * flat);
+    const topSpeed = h.topSpeed * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
+    if (forward < topSpeed) forward = Math.min(topSpeed, forward + drive * dt);
+    else forward = topSpeed + (forward - topSpeed) * Math.exp(-h.overspeedDrag * dt);
 
     this.vx = fx * forward + rx * lateral;
     this.vy = fy * forward + ry * lateral;
@@ -119,9 +140,49 @@ export class Car {
     this.chassisRoll = 0;
   }
 
+  // Size follows its target on a spring: elastic on the way up, smooth on the way down.
+  updateScale(dt, stiffness, damping) {
+    if (this.scale === this.scaleTarget && this.scaleVelocity === 0) return;
+    const shrinking = this.scaleTarget < this.scale;
+    const drag = shrinking ? 2 * Math.sqrt(stiffness) : damping;
+    this.scaleVelocity += ((this.scaleTarget - this.scale) * stiffness - this.scaleVelocity * drag) * dt;
+    this.scale += this.scaleVelocity * dt;
+    if (Math.abs(this.scale - this.scaleTarget) < 0.002 && Math.abs(this.scaleVelocity) < 0.01) {
+      this.scale = this.scaleTarget;
+      this.scaleVelocity = 0;
+    }
+  }
+
+  // Spikes: one corner goes flat for a while, with a jolt toward it. side: -1 left, 1 right.
+  puncture(seconds, side) {
+    this.flatTime = seconds;
+    this.flatSeconds = seconds;
+    this.flatSide = side;
+    this.angularVelocity += side * FLAT_TIRE.jolt * Math.min(1, Math.max(0, this.forwardSpeed) / this.handling.fullTurnSpeed);
+  }
+
+  // How flat the tire is right now: 0 fine, 1 flat. It goes quickly and comes back gradually.
+  get flatness() {
+    if (this.flatTime <= 0) return 0;
+    return Math.min(1, (this.flatSeconds - this.flatTime) / FLAT_TIRE.attackSeconds, this.flatTime / FLAT_TIRE.releaseSeconds);
+  }
+
+  // Stopped dead: a frozen car.
+  halt() {
+    this.vx = 0;
+    this.vy = 0;
+    this.angularVelocity = 0;
+    this.forwardSpeed = 0;
+    this.lateralSpeed = 0;
+    this.slipAngle = 0;
+    this.chassisRoll = 0;
+  }
+
   // The car has gone over a hole: from now on only fall() moves it.
-  startFall() {
+  startFall(hole = null) {
+    this.flatTime = 0;
     this.isFalling = true;
+    this.fallShape = hole;
     this.fallProgress = 0;
     this.forwardSpeed = 0;
     this.lateralSpeed = 0;
@@ -130,8 +191,8 @@ export class Car {
     this.onCurb = false;
   }
 
-  // No engine, no steering: momentum dies away while it drops. The drop itself is only drawn
-  // (CarView reads fallProgress); on the flat map the car just stays in the hole.
+  // No engine, no steering: it carries its speed across the hole while it drops. The drop itself is only
+  // drawn (CarView reads fallProgress); on the flat map the car just stays in the hole.
   fall(dt, seconds, friction) {
     this.fallProgress = Math.min(1, this.fallProgress + dt / seconds);
     const keep = Math.exp(-friction * dt);

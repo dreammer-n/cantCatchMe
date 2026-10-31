@@ -7,6 +7,8 @@ import { box, decal, frustum, hexa, shadeColor } from './lowpoly.js';
 //   interceptor  the same patrol car in black and white: dark hood and boot, no stripes
 //   wreck   the same body burnt out (used for destroyed police cars and the player's crash)
 //   wreckRoof  that wreck lying upside down, wheels in the air
+//   bearcat  a boxy, dark grey armoured SWAT truck with a reinforced grille
+//   helicopter  a police helicopter; its rotor is drawn fresh each frame (HelicopterView)
 
 const STYLES = {
   player: {
@@ -16,7 +18,7 @@ const STYLES = {
     glassShine: PALETTE.glassShine,
     trim: PALETTE.trim,
     hub: PALETTE.hub,
-    tyre: PALETTE.tyre,
+    tire: PALETTE.tire,
     headlight: PALETTE.headlight,
     taillight: PALETTE.taillight,
     spoiler: true,
@@ -29,7 +31,7 @@ const STYLES = {
     glassShine: PALETTE.glassShine,
     trim: PALETTE.trim,
     hub: PALETTE.hub,
-    tyre: PALETTE.tyre,
+    tire: PALETTE.tire,
     headlight: PALETTE.headlight,
     taillight: PALETTE.taillight,
     pushBar: true,
@@ -44,7 +46,7 @@ const STYLES = {
     glassShine: PALETTE.glassShine,
     trim: PALETTE.trim,
     hub: PALETTE.hub,
-    tyre: PALETTE.tyre,
+    tire: PALETTE.tire,
     headlight: PALETTE.headlight,
     taillight: PALETTE.taillight,
     pushBar: true,
@@ -56,7 +58,7 @@ const STYLES = {
     glassShine: PALETTE.wreckGlass,
     trim: 0x1c1d20,
     hub: 0x34363a,
-    tyre: 0x141518,
+    tire: 0x141518,
     headlight: 0x2a2826,
     taillight: 0x2a2826,
     unlitLights: false,
@@ -88,7 +90,7 @@ function buildCar(style) {
       const y = end * L * m.wheelBase;
       const x0 = side < 0 ? -m.wheelOuter : m.wheelInner;
       const x1 = side < 0 ? -m.wheelInner : m.wheelOuter;
-      const wheel = box(x0, x1, y - m.wheelLength / 2, y + m.wheelLength / 2, 0, m.wheelHeight, style.tyre, 0);
+      const wheel = box(x0, x1, y - m.wheelLength / 2, y + m.wheelLength / 2, 0, m.wheelHeight, style.tire, 0);
       decal(wheel, side < 0 ? 'left' : 'right', 0.3, 0.7, 0.22, 0.66, style.hub);
       wheel.tag = 'wheel';
       parts.push(wheel);
@@ -188,6 +190,85 @@ function buildCar(style) {
   return parts;
 }
 
+// A boxy armoured truck, the same footprint as a car (it is scaled up in play: BEARCAT.scale).
+function buildBearcat() {
+  const hl = CAR_SIZE.length / 2;
+  const W = 21;
+  const parts = [];
+  for (const side of [-1, 1]) {
+    for (const end of [-1, 1]) {
+      const y = end * 26;
+      const x0 = side < 0 ? -24.5 : 19.5;
+      const wheel = box(x0, x0 + 5, y - 10, y + 10, 0, 17, PALETTE.tire, 0);
+      decal(wheel, side < 0 ? 'left' : 'right', 0.28, 0.72, 0.22, 0.72, PALETTE.hub);
+      wheel.tag = 'wheel';
+      parts.push(wheel);
+    }
+  }
+  // Heavy lower hull, then a tall slab-sided body with slit windows.
+  parts.push(box(-W, W, -hl, hl - 8, 7, 18, PALETTE.swatDark, 0));
+  const body = frustum({ x0: -W, x1: W, y0: -hl + 1, y1: hl - 10 }, { x0: -W + 2.5, x1: W - 2.5, y0: -hl + 3, y1: hl - 17 }, 18, BEARCAT_TRUCK.roof, PALETTE.swatBody, 1);
+  decal(body, 'front', 0.12, 0.88, 0.58, 0.82, PALETTE.glass);
+  decal(body, 'back', 0.3, 0.7, 0.55, 0.78, PALETTE.glass);
+  for (const side of ['left', 'right']) {
+    decal(body, side, 0.14, 0.34, 0.6, 0.82, PALETTE.glass);
+    decal(body, side, 0.44, 0.64, 0.6, 0.82, PALETTE.glass);
+    decal(body, side, 0, 1, 0.14, 0.26, PALETTE.swatStripe);
+  }
+  parts.push(body);
+  // The reinforced bumper: a thick plate with upright bars, wider than the body.
+  const plate = box(-W - 2, W + 2, hl - 8, hl, 5, 21, PALETTE.swatDark, 1);
+  for (let i = 0; i < 5; i += 1) decal(plate, 'front', 0.1 + i * 0.17, 0.17 + i * 0.17, 0.12, 0.88, PALETTE.hub);
+  parts.push(plate);
+  // Roof hatch and small lights.
+  const roofY = BEARCAT_LIGHTS.centreY;
+  parts.push(box(-8, 8, -hl + 10, -hl + 28, BEARCAT_TRUCK.roof, BEARCAT_TRUCK.roof + 3, PALETTE.swatDark, 2));
+  const bar = box(-BEARCAT_LIGHTS.halfWidth, BEARCAT_LIGHTS.halfWidth, roofY - 2.5, roofY + 2.5, BEARCAT_TRUCK.roof, BEARCAT_TRUCK.roof + 3, PALETTE.trim, 3);
+  decal(bar, 'top', 0.04, 0.48, 0.1, 0.9, PALETTE.lightRed, true);
+  decal(bar, 'top', 0.52, 0.96, 0.1, 0.9, PALETTE.lightBlue, true);
+  parts.push(bar);
+  return parts;
+}
+
+// It is modelled at car size and drawn larger on screen: it has to read clearly from this far above the
+// road, and modelling it this size would need a drawing sheet too wide for older phones.
+const HELI_SCALE = 1.5;
+
+// A low-poly helicopter, centred on its own middle. Local y = forward.
+function buildHelicopter() {
+  const c = PALETTE.heliBody;
+  const cabin = hexa(
+    [[-15, -22, 0], [15, -22, 0], [11, 32, 3], [-11, 32, 3]],
+    [[-13, -20, 26], [13, -20, 26], [7, 20, 26], [-7, 20, 26]],
+    { sides: c, top: c },
+    2,
+  );
+  decal(cabin, 'front', 0.05, 0.95, 0.2, 0.92, PALETTE.glass);
+  for (const side of ['left', 'right']) {
+    decal(cabin, side, 0.5, 0.92, 0.42, 0.9, PALETTE.glass);
+    decal(cabin, side, 0, 0.46, 0.34, 0.5, PALETTE.heliBand);
+  }
+  decal(cabin, 'top', 0.3, 0.7, 0.1, 0.5, PALETTE.heliBand);
+  const boom = frustum({ x0: -6, x1: 6, y0: -74, y1: -18 }, { x0: -3, x1: 3, y0: -74, y1: -18 }, 12, [20, 20, 24, 24], c, 1);
+  const fin = frustum({ x0: -1.5, x1: 1.5, y0: -74, y1: -60 }, { x0: -1, x1: 1, y0: -74, y1: -68 }, 20, 36, PALETTE.heliBand, 3);
+  const mast = box(-3, 3, -5, 3, 26, 33, PALETTE.rotorBlade, 3);
+  const skid = (x) => box(x - 1.5, x + 1.5, -26, 28, -9, -6, PALETTE.rotorBlade, 0);
+  const strut = (x, y) => box(x - 1, x + 1, y - 1, y + 1, -6, 2, PALETTE.rotorBlade, 0);
+  return [skid(-16), skid(16), strut(-15, -12), strut(15, -12), strut(-13, 14), strut(13, 14), boom, cabin, fin, mast];
+}
+
+// The helicopter's rotors, shared with HelicopterView, which draws them.
+export const ROTOR = { radius: 88, height: 33 * HELI_SCALE, tailReach: 74 * HELI_SCALE, tailHeight: 24 * HELI_SCALE, modelScale: HELI_SCALE };
+
+const BEARCAT_TRUCK = { roof: 45 };
+
+// Roof lights, for CarView's flashing glow.
+export const BEARCAT_LIGHTS = {
+  halfWidth: 8,
+  centreY: 2,
+  topZ: BEARCAT_TRUCK.roof + 3,
+};
+
 // Light bar position, shared with CarView (the flashing glow is drawn over it).
 export const LIGHT_BAR = {
   halfWidth: 12,
@@ -222,7 +303,12 @@ function flipOver(parts) {
 const meshes = new Map();
 
 export function carMesh(name) {
-  if (!meshes.has(name)) meshes.set(name, name === 'wreckRoof' ? flipOver(buildCar(STYLES.wreck)) : buildCar(STYLES[name]));
+  if (!meshes.has(name)) {
+    if (name === 'wreckRoof') meshes.set(name, flipOver(buildCar(STYLES.wreck)));
+    else if (name === 'bearcat') meshes.set(name, buildBearcat());
+    else if (name === 'helicopter') meshes.set(name, buildHelicopter());
+    else meshes.set(name, buildCar(STYLES[name]));
+  }
   return meshes.get(name);
 }
 

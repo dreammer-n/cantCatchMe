@@ -27,14 +27,15 @@ export const CHUNKS = {
   activeRadius: 1, // chunks kept on each side of the player's: 1 = a 3 x 3 grid
   propPool: 1000, // images prepared at startup (checked against the fullest chunks by the tests)
   // weight: how often this layout appears. cells: [arrangement, weight] for each city block in it.
-  // roadHoles: [fewest, most] holes in the roads inside the chunk (never on its border roads).
+  // holeChance: how often this kind of chunk has holes in its inside roads (never on its border roads);
+  // roadHoles: [fewest, most] when it does. Holes should be a surprise, not the landscape.
   presets: {
     // landmarks: the word statues this kind of chunk can have.
-    city: { weight: 30, roadHoles: [0, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['open', 5], ['sinkhole', 5]] },
-    parking: { weight: 25, roadHoles: [0, 0], landmarks: ['MALL', 'PARK'], cells: [['parking', 65], ['garden', 25], ['grove', 5], ['open', 5]] },
-    plaza: { weight: 12, roadHoles: [0, 0], landmarks: ['GAMES', 'DINER'], cells: [['garden', 30], ['grove', 30], ['open', 20], ['cones', 20]] },
-    industrial: { weight: 20, roadHoles: [0, 1], landmarks: ['GAS', 'DEPOT'], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
-    ruins: { weight: 13, roadHoles: [2, 4], landmarks: ['STOP', 'GAS'], cells: [['sinkhole', 45], ['open', 25], ['barriers', 15], ['cones', 15]] },
+    city: { weight: 32, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['open', 10]] },
+    parking: { weight: 26, holeChance: 0, roadHoles: [0, 0], landmarks: ['MALL', 'PARK'], cells: [['parking', 65], ['garden', 25], ['grove', 5], ['open', 5]] },
+    plaza: { weight: 13, holeChance: 0, roadHoles: [0, 0], landmarks: ['GAMES', 'DINER'], cells: [['garden', 30], ['grove', 30], ['open', 20], ['cones', 20]] },
+    industrial: { weight: 22, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['GAS', 'DEPOT'], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
+    ruins: { weight: 5, holeChance: 1, roadHoles: [1, 2], landmarks: ['STOP', 'GAS'], cells: [['sinkhole', 15], ['open', 50], ['barriers', 20], ['cones', 15]] },
   },
 };
 
@@ -48,10 +49,13 @@ export const VOID = {
   gapHalfWidth: 92, // roads are 190 wide
   sinkholeRadius: [95, 150], // big holes inside city blocks
   outlineGrow: 16,
-  fallSeconds: 0.85,
-  fallFriction: 2.5, // how fast the car stops moving sideways while it drops
-  fallScale: 0.2, // drawn size at the bottom of the fall
-  fallDrop: 90, // screen units it sinks on the way down
+  fallSeconds: 1,
+  fallFriction: 1.2, // it carries most of its speed over the edge ...
+  fallInset: 8, // ... until the far wall of the hole stops it, this far short of the edge
+  fallScale: 0.85, // drawn size at the bottom of the fall: the camera has no perspective, so only a little
+  fallDrop: 280, // screen units it drops, faster and faster, hidden by the near lip of the hole as it goes
+  fallTiltDeg: 24, // it tips nose first
+  fallTipShare: 0.35, // over this share of the fall
   resultsDelay: 0.7, // real seconds between the end of the fall and the results screen
 };
 
@@ -71,6 +75,11 @@ export const CAR_SIZE = {
 export const INPUT = {
   // Analog stick movement smaller than this is ignored.
   gamepadDeadZone: 0.35,
+  // A double tap (touch screens): two short taps close together, in about the same place. Holding to
+  // steer never counts, and neither do quick taps left then right.
+  tapMaxMs: 220, // a touch longer than this is steering, not a tap
+  doubleTapMs: 320, // the second tap must start this soon after the first ended
+  doubleTapDistance: 110, // CSS pixels between the two taps
 };
 
 export const UI = {
@@ -226,14 +235,18 @@ export const INTERCEPTOR = {
 // [TUNE] Roadblocks: parked cruisers across a crossing ahead. They don't chase and don't count
 // toward HEAT.police. Hit one hard and the run is over; lure police into one and they pile up.
 export const ROADBLOCK = {
-  firstAt: 30, // seconds into the run
-  everyMin: 10, // seconds between roadblocks, random in this range
-  everyMax: 16,
+  firstAt: 35, // seconds into the run
+  everyMin: 12, // seconds between roadblocks, random in this range
+  everyMax: 18,
   retrySeconds: 1, // no suitable crossing right now: look again this soon
   cars: 2,
   maxParked: 6,
-  spacing: 92, // between the cars; 2 cars nearly fill a 190-wide road
-  angleJitter: 0.3, // radians: parked a bit untidily
+  spacing: 150, // between the cars, with the spike strip in the gap
+  angleDeg: 28, // the cars are angled in, like a V across the road
+  spikeHalfLength: 42, // the strip, across the road ...
+  spikeHalfDepth: 13, // ... and along it
+  spikeSeconds: 30, // it is taken away after this long, once out of sight
+  maxSpikes: 3,
   mass: 2.2, // shoved less than a moving car
   distances: [900, 1200, 1500, 1800, 2100, 2300], // how far ahead to look for a crossing, nearest first
   screenMargin: 90, // screen units: only placed this far outside the view
@@ -260,15 +273,89 @@ export const WARNING = {
 
 // [TUNE] How the pressure builds. Each table is [seconds survived, value]; in between, values blend.
 //   0-15 s   2 to 4 basic chasers, to ease the player in
-//   15-30 s  interceptors arrive (ROADBLOCK starts at 30)
-//   30-45 s  top speed climbs, roadblocks start
-//   45 s +   swarm: more cars, more of them interceptors, and those react faster
+//   15-30 s  interceptors arrive
+//   30-45 s  top speed climbs, SWAT Bearcats arrive, roadblocks start at 35 s (ROADBLOCK)
+//   45 s +   full tactical pursuit: the helicopter (HELICOPTER), more cars, more of them interceptors
+//            and Bearcats, and interceptors react faster
 export const HEAT = {
   police: [[0, 2], [15, 4], [30, 8], [45, 12], [75, 18], [110, 23], [160, 26]],
   interceptorShare: [[14.99, 0], [15, 0.3], [30, 0.35], [45, 0.5], [90, 0.6]],
+  bearcatShare: [[29.99, 0], [30, 0.14], [45, 0.2], [90, 0.26]], // share of new cars that are Bearcats
   speedFactor: [[0, 1.04], [30, 1.05], [45, 1.1], [150, 1.14]], // x the player's top speed of 300
   turnDeg: [[0, 118], [150, 136]],
   reaction: [[45, 1], [90, 0.65]], // interceptors' reaction time, x normal
+};
+
+// [TUNE] SWAT Bearcat: a heavy armoured truck. Slow to turn, hard to stop.
+export const BEARCAT = {
+  scale: 1.22, // bigger than a cruiser, in collisions as well as on screen
+  mass: 7, // the player's car is 1.25: it barely notices a nudge
+  speedShare: 0.98, // of HEAT.speedFactor: heavy, but nothing like slow on a straight
+  turnDeg: 82,
+  acceleration: 200,
+  steerResponse: 4.5,
+  gripStraight: 5.5, // it slides wide round corners
+  gripTurning: 3.4,
+  aimAheadSeconds: 0.35, // it can't turn fast enough to catch anything by tailing it
+  fatalImpact: 40, // any contact harder than this wrecks the player; only a light brush is survivable
+  obstacleImpact: 270, // it only wrecks itself on solid props at nearly full speed, head on
+  carImpact: 500, // other police just bounce off it, or wreck on it
+  maxActive: 4,
+};
+
+// [TUNE] Flat tires, from driving over a spike strip.
+export const FLAT_TIRE = {
+  seconds: 3,
+  attackSeconds: 0.15, // how fast the tire goes ...
+  releaseSeconds: 0.8, // ... and the end of the 3 s, while the car comes back to normal
+  jolt: 1.1, // radians per second: the sudden swerve toward the flat corner as it blows
+  pull: 0.42, // the flat corner drags the car its way, as a share of full steering lock ...
+  steerShare: 0.55, // ... and the steering answers this much, so it can just be held straight
+  shimmy: 0.12, // the wheel shaking in the driver's hands
+  shimmyRate: 26, // radians per second
+  accelShare: 0.2, // of normal acceleration
+  topSpeedShare: 0.6, // the drag slows the car down to this, over about a second
+  gripShare: 0.45,
+  smokeEveryMs: 70,
+  leanDeg: 3.5, // drawing only: the car sits down on the flat corner ...
+  rattle: 1.6, // ... and rattles, by this many screen units ...
+  rattleRate: 0.055, // ... this fast (radians per millisecond)
+};
+
+// [TUNE] The police helicopter. It can't be stopped; it arrives at 45 s.
+export const HELICOPTER = {
+  firstAt: 45,
+  arriveDistance: 1500,
+  height: 250,
+  swoopHeight: 120,
+  swoopSeconds: 0.7,
+  leadSeconds: 0.7, // it flies this far ahead of the car
+  followSharpness: 1.3,
+  turnSharpness: 2.5,
+  sway: 110,
+  swaySpeed: 0.8,
+  spotSharpness: 4,
+  rotorSpeed: 34, // radians per second (drawing only)
+  spotRadius: 150, // the searchlight on the road (drawing only)
+  spotAlpha: 0.5,
+  spotOverAlpha: 0.14,
+  beamWidth: 170,
+  beamAlpha: 0.17,
+  // Dropping things on the road.
+  firstDropAfter: 4,
+  dropEveryMin: 6,
+  dropEveryMax: 10,
+  dropAheadSeconds: 1.7, // aims this far ahead of the car, along its path ...
+  warningSeconds: 1.2, // ... and a flare marks the spot for this long before the block lands
+  fallSeconds: 0.4, // the end of that warning, while the block is falling into view
+  fallHeight: 320,
+  minTargetSpeed: 120,
+  safeDistance: 95, // a block never lands this close to the car
+  blockHalfSize: 30,
+  blockHeight: 52,
+  blockSeconds: 7,
+  sinkSeconds: 0.6,
+  maxDrops: 3,
 };
 
 export const SPAWN = {
@@ -324,8 +411,8 @@ export const CRASH = {
 };
 
 export const WRECK = {
-  lifetime: 9, // seconds a wreck stays on the map (an obstacle for other police)
-  fadeSeconds: 1,
+  lifetime: 3.5, // seconds a wreck stays on the map (an obstacle for other police)
+  fadeSeconds: 0.6,
   friction: 2.6, // how fast a wreck slides to a stop (per second)
   spinFriction: 3,
   kick: 130, // a wrecked car is shoved this hard in a random direction (units/s), so it never just stops
@@ -372,7 +459,9 @@ export const CONES = {
   slowdown: 0.97, // a cone barely slows the car down
   spin: 18, // how fast a knocked cone can spin (radians per second)
   // Other breakable props: how they differ from a cone (a wooden crate behaves like one).
+  // 'crushed' is for solid props flattened by the Giant car.
   kinds: {
+    crushed: { knockSpeed: 0.9, slowdown: 1, spin: 3, sideKick: 240, flySeconds: 1.6, hop: 60 },
     lamp: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 }, // a long post tips over rather than whirls
     civilian: { knockSpeed: 0.8, slowdown: 0.82, spin: 2.5, sideKick: 190, flySeconds: 2.2, hop: 46 }, // a parked car bounces aside, and costs real speed
   },
@@ -387,6 +476,7 @@ export const HITSTOP = {
   wreckRange: 520, // ... this close (world units)
   crashMs: 45, // the player's own crash, before the slow motion
   comboMs: 45, // a double wreck or bigger pile-up
+  crushMs: 40, // the Giant car flattening a police car
   cooldownMs: 320, // no second freeze this soon, so swarms don't turn into stutter
 };
 
@@ -397,20 +487,74 @@ export const CURB = {
   noseDeflect: 0.12, // how much the bump turns the nose toward "along the edge"
 };
 
-// One original power-up: the Shockwave crate. Pick it up, then press the button to wreck
-// every police car close around you.
+// [TUNE] The lucky die: it bounces after the car from the moment it appears, and gives a random item.
 export const POWERUP = {
+  // How often each item comes up, compared with the others.
+  kinds: { shockwave: 1, giant: 1, freeze: 1, pillars: 1, flamer: 1 },
+  names: { shockwave: 'KABOOM', giant: 'MONSTER', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER' }, // what the player sees
+  autoSeconds: 4, // a held item fires by itself after this long
+  homingSpeed: 150, // it goes this much faster than the car, so it always catches up
+  hopMs: 400, // each bounce (drawing only)
+  hopHeight: 52, // world units (drawing only)
+  absorbSeconds: 0.32, // the die sinking into the car (drawing only)
   firstAt: 14, // seconds into the run
-  interval: 17, // seconds between crates (only when the player isn't already holding one)
+  interval: 17, // seconds between dice (only when the player isn't already holding an item)
   minDistance: 520,
   maxDistance: 950,
   aheadAngleDeg: 70,
   clearance: 80,
   collectRadius: 54,
-  despawnDistance: 2400,
   pulseRadius: 340,
   pulseSeconds: 0.55, // visual expansion time
   attempts: 14,
+};
+
+// [TUNE] GIANT: the car grows, and nothing can stop it.
+export const GIANT = {
+  scale: 3.2,
+  seconds: 7,
+  stiffness: 70, // the spring that sizes the car: higher = snappier
+  damping: 7, // lower = more elastic bounce on the way up (the way down has no bounce)
+  endScale: 1.15, // it stays unstoppable until it has shrunk to this
+  mass: 8, // shoves everything aside
+  crushFling: 260, // how hard a flattened police car is thrown
+};
+
+// [TUNE] FREEZE: a blast of frost stops every police car close by.
+export const FREEZE = {
+  radius: 400,
+  seconds: 4.5,
+  ringSeconds: 0.6, // the ring sweeping out over the ground (drawing only)
+  mass: 4, // a frozen car is hard to shove
+  shatterImpact: 60, // the player hitting one harder than this smashes it to bits ...
+  shatterKeep: 0.85, // ... and drives on through, keeping this share of its speed
+};
+
+// [TUNE] PILLARS: a row of stone blocks erupts behind the car.
+export const PILLARS = {
+  count: 3,
+  distance: 190, // behind the car
+  spacing: 62, // between pillars: too narrow to drive through
+  halfSize: 23,
+  height: 96,
+  seconds: 6, // how long they stand
+  riseSeconds: 0.22, // drawing only
+  sinkSeconds: 0.6, // drawing only: they stop being solid when they start to sink
+  lethalImpact: 30, // police wreck on any hit harder than this
+  pool: 9,
+};
+
+// [TUNE] FLAMER: the car leaves a trail of fire. Police that drive through it burn.
+export const FLAMER = {
+  seconds: 5,
+  spacing: 26, // a patch every this many units driven
+  behind: 42, // how far behind the car's centre they appear
+  patchSeconds: 2.6, // how long a patch burns
+  patchRadius: 26,
+  tireReach: 16, // added to the patch radius: how near a car's centre must come for its tires to touch
+  burnSeconds: 1, // from catching fire to exploding
+  flamesPerSecond: 6, // flame clouds from each patch (drawing only)
+  maxPatches: 45, // enough for all the fire burning at once: see tests/test_power.mjs
 };
 
 // [TUNE] Camera.
@@ -423,6 +567,7 @@ export const CAMERA = {
   zoomStartSpeed: 150, // the view starts widening above this speed ...
   zoomFullSpeed: 300, // ... and is fully widened here
   zoomSharpness: 1.5,
+  giantZoom: 0.9, // extra widening at full Giant size. Limited by CHUNKS.size: see tests/test_power.mjs
 };
 
 // [TUNE] Screen shake: events add "trauma" (0..1), which drains over time. The shake's size is
@@ -441,12 +586,21 @@ export const TRAUMA = {
   explosion: 0.55, // right next to the player; fades with distance
   pulse: 0.6,
   crash: 1,
+  flat: 0.5,
+  shatter: 0.4,
+  dropLand: 0.55, // a concrete block hitting the road, at full strength close by
+  giant: 0.5, // growing
+  giantRumble: 0.22, // held all the time the car is Giant: the ground shakes
+  crush: 0.5, // flattening a police car
+  freeze: 0.45,
+  pillars: 0.4,
+  ignite: 0.15,
 };
 
 // [TUNE] Skid marks.
 export const SKIDS = {
   maxMarks: 900, // hard cap; the oldest mark is reused when full
-  slipThreshold: 70, // sideways speed (units/s) above which tyres leave marks
+  slipThreshold: 70, // sideways speed (units/s) above which tires leave marks
   width: 7,
   minSegmentLength: 10,
   lifetimeMs: 7000,
@@ -483,7 +637,7 @@ export const RENDER = {
   // Car drawings made at startup from the 3D model, evenly spaced around the compass.
   directions: 64,
   // Per model: wrecks barely turn, so fewer drawings (less memory) are enough.
-  carDirections: { player: 64, police: 64, interceptor: 64, wreck: 32, wreckRoof: 16 },
+  carDirections: { player: 64, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, wreck: 32, wreckRoof: 16 },
   // 0 = snap to the nearest drawing, 1 = also rotate by the small leftover angle (smoother turning).
   residualRotation: 1,
   // Pixels per world unit in the drawings baked at startup (cars and props).
@@ -561,12 +715,23 @@ export const PALETTE = {
   glassShine: 0x3e5878,
   trim: 0x2a2e35,
   hub: 0x9aa1ab,
-  tyre: 0x1d2026,
+  tire: 0x1d2026,
   headlight: 0xfff3c4,
   taillight: 0xff3b30,
   // Police car (original design: white with a blue side stripe and a red / blue light bar)
   policeBody: 0xf5f7fa,
   policeStripe: 0x1b2a6b,
+  swatBody: 0x565e69, // dark grey, but clearly lighter than the road
+  swatDark: 0x272b32,
+  swatStripe: 0xe8b93c,
+  heliBody: 0x2f62d6,
+  heliBand: 0xf0f2f5,
+  rotorBlade: 0x14171c,
+  rotorBlur: 0xdfe6ee,
+  searchlight: 0xfff4c9,
+  flare: 0xff2d1f,
+  spikeBase: 0x1a1c20,
+  spikeTeeth: 0xd9dde3,
   interceptorDark: 0x24272e, // black-and-white interceptor: dark hood and boot
   lightRed: 0xff3b30,
   lightBlue: 0x3d8bff,
@@ -574,12 +739,17 @@ export const PALETTE = {
   wreckBody: 0x3d3833,
   wreckGlass: 0x16181c,
   scorch: 0x0b0d10,
-  // Shockwave crate
-  crate: 0xe8572a, // warm orange-red wrapping paper
-  crateRibbon: 0xfdf3dc,
-  crateGlow: 0xffa64d,
+  // The lucky die
+  crate: 0x8f5cff, // violet: no other colour in the game is close to it
+  cratePip: 0xfff6e0,
+  crateGlow: 0xb98cff,
+  ice: 0x9fdcff, // frozen police cars
+  frost: 0x7fe9ff,
+  fireGlow: 0xff7a18,
+  pillar: 0xa39c8e,
+  pillarCap: 0xc2bbab,
   crateArrow: 0x5ff5e0, // stays teal, like the Shockwave button: orange would look like the red warnings
-  chunkTyre: 0x17191e,
+  chunkTire: 0x17191e,
   chunkHub: 0x5a5e66,
   chunkMetal: 0x2a2826,
   chunkPanel: 0x3d3833,
@@ -607,7 +777,7 @@ export const EFFECTS = {
   maxSmoke: 140,
   maxFire: 160,
   maxFireball: 120, // flame clouds on screen at once
-  maxChunks: 24, // big flying pieces (tyres, bumpers, panels)
+  maxChunks: 24, // big flying pieces (tires, bumpers, panels)
   maxRings: 6, // ground shockwave rings
   chunksSmall: 3, // pieces thrown out by a police wreck ...
   chunksBig: 5, // ... and by the player's crash
@@ -620,6 +790,10 @@ export const EFFECTS = {
   ringMs: 360,
   scorchRadius: 62, // world units
   sirenGlowOverAlpha: 0.15, // the faint colour cast over nearby props and cars
+  maxFrost: 60, // frost sparkles at once
+  maxTrailFire: 150, // flames on the Flamer's trail at once
+  frozenGlowAlpha: 0.5, // the pool of cold light under a frozen car
+  firePatchAlpha: 0.75,
   maxBursts: 8, // comic starbursts on screen at once
   burstPopMs: 90, // how fast one pops out ...
   burstHoldMs: 40, // ... stays ...
@@ -633,7 +807,7 @@ export const EFFECTS = {
   sirenPoolRadius: 105, // world units: the red / blue light on the ground under a cruiser
   sirenPoolAlpha: 0.62,
   maxDebris: 90,
-  smokeEveryMs: 45, // a puff from each skidding rear tyre this often
+  smokeEveryMs: 45, // a puff from each skidding rear tire this often
   wreckSmokeEveryMs: 160,
   maxScorch: 30,
   scorchSeconds: 45, // the road keeps the marks long after the wreck has gone
@@ -646,7 +820,7 @@ export const EFFECTS = {
 export const CAR_MODEL = {
   wheelHeight: 13,
   wheelLength: 16,
-  wheelInner: 19, // tyres sit outside the lower body (x 19..23.5) so they always show
+  wheelInner: 19, // tires sit outside the lower body (x 19..23.5) so they always show
   wheelOuter: 23.5,
   wheelBase: 0.32, // axles sit this share of the length from the centre
   sillBottom: 4, // lower body (narrower, darker)

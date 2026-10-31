@@ -1,4 +1,4 @@
-import { COLLISION, PALETTE, RENDER, SCENERY, WORLD } from '../config/tuning.js';
+import { COLLISION, PALETTE, PILLARS, RENDER, ROADBLOCK, SCENERY, WORLD } from '../config/tuning.js';
 import { glyphBars, glyphWidth } from './blockFont.js';
 import { box, decal, frustum, glowing, hexa, ngon, rect } from './lowpoly.js';
 
@@ -79,22 +79,45 @@ export function trafficCone() {
   ];
 }
 
-// Shockwave crate (power-up): a wrapped gift box, orange-red with a cream ribbon and a bow on top.
-export const CRATE_SIZE = 44;
-export function crate() {
-  const h = CRATE_SIZE / 2;
-  const lidZ = CRATE_SIZE * 0.78;
-  const body = box(-h, h, -h, h, 0, lidZ, PALETTE.crate, 0);
-  for (const face of ['front', 'back', 'left', 'right']) decal(body, face, 0.4, 0.6, 0, 1, PALETTE.crateRibbon);
-  const lid = frustum(rect(0, 0, CRATE_SIZE + 5, CRATE_SIZE + 5), rect(0, 0, CRATE_SIZE + 3, CRATE_SIZE + 3), lidZ, CRATE_SIZE, PALETTE.crate, 1);
-  for (const face of ['front', 'back', 'left', 'right']) decal(lid, face, 0.4, 0.6, 0, 1, PALETTE.crateRibbon);
-  decal(lid, 'top', 0.4, 0.6, 0, 1, PALETTE.crateRibbon);
-  decal(lid, 'top', 0, 1, 0.4, 0.6, PALETTE.crateRibbon);
-  // The bow: two loops and a knot.
-  const bowZ = CRATE_SIZE;
-  const loop = (x) => frustum(rect(x, 0, 12, 9), rect(x * 1.25, 0, 7, 5), bowZ, bowZ + 11, PALETTE.crateRibbon, 2);
-  const knot = box(-4, 4, -4, 4, bowZ, bowZ + 7, PALETTE.crateRibbon, 3);
-  return [body, lid, loop(-8), loop(8), knot];
+// The lucky die: the power-up that gives a random item. A big violet die with cream spots and a bevelled
+// top. A few versions show different numbers on their visible faces: swapped at each bounce, they make
+// it look as if it is rolling after the car.
+export const DIE_SIZE = 42;
+const DIE_SPOTS = {
+  1: [[1, 1]],
+  2: [[0, 0], [2, 2]],
+  3: [[0, 0], [1, 1], [2, 2]],
+  4: [[0, 0], [2, 0], [0, 2], [2, 2]],
+  5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
+  6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
+};
+// The numbers on the faces in view: [top, one side, the other side].
+export const DIE_ROLLS = [
+  [1, 2, 3],
+  [5, 4, 1],
+  [3, 6, 5],
+  [2, 3, 6],
+];
+
+function dieSpots(part, face, number) {
+  const size = 0.16;
+  for (const [column, row] of DIE_SPOTS[number]) {
+    const u = 0.25 + column * 0.25;
+    const v = 0.25 + row * 0.25;
+    decal(part, face, u - size / 2, u + size / 2, v - size / 2, v + size / 2, PALETTE.cratePip);
+  }
+}
+
+export function luckyDie(roll = 0) {
+  const h = DIE_SIZE / 2;
+  const bevel = 4;
+  const [top, sideA, sideB] = DIE_ROLLS[roll];
+  const body = box(-h, h, -h, h, 0, DIE_SIZE - bevel, PALETTE.crate, 0);
+  dieSpots(body, 'back', sideA);
+  dieSpots(body, 'right', sideB);
+  const cap = frustum(rect(0, 0, DIE_SIZE, DIE_SIZE), rect(0, 0, DIE_SIZE - bevel * 2, DIE_SIZE - bevel * 2), DIE_SIZE - bevel, DIE_SIZE, PALETTE.crate, 1);
+  dieSpots(cap, 'top', top);
+  return [body, cap];
 }
 
 // One giant block letter, standing on a plinth. Bars are painted far ones first, so nearer ones cover
@@ -124,6 +147,33 @@ export function shippingContainer({ width, length, height, color }) {
   return [body];
 }
 
+// The Pillars power-up: a rough stone block, wider at the foot, with a pale top.
+export function stonePillar() {
+  const h = PILLARS.halfSize;
+  const top = PILLARS.height;
+  return [
+    frustum(rect(0, 0, h * 2 + 8, h * 2 + 8), rect(0, 0, h * 2, h * 2), 0, top * 0.22, PALETTE.pillar, 0),
+    frustum(rect(0, 0, h * 2, h * 2), rect(0, 0, h * 2 - 7, h * 2 - 7), top * 0.22, top * 0.9, PALETTE.pillar, 1),
+    frustum(rect(0, 0, h * 2 - 3, h * 2 - 3), rect(0, 0, h * 2 - 11, h * 2 - 11), top * 0.9, top, PALETTE.pillarCap, 2),
+  ];
+}
+
+// A spike strip: a low dark bar with a row of bright steel teeth, and hazard paint. Runs along local x.
+export function spikeStrip() {
+  const hw = ROADBLOCK.spikeHalfLength;
+  const hl = ROADBLOCK.spikeHalfDepth;
+  const bar = box(-hw, hw, -hl, hl, 0, 3, PALETTE.spikeBase, 0);
+  const stripes = 7;
+  for (let i = 0; i < stripes; i += 2) decal(bar, 'top', i / stripes, (i + 1) / stripes, 0, 1, PALETTE.swatStripe);
+  const parts = [bar];
+  const teeth = 9;
+  for (let i = 0; i < teeth; i += 1) {
+    const x = -hw + ((i + 0.5) / teeth) * hw * 2;
+    for (const y of [-hl * 0.45, hl * 0.45]) parts.push(ngon({ x, y, sides: 3, r0: 4, r1: 0, z0: 3, z1: 12, color: PALETTE.spikeTeeth, layer: 1 }));
+  }
+  return parts;
+}
+
 // Stepped stone base with a tapered column.
 export function monument() {
   return [
@@ -147,7 +197,7 @@ function civilianWheels() {
     for (const end of [-1, 1]) {
       const y = end * 27;
       const x0 = side < 0 ? -23 : 19;
-      const wheel = box(x0, x0 + 4, y - 8, y + 8, 0, 12, PALETTE.tyre, 0);
+      const wheel = box(x0, x0 + 4, y - 8, y + 8, 0, 12, PALETTE.tire, 0);
       decal(wheel, side < 0 ? 'left' : 'right', 0.3, 0.7, 0.22, 0.66, PALETTE.hub);
       parts.push(wheel);
     }
@@ -235,6 +285,10 @@ export function propMesh(item) {
       return shippingContainer(p);
     case 'monument':
       return monument();
+    case 'pillar':
+      return stonePillar();
+    case 'spikes':
+      return spikeStrip();
     case 'roundabout':
       return roundabout();
     default:

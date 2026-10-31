@@ -55,8 +55,8 @@ export class MenuScreen extends Screen {
     this.stats.textContent = parts.join('  ·  ');
     this.sound.setSound(soundOn);
     this.hint.textContent = touch
-      ? 'Hold the left or right side of the screen to steer'
-      : 'Steer with ← → or A D  ·  Space: Shockwave  ·  Esc: pause';
+      ? 'Hold the left or right side to steer  ·  Double tap: power-up'
+      : 'Steer with ← → or A D  ·  Space: power-up  ·  Esc: pause';
     super.show();
   }
 }
@@ -87,6 +87,7 @@ const CAUSES = {
   obstacle: ['WRECKED!', 'You crashed into the scenery'],
   void: ['BUSTED!', 'Fell into the void'],
   roadblock: ['BUSTED!', 'You hit a roadblock'],
+  bearcat: ['BUSTED!', 'Flattened by a SWAT truck'],
 };
 
 export class GameOverScreen extends Screen {

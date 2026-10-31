@@ -2,7 +2,7 @@ import { ICONS, button, el, uiRoot } from './dom.js';
 import { formatTime } from '../systems/ScoreSystem.js';
 
 // In-game overlay: survival timer (big, top centre), best time, police wrecked, pause button,
-// the Shockwave button (only while one is held) and short pop-up messages.
+// the power-up button (only while an item is held) and short pop-up messages.
 export class Hud {
   constructor({ onPause, onPower }) {
     this.time = el('div', 'hud-time', '0:00.0');
@@ -13,8 +13,9 @@ export class Hud {
     this.wrecks.title = 'Police wrecked';
     this.wrecksCount = this.wrecks.lastChild;
     this.pauseButton = button('btn hud-pause', ICONS.pause, onPause, 'Pause');
-    this.power = button('hud-power', ICONS.bolt, onPower, 'Use Shockwave');
-    this.power.append(el('span', 'hud-power-label', 'SHOCKWAVE'));
+    this.power = button('hud-power', ICONS.bolt, onPower, 'Use power-up');
+    this.powerLabel = el('span', 'hud-power-label', '');
+    this.power.append(this.powerLabel);
     this.toasts = el('div', 'hud-toasts');
     this.hintBox = el('div', 'hud-hint', '');
     this.node = el('div', 'hud', [
@@ -37,7 +38,8 @@ export class Hud {
   }
 
   // Cheap to call every frame: only touches the page when a value changes.
-  update(time, wrecks, powerHeld) {
+  // power: what the power-up button should say, or null to hide it.
+  update(time, wrecks, power) {
     const tenths = Math.floor(time * 10);
     if (tenths !== this.shown.time) {
       this.shown.time = tenths;
@@ -50,18 +52,19 @@ export class Hud {
       void this.wrecks.offsetWidth; // restart the little bounce animation
       if (wrecks > 0) this.wrecks.classList.add('bump');
     }
-    if (powerHeld !== this.shown.power) {
-      this.shown.power = powerHeld;
-      this.power.classList.toggle('ready', powerHeld);
+    if (power !== this.shown.power) {
+      this.shown.power = power;
+      this.power.classList.toggle('ready', Boolean(power));
+      if (power) this.powerLabel.textContent = power;
     }
   }
 
-  // kind: 'combo' | 'near' | 'power' | 'info'
-  toast(text, kind = 'info') {
+  // kind: 'combo' | 'near' | 'power' | 'ready' | 'info'
+  toast(text, kind = 'info', ms = 1400) {
     const node = el('div', `toast toast-${kind}`, text);
     this.toasts.append(node);
     while (this.toasts.childElementCount > 3) this.toasts.firstChild.remove();
-    setTimeout(() => node.remove(), 1400);
+    setTimeout(() => node.remove(), ms);
   }
 
   hint(text, ms) {

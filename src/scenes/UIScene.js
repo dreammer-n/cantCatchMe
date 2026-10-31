@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
-import { COLORS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, RENDER, STORAGE_KEYS, UI, WARNING } from '../config/tuning.js';
+import { COLORS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, POWERUP, RENDER, STORAGE_KEYS, UI, WARNING } from '../config/tuning.js';
 import { DevPanel } from '../dev/DevPanel.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { findView, projection } from '../render/projection.js';
@@ -42,7 +42,8 @@ export class UIScene extends Phaser.Scene {
       this.game.events.on(name, handler, this);
       this.events.once('shutdown', () => this.game.events.off(name, handler, this));
     };
-    on('toast', (text, kind) => this.onToast(text, kind));
+    on('toast', (text, kind) => this.hud.toast(text, kind));
+    on('power-ready', (name) => this.hud.toast(`${name} READY! - ${this.touch ? 'DOUBLE TAP' : 'SPACE'} TO USE`, 'ready', 2600));
     on('run-started', () => this.onRunStarted());
     on('run-crashed', () => this.hud.hideHint());
     on('run-over', () => this.hud.show(false));
@@ -61,16 +62,8 @@ export class UIScene extends Phaser.Scene {
     this.hud.clearToasts();
     this.hud.setBest(Records.best.time);
     this.hud.show(true);
-    this.pickups = 0;
     if (Records.totals.runs < 3) {
       this.hud.hint(this.touch ? 'Hold the left or right side to steer' : 'Steer with ← → or A D · lure the police into crashes', 4500);
-    }
-  }
-
-  onToast(text, kind) {
-    this.hud.toast(text, kind);
-    if (kind === 'power' && Records.totals.runs < 6 && this.pickups++ < 1) {
-      this.hud.hint(this.touch ? 'Tap the ⚡ button to blast nearby police' : 'Press Space to blast nearby police', 3500);
     }
   }
 
@@ -83,7 +76,7 @@ export class UIScene extends Phaser.Scene {
       else if (command.restartPressed) this.restartRun();
     }
     const sim = this.world.sim;
-    if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.wrecks, running && sim.powerUps.held);
+    if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.wrecks, running ? sim.powerUps.label : null);
     this.drawOverlay(running && !this.paused ? command.steer : 0, running && !this.paused);
     if (this.devPanel && time >= this.nextReadoutAt) {
       this.nextReadoutAt = time + DEV_PANEL.readoutRefreshMs;
@@ -261,6 +254,9 @@ export class UIScene extends Phaser.Scene {
       onRestart: () => this.restartRun(),
       onCycleView: () => this.cycleView(),
       onTurntable: () => this.toggleTurntable(),
+      powers: Object.entries(POWERUP.names).map(([id, label]) => ({ id, label })),
+      onGivePower: (kind) => this.world.givePower(kind),
+      onSummon: (kind) => this.world.summon(kind),
     });
     this.devPanel.setActivePreset(this.registry.get('handlingPreset'));
     this.devPanel.setViewLabel(projection.viewLabel);

@@ -2,6 +2,8 @@ import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
 import {
   AUDIO,
+  BEARCAT,
+  CAR_SIZE,
   CRASH,
   DEFAULT_HANDLING_PRESET,
   DEPTH,
@@ -9,6 +11,8 @@ import {
   DISPLAY,
   EFFECTS,
   EXPLOSION,
+  FLAT_TIRE,
+  FREEZE,
   HANDLING_PRESETS,
   HITSTOP,
   PALETTE,
@@ -24,12 +28,13 @@ import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { CameraRig } from '../render/CameraRig.js';
 import { ensureCarAtlas } from '../render/carAtlas.js';
-import { carShadowPoints } from '../render/carModels.js';
+import { BEARCAT_LIGHTS, carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
+import { HelicopterView } from '../render/HelicopterView.js';
 import { createLayers, depthAt } from '../render/layers.js';
 import { bakeMesh, releaseOtherViews } from '../render/lowpoly.js';
 import { projection } from '../render/projection.js';
-import { crate as crateModel } from '../render/propModels.js';
+import { DIE_ROLLS, luckyDie } from '../render/propModels.js';
 import { Scenery } from '../render/Scenery.js';
 import { SirenBeams } from '../render/SirenBeams.js';
 import { ChaseSimulation } from '../systems/ChaseSimulation.js';
@@ -68,15 +73,17 @@ export class GameScene extends Phaser.Scene {
     this.skids = new SkidMarks(this, this.layers.ground);
     this.effects = new Effects(this, this.layers);
     this.createCrate();
+    this.absorb = null; // the die sinking into the car after a pickup
 
     this.wheels = [
       { x: 0, y: 0 },
       { x: 0, y: 0 },
     ];
     this.hitStop = new HitStop();
-    this.pendingPower = false; // a Shockwave press during a hit-stop waits for the action to restart
+    this.pendingPower = false; // a power-up press during a hit-stop waits for the action to restart
     this.radar = new ThreatRadar();
     this.beams = new SirenBeams(this, this.layers.lights);
+    this.helicopterView = new HelicopterView(this, this.layers, this.carShadows);
     this.rig = new CameraRig();
     this.rig.reset(this.sim.player.x, this.sim.player.y);
     this.view = { x: 0, y: 0, right: 0, bottom: 0 }; // visible screen rectangle
@@ -111,8 +118,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   makeLooks() {
-    const look = (name, lights) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights });
-    return { player: look('player', false), police: look('police', true), interceptor: look('interceptor', true), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
+    const look = (name, lights, lightSpot) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights, lightSpot });
+    return { player: look('player', false), police: look('police', true), interceptor: look('interceptor', true), bearcat: look('bearcat', true, BEARCAT_LIGHTS), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
   }
 
   // ------------------------------------------------------------------------------------------
@@ -167,6 +174,8 @@ export class GameScene extends Phaser.Scene {
     this.skids.clear();
     this.effects.clear();
     this.smokeClock.clear();
+    this.absorb = null;
+    this.crateBody.setScale(this.crateBodyScale).setAlpha(1).setRotation(0);
     this.hideCrate();
     this.radar.clear();
     this.scenery.sync(this.sim.chunks, Infinity);
@@ -209,9 +218,14 @@ export class GameScene extends Phaser.Scene {
     this.beams.update(this.radar.threats, this.sim.player, time);
     this.carShadows.clear();
     this.syncCars(time, gameDt, dt);
-    this.updateTyresAndFires(gameDt * 1000);
-    this.updateCrate(time);
+    this.updateTiresAndFires(gameDt * 1000);
+    this.updateCrate(time, dt);
     this.scenery.syncCones(this.sim.cones);
+    this.scenery.syncPillars(this.sim.powerUps.pillars);
+    this.scenery.syncSpikes(this.sim.spikeStrips);
+    this.helicopterView.update(this.sim.helicopter, time);
+    this.effects.syncPatches(this.sim.powerUps.patches, gameDt);
+    if (this.sim.player.crushing) this.rig.trauma = Math.max(this.rig.trauma, TRAUMA.giantRumble);
     this.scenery.cull(this.view);
     this.effects.update(gameDt);
     this.updateAudio(dt);
@@ -225,12 +239,14 @@ export class GameScene extends Phaser.Scene {
           this.acquireView(e.police, this.lookFor(e.police));
           break;
         case 'wreck':
+          if (e.cause === 'void') this.crumbleBehind(e.police.model);
           if (e.police.view && e.cause !== 'void') {
             e.police.view.setLook(this.looks.wreck);
             e.police.view.startTumble(this.looks.wreckRoof);
           }
           break;
         case 'fall':
+          this.crumbleBehind(player);
           this.audio.play('bump', 0.6);
           this.rig.addTrauma(TRAUMA.fall);
           break;
@@ -247,6 +263,8 @@ export class GameScene extends Phaser.Scene {
           if (e.cause === 'void') {
             // Already out of sight: no wreck, no bang, and a shorter wait for the results.
             this.crashClock = CRASH.gameOverDelay - VOID.resultsDelay;
+            this.effects.holeDust(e.x, e.y);
+            this.rig.addTrauma(TRAUMA.fall);
           } else {
             this.playerView.setLook(this.looks.wreck);
             this.playerView.startTumble(this.looks.wreckRoof);
@@ -272,9 +290,51 @@ export class GameScene extends Phaser.Scene {
           this.audio.play('nearMiss');
           this.rig.addTrauma(TRAUMA.nearMiss);
           break;
+        case 'flat':
+          this.toast('FLAT TIRE!', 'combo');
+          this.effects.impact(e.x, e.y, EFFECTS.burstScrape);
+          this.rig.addTrauma(TRAUMA.flat);
+          this.punch(HITSTOP.bumpMs);
+          this.audio.play('bump', 0.7);
+          break;
+        case 'helicopter':
+          this.toast('POLICE CHOPPER!', 'near');
+          break;
+        case 'dropLand': {
+          const distance = Math.hypot(e.x - player.x, e.y - player.y);
+          this.effects.pillarDust(e.x, e.y);
+          this.effects.groundRing(e.x, e.y, EFFECTS.ringRadius);
+          this.audio.play('bump', 1 - distance / AUDIO.explosionRange);
+          if (distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.dropLand * (1 - distance / EXPLOSION.shakeDistance));
+          break;
+        }
         case 'pickup':
-          this.toast('SHOCKWAVE READY!', 'power');
+          this.startAbsorb(e);
+          this.game.events.emit('power-ready', POWERUP.names[e.kind]);
           this.audio.play('pickup');
+          break;
+        case 'power':
+          this.onPowerUsed(e);
+          break;
+        case 'shatter':
+          this.effects.shatter(e.x, e.y);
+          this.toast('SMASHED!', 'combo');
+          this.rig.addTrauma(TRAUMA.shatter);
+          this.punch(HITSTOP.smashMs);
+          this.audio.play('cone', 1);
+          this.audio.play('bump', 0.7);
+          break;
+        case 'crush':
+          this.rig.addTrauma(TRAUMA.crush);
+          this.punch(HITSTOP.crushMs);
+          break;
+        case 'ignite':
+          this.effects.ignite(e.x, e.y);
+          this.rig.addTrauma(TRAUMA.ignite);
+          this.audio.play('cone', 0.6);
+          break;
+        case 'pillarCrumble':
+          this.effects.pillarDust(e.x, e.y);
           break;
         case 'pulse':
           this.effects.shockwave(e.x, e.y, e.radius, POWERUP.pulseSeconds);
@@ -297,7 +357,7 @@ export class GameScene extends Phaser.Scene {
           this.rig.addTrauma(TRAUMA.curb);
           break;
         case 'cone':
-          if (e.cone.item.kind === 'civilian') this.onParkedCarHit(e);
+          if (e.cone.item.kind === 'civilian' || e.cone.wasSolid) this.onParkedCarHit(e);
           else {
             this.audio.play('cone', 0.8);
             if (e.player) this.rig.addTrauma(TRAUMA.knock);
@@ -309,15 +369,75 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // A car going over the edge of a hole: the road crumbles, and dust is left at the edge behind it.
+  crumbleBehind(car) {
+    const speed = Math.max(1, car.speed);
+    const back = CAR_SIZE.length * 0.6;
+    this.effects.holeCrumble(car.x, car.y, car.x - (car.vx / speed) * back, car.y - (car.vy / speed) * back);
+  }
+
   onParkedCarHit(e) {
     this.audio.play('bump', e.player ? 0.8 : 0.4);
     this.effects.impact(e.x, e.y, EFFECTS.burstSmash);
     if (!e.player) return;
     this.rig.addTrauma(TRAUMA.smash);
-    this.punch(HITSTOP.smashMs);
+    // A Giant car goes through everything: stopping for each thing would turn it into a stutter.
+    if (!this.sim.player.crushing) this.punch(HITSTOP.smashMs);
+  }
+
+  onPowerUsed(e) {
+    if (e.kind !== 'shockwave') this.toast(`${POWERUP.names[e.kind]}!`, 'power');
+    if (e.kind === 'giant') {
+      this.rig.addTrauma(TRAUMA.giant);
+      this.audio.play('pulse');
+    } else if (e.kind === 'freeze') {
+      this.effects.freezeBlast(e.x, e.y);
+      this.rig.addTrauma(TRAUMA.freeze);
+      this.audio.play('pulse');
+    } else if (e.kind === 'pillars') {
+      for (const pillar of this.sim.powerUps.pillars) {
+        if (pillar.active && pillar.state === 'up' && pillar.time === 0) this.effects.pillarDust(pillar.x, pillar.y);
+      }
+      this.rig.addTrauma(TRAUMA.pillars);
+      this.audio.play('bump', 0.9);
+    } else if (e.kind === 'flamer') {
+      this.audio.play('pickup');
+    }
+  }
+
+  // Debug toolbar: brings on one of the tactical units at once.
+  summon(kind) {
+    if (this.mode !== 'playing') return;
+    const { sim, simView } = this;
+    if (kind === 'helicopter') {
+      if (!sim.helicopter.active) sim.helicopter.arrive(sim);
+      sim.helicopter.nextDrop = 0.5;
+    } else if (kind === 'roadblock') {
+      sim.spawner.tryRoadblock(sim, simView);
+    } else if (kind === 'bearcat') {
+      const p = sim.player;
+      const speed = Math.max(1, p.speed);
+      sim.spawnPolice(p.x + (p.vx / speed) * 800, p.y + (p.vy / speed) * 800, Math.atan2(-p.vx, p.vy), {
+        role: 'bearcat',
+        speedFactor: BEARCAT.speedShare * 1.05,
+        turnDeg: BEARCAT.turnDeg,
+        aimSide: 0,
+        launchShare: 1,
+      });
+    }
+    // Sound, toasts and drawings for whatever just appeared; the next step clears the list.
+    this.handleEvents(sim.events.splice(0));
+  }
+
+  // Debug toolbar: puts an item straight into the player's hands.
+  givePower(kind) {
+    if (this.mode !== 'playing') return;
+    this.sim.powerUps.give(kind);
+    this.game.events.emit('power-ready', POWERUP.names[kind]);
   }
 
   lookFor(police) {
+    if (police.armored) return this.looks.bearcat;
     return police.role === 'interceptor' ? this.looks.interceptor : this.looks.police;
   }
 
@@ -348,6 +468,7 @@ export class GameScene extends Phaser.Scene {
     this.playerView.update(this.sim.player, this.view, time, realDt * TUMBLE.playerTimeScale);
     for (const police of this.sim.police) {
       if (!police.active || !police.view) continue;
+      police.view.setFrozen(police.alive && police.frozen > 0);
       if (police.state === 'wreck') {
         const left = WRECK.lifetime - police.wreckTime;
         police.view.setAlpha(left < WRECK.fadeSeconds ? Math.max(0, left / WRECK.fadeSeconds) : 1);
@@ -356,11 +477,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // Skid marks and tyre smoke for every sliding car on screen; smoke and flames from wrecks.
-  updateTyresAndFires(ms) {
+  // Skid marks and tire smoke for every sliding car on screen; smoke and flames from wrecks.
+  updateTiresAndFires(ms) {
     const driving = this.mode !== 'attract' && !this.turntable;
     if (driving && this.mode === 'playing') {
-      this.tyres(0, this.sim.player, ms);
+      this.tires(0, this.sim.player, ms);
+      this.flatTireSmoke(this.sim.player, ms);
     } else {
       this.skids.addPoint(0, 0, 0, false);
       this.skids.addPoint(1, 0, 0, false);
@@ -368,18 +490,37 @@ export class GameScene extends Phaser.Scene {
     for (const police of this.sim.police) {
       if (!police.view) continue;
       const onScreen = police.view.sprite.visible;
-      if (police.alive && onScreen) this.tyres((police.id + 1) * 2, police.model, ms);
+      if (police.alive && onScreen) {
+        this.tires((police.id + 1) * 2, police.model, ms);
+        if (police.burning > 0) this.burn(police.id, police.model, 0, ms);
+      }
       else if (police.state === 'wreck' && onScreen && !police.model.isFalling) this.burn(police.id, police.model, police.wreckTime, ms);
     }
     if (this.sim.state === 'crashed' && !this.sim.player.isFalling) this.burn(-1, this.sim.player, this.crashClock * 2, ms);
     this.skids.update(ms);
   }
 
-  tyres(track, model, ms) {
+  // The flat corner throws out smoke and sparks whatever the car is doing.
+  flatTireSmoke(model, ms) {
+    if (model.flatTime <= 0) return;
+    const clock = (this.smokeClock.get('flat') || 0) + ms;
+    if (clock < FLAT_TIRE.smokeEveryMs) {
+      this.smokeClock.set('flat', clock);
+      return;
+    }
+    this.smokeClock.set('flat', 0);
+    rearWheels(model, this.wheels);
+    const wheel = this.wheels[model.flatSide < 0 ? 0 : 1];
+    this.effects.smokePuff(wheel.x, wheel.y);
+    if (model.flatness > 0.5) this.effects.rimSparks(wheel.x, wheel.y);
+  }
+
+  tires(track, model, ms) {
     const skidding = isSkidding(model);
     rearWheels(model, this.wheels);
-    this.skids.addPoint(track, this.wheels[0].x, this.wheels[0].y, skidding);
-    this.skids.addPoint(track + 1, this.wheels[1].x, this.wheels[1].y, skidding);
+    const flat = model.flatness > 0;
+    this.skids.addPoint(track, this.wheels[0].x, this.wheels[0].y, skidding || (flat && model.flatSide < 0));
+    this.skids.addPoint(track + 1, this.wheels[1].x, this.wheels[1].y, skidding || (flat && model.flatSide > 0));
     if (!skidding) return;
     const clock = (this.smokeClock.get(track) || 0) + ms;
     if (clock >= EFFECTS.smokeEveryMs) {
@@ -405,11 +546,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------------------------------
-  // Shockwave crate
+  // The lucky die
   // ------------------------------------------------------------------------------------------
 
   createCrate() {
-    this.crateMesh = crateModel();
+    this.dieDrawings = [];
+    this.dieRoll = -1;
     this.crateGlow = this.add.image(0, 0, 'fx-glow').setTint(PALETTE.crateGlow).setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.shadows + 1);
     this.crateShadow = this.add.image(0, 0, '__DEFAULT').setAlpha(RENDER.shadowAlpha).setDepth(DEPTH.shadows);
     this.crateBody = this.add.image(0, 0, '__DEFAULT');
@@ -418,31 +560,85 @@ export class GameScene extends Phaser.Scene {
   }
 
   bakeCrate() {
-    const key = `prop:crate:0:${projection.key}`;
-    const body = bakeMesh(this, key, this.crateMesh, 0, projection, 'body');
-    const shadow = bakeMesh(this, `${key}:shadow`, this.crateMesh, 0, projection, 'shadow');
-    this.crateBody.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
-    this.crateShadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(1 / shadow.scale);
+    this.dieDrawings = DIE_ROLLS.map((_, roll) => bakeMesh(this, `prop:die:${roll}:${projection.key}`, luckyDie(roll), 0, projection, 'body'));
+    const shadow = bakeMesh(this, `prop:die:${projection.key}:shadow`, luckyDie(0), 0, projection, 'shadow');
+    this.crateBodyScale = 1 / this.dieDrawings[0].scale;
+    this.crateShadowScale = 1 / shadow.scale;
+    this.showDieRoll(0);
+    this.crateBody.setScale(this.crateBodyScale);
+    this.crateShadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(this.crateShadowScale);
+  }
+
+  showDieRoll(roll) {
+    if (roll === this.dieRoll) return;
+    this.dieRoll = roll;
+    const drawing = this.dieDrawings[roll];
+    this.crateBody.setTexture(drawing.key).setOrigin(drawing.originX, drawing.originY);
   }
 
   hideCrate() {
     for (const image of [this.crateGlow, this.crateShadow, this.crateBody]) image.setVisible(false);
   }
 
-  updateCrate(time) {
+  // It catches the car: from here it is only a drawing, closing in on the car and sinking into it.
+  startAbsorb(e) {
+    const player = this.sim.player;
+    projection.toScreen(e.x, e.y, 0, screenPoint);
+    const x = screenPoint.x;
+    const y = screenPoint.y;
+    projection.toScreen(player.x, player.y, 0, screenPoint);
+    this.absorb = { t: 0, offsetX: x - screenPoint.x, offsetY: y - screenPoint.y };
+  }
+
+  updateAbsorb(dt) {
+    const absorb = this.absorb;
+    absorb.t += dt / POWERUP.absorbSeconds;
+    if (absorb.t >= 1 || this.mode !== 'playing') {
+      this.absorb = null;
+      this.crateBody.setScale(this.crateBodyScale).setAlpha(1).setRotation(0);
+      this.hideCrate();
+      return;
+    }
+    const player = this.sim.player;
+    const left = (1 - absorb.t) * (1 - absorb.t);
+    projection.toScreen(player.x, player.y, 0, screenPoint);
+    this.crateShadow.setVisible(false);
+    this.crateGlow.setVisible(false);
+    this.crateBody
+      .setVisible(true)
+      .setPosition(screenPoint.x + absorb.offsetX * left, screenPoint.y + absorb.offsetY * left - 14 * projection.lift)
+      .setScale(this.crateBodyScale * (0.2 + 0.8 * left))
+      .setAlpha(0.35 + 0.65 * left)
+      .setRotation(0)
+      .setDepth(depthAt(player.x, player.y) + 1);
+  }
+
+  updateCrate(time, dt) {
     const crate = this.sim.powerUps.crate;
+    if (this.absorb) {
+      this.updateAbsorb(dt);
+      return;
+    }
     if (!crate.active || this.mode === 'attract') {
       this.hideCrate();
       return;
     }
     projection.toScreen(crate.x, crate.y, 0, screenPoint);
-    const bob = 12 + Math.sin(time / 260) * 6;
+    // It bounces after the car: high arcs, squashing as it lands and stretching as it leaves the road,
+    // showing a new face each bounce.
+    const beat = time / POWERUP.hopMs;
+    const t = beat - Math.floor(beat);
+    const air = 4 * t * (1 - t); // 0 on the road, 1 at the top
+    const landing = Math.max(0, 1 - air * 3.5);
     const pulse = 0.5 + 0.5 * Math.sin(time / 180);
+    this.showDieRoll(Math.floor(beat) % DIE_ROLLS.length);
     this.crateGlow.setVisible(true).setPosition(screenPoint.x, screenPoint.y).setScale(2.2 + pulse * 0.5, (2.2 + pulse * 0.5) * projection.squash).setAlpha(0.45 + pulse * 0.25);
-    this.crateShadow.setVisible(true).setPosition(screenPoint.x, screenPoint.y);
+    this.crateShadow.setVisible(true).setPosition(screenPoint.x, screenPoint.y).setScale(this.crateShadowScale * (1 - 0.35 * air));
     this.crateBody
       .setVisible(true)
-      .setPosition(screenPoint.x, screenPoint.y - bob * projection.lift)
+      .setPosition(screenPoint.x, screenPoint.y - air * POWERUP.hopHeight * projection.lift)
+      .setScale(this.crateBodyScale * (1 + 0.2 * landing), this.crateBodyScale * (1 - 0.28 * landing + 0.08 * air))
+      .setRotation(Math.sin(t * Math.PI * 2) * 0.16)
       .setDepth(depthAt(crate.x, crate.y));
   }
 
@@ -511,6 +707,7 @@ export class GameScene extends Phaser.Scene {
       if (police.view) police.view.setLook(police.alive ? this.lookFor(police) : this.looks.wreck);
     }
     this.bakeCrate();
+    this.helicopterView.redraw();
     releaseOtherViews(this, projection.key);
     this.centerCamera();
   }
@@ -571,6 +768,8 @@ export class GameScene extends Phaser.Scene {
       slipAngle: car.slipAngle,
       chassisRoll: car.chassisRoll,
       trauma: this.rig.trauma,
+      carScale: car.scale,
+      held: this.sim.powerUps.kind,
       warnings: this.radar.threats.length,
       isFalling: car.isFalling,
       chunkX: this.sim.chunks.cx,

@@ -6,7 +6,7 @@
 const KEY_TO_INDEX = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 };
 
 export class DevPanel {
-  constructor({ presets, onSelectPreset, onRestart, onCycleView, onTurntable }) {
+  constructor({ presets, onSelectPreset, onRestart, onCycleView, onTurntable, powers, onGivePower, onSummon }) {
     this.presets = presets; // [{ id, label }]
     this.onSelectPreset = onSelectPreset;
     this.onRestart = onRestart;
@@ -39,7 +39,23 @@ export class DevPanel {
     const row = document.createElement('div');
     row.className = 'dev-panel__row';
     row.append(group, restart, this.viewButton, this.turntableButton);
-    this.root.append(row, this.readout);
+    // Puts a power-up straight into the player's hands, to try it without waiting for a die.
+    const powerRow = document.createElement('div');
+    powerRow.className = 'dev-panel__row';
+    for (const power of powers) {
+      const give = this.makeButton(power.label, () => onGivePower(power.id));
+      give.classList.add('dev-panel__action');
+      powerRow.append(give);
+    }
+    // Brings on a tactical unit at once, without waiting for 30-45 seconds of survival.
+    const unitRow = document.createElement('div');
+    unitRow.className = 'dev-panel__row';
+    for (const [kind, label] of [['bearcat', 'SWAT'], ['roadblock', 'ROADBLOCK'], ['helicopter', 'CHOPPER']]) {
+      const unit = this.makeButton(label, () => onSummon(kind));
+      unit.classList.add('dev-panel__action');
+      unitRow.append(unit);
+    }
+    this.root.append(row, powerRow, unitRow, this.readout);
     document.body.appendChild(this.root);
 
     this.onKeyDown = (event) => {

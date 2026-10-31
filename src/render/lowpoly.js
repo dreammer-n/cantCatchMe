@@ -252,12 +252,14 @@ export function projectShadow(mesh, heading, proj) {
 // Shadow outline in WORLD ground coordinates for a model at (x, y, heading). For moving cars:
 // drawn each frame in the shadow layer. Writes into `out` (array of {x, y}) and returns its length.
 const shadowShift = { x: 0, y: 0 };
-export function worldShadowOutline(points, x, y, heading, proj, out, scratch) {
+export function worldShadowOutline(points, x, y, heading, proj, out, scratch, scale = 1) {
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
   for (let i = 0; i < points.length; i += 1) {
-    const [lx, ly, lz] = points[i];
-    proj.shadowOffset(lz, shadowShift);
+    const [px, py, pz] = points[i];
+    const lx = px * scale;
+    const ly = py * scale;
+    proj.shadowOffset(pz * scale, shadowShift);
     scratch[i].x = x + lx * cos + ly * sin + shadowShift.x;
     scratch[i].y = y + lx * sin - ly * cos + shadowShift.y;
   }

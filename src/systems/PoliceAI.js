@@ -1,10 +1,11 @@
-import { INTERCEPTOR, POLICE, WORLD } from '../config/tuning.js';
+import { BEARCAT, INTERCEPTOR, POLICE, WORLD } from '../config/tuning.js';
 import { clamp, headingOf, lerp, wrapAngle } from '../utils/math.js';
 
 // Pursuit steering for one police car. Cheap on purpose:
 //   1. Every 0.1-0.3 s (a reaction time) pick a target point. Chasers aim at where the player IS,
 //      so they end up tailing. Interceptors aim at where the player WILL BE, which makes them cut
-//      corners, wait at crossings and come in from the side.
+//      corners, wait at crossings and come in from the side. Bearcats aim a little ahead, because
+//      they turn too slowly to catch anything from behind.
 //   2. Every frame, steer toward that point. The car's own turn rate and grip limit how fast it
 //      can actually turn, so police overshoot sharp turns: that is how the player escapes.
 //   3. Obstacle awareness, deliberately imperfect: at each reaction a car may glance ahead and,
@@ -44,16 +45,16 @@ function probeClear(car, world, angle, reach) {
 
 export function chooseTarget(police, player) {
   if (police.role === 'interceptor') aimAhead(police, player);
-  else aimAtPlayer(police, player);
+  else aimAtPlayer(police, player, police.armored ? BEARCAT.aimAheadSeconds : 0);
 }
 
 // Chaser: straight at the player, each car a little to its own side while far away, so they don't
 // all follow one line.
-function aimAtPlayer(police, player) {
+function aimAtPlayer(police, player, lead) {
   const car = police.model;
   const distance = Math.hypot(player.x - car.x, player.y - car.y);
-  police.targetX = player.x;
-  police.targetY = player.y;
+  police.targetX = player.x + player.vx * lead;
+  police.targetY = player.y + player.vy * lead;
   if (distance < POLICE.ramDistance) return;
   const speed = Math.hypot(player.vx, player.vy) || 1;
   const side = police.aimSide * POLICE.aimJitter * clamp(distance / 600, 0, 1);

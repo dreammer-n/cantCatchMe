@@ -1,6 +1,6 @@
 import { SKIDS } from '../config/tuning.js';
 
-// Tyre marks left while cars slide. A fixed pool of short strips is reused (oldest first),
+// Tire marks left while cars slide. A fixed pool of short strips is reused (oldest first),
 // so the number of marks can never grow past SKIDS.maxMarks.
 export class SkidMarks {
   // parent: the ground-layer container, so marks lie flat on the tilted ground.
@@ -9,10 +9,10 @@ export class SkidMarks {
     this.parent = parent;
     this.marks = [];
     this.next = 0;
-    this.trackEnds = []; // last mark position per tyre, or null when that tyre isn't marking
+    this.trackEnds = []; // last mark position per tire, or null when that tire isn't marking
   }
 
-  // Call each frame for each tyre. trackIndex identifies the tyre.
+  // Call each frame for each tire. trackIndex identifies the tire.
   addPoint(trackIndex, x, y, skidding) {
     if (!skidding) {
       this.trackEnds[trackIndex] = null;

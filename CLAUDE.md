@@ -22,6 +22,9 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 13. **Pursuit (Step 3, 2026-10-30):** owner asked for two police types (tailing chasers; black-and-white interceptors that aim at the player's predicted position, make for upcoming crossings and flank), parked roadblocks from 30 s, red warning chevrons for police arriving from out of sight, and a heat curve in four stages (`HEAT` in `tuning.js`). Parked cruisers don't count toward the police number. Police still spawn in motion, now along a road.
 14. **Comic-arcade look (Step 4, 2026-10-30):** owner's own "Arcade Comic Low-Poly" identity: clean low-poly models with comic-book action effects (ink-edged starbursts, puffy cloud smoke, hit-stop). Low sun with shadows about 1.2 x height, falling to the upper left. Palette in `ART_DIRECTION.md`. The owner's PAKO Forever frames are a reference for lighting, shadows and density only: no copied assets, props or branding. Parked civilian cars are breakable props (knocked aside), not physics bodies, to stay cheap on phones.
 15. **Crashes and set dressing (2026-10-30):** owner asked for more drama. Wrecks tumble (drawing only: physics stays flat; `render/Tumble.js`), with fireballs, flying wreckage and lasting burns. Word statues are one solid prop per letter, so draw order stays right. Siren beams warn of arriving police. The power-up is an orange gift box, but its arrow and the Shockwave button stay teal, so they are never mistaken for the red warnings. Prop drawings have a memory budget, checked by `tests/test_set.mjs`.
+16. **Lucky die (Step 6, 2026-10-30):** the power-up is a violet die, replacing the gift box so the game has its own look (the owner asked for something original). It bounces after the car from the moment it appears, sinks into it, and gives a random item: Shockwave, Giant, Freeze, Pillars or Flamer. Held items fire by themselves after 4 s. Used by double tap (touch), Space / W / Up, gamepad A or the round button. Giant changes the car's real size (`Car.scale`), so collisions, shadows and camera all follow it. Double tap is never the only control (GAME_DESIGN section 9). Audio is on hold: effects reuse existing sounds until the owner's files arrive.
+17. **Tactical units (Step 7, 2026-10-30):** owner asked for SWAT Bearcats (from 30 s), roadblocks with spike strips (from 35 s, replacing the 30 s start of decision 13) and a police helicopter (from 45 s). Bearcats are heavy (`BEARCAT`), plough through light props and kill on contact unless the player is Giant; a frozen one can be smashed like any frozen car (decision 18). Spikes give 3 s of flat tires (`FLAT_TIRE`); they only affect the player, and Giant ignores them and mends them. How the car behaves on a flat is in decision 18. The helicopter can't be stopped; it lights up the car and drops concrete blocks ahead, each marked by a red flare 1.2 s first, and a block never lands on the car (`HELICOPTER`). All code-drawn.
+18. **Owner's changes after Step 7 (2026-10-30):** (a) The player crashing into a frozen police car smashes it to bits and drives on through, losing 15% of its speed; no wreck, no explosion. This includes frozen Bearcats and parked cruisers. Police hitting a frozen car still both wreck. (b) Power-ups have original names on screen: KABOOM (`shockwave`), MONSTER (`giant`), COLD SNAP (`freeze`), STONEWALL (`pillars`), SCORCHER (`flamer`). The code and older notes keep the working names in brackets; `POWERUP.names` holds what the player sees. (c) "Tire" is the spelling everywhere except the owner's copied `PROJECT_INSTRUCTIONS.md`. (d) A flat tire behaves like one failed corner rather than a spin: a jolt, a constant pull to that side that steering can just about hold, speed bleeding off, then a smooth recovery, all within the 3 s. This replaces the "uncontrollable drift spin" of the Step 7 brief.
 
 ## Platform facts to respect (checked 2026-10-28, re-verify before Milestone 3)
 
@@ -44,22 +47,23 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Scenes: boot, world, HUD/pause overlay, title, results | `src/scenes/BootScene.js`, `GameScene.js`, `UIScene.js`, `MenuScene.js`, `GameOverScene.js` |
 | One chase as pure logic (no Phaser): steps cars, collisions, rules, events | `src/systems/ChaseSimulation.js` |
 | Shared driving model (player + police), pure maths | `src/entities/Car.js` |
-| Police car state (pooled) / pursuit steering (chasers, interceptors) | `src/entities/PoliceCar.js`, `src/systems/PoliceAI.js` |
+| Police helicopter, as pure logic (flying, searchlight target, dropped blocks) / its drawing | `src/entities/Helicopter.js`, `src/render/HelicopterView.js` |
+| Police car state (pooled) / pursuit steering (chasers, interceptors, Bearcats) | `src/entities/PoliceCar.js`, `src/systems/PoliceAI.js` |
 | Which police get a warning arrow (drawn by `UIScene.drawThreats`) | `src/systems/ThreatRadar.js` |
 | Collisions (car circles, prop circles/boxes, grid) | `src/systems/CollisionSystem.js` |
 | Spawn director, roadblocks, difficulty curve (numbers in `HEAT`) | `src/systems/SpawnSystem.js` |
-| Shockwave crate power-up | `src/systems/PowerUpSystem.js` |
+| Mystery box and all power-ups (Giant, Freeze, Pillars, Flamer, Shockwave) | `src/systems/PowerUpSystem.js` |
 | Run stats, saved records, time format | `src/systems/ScoreSystem.js`; settings in `src/systems/Settings.js` |
 | Synthesised sound (Web Audio, no files) | `src/systems/AudioSystem.js` |
 | Chunk layouts (data shared by drawing and collisions, worked out from chunk coordinates) | `src/systems/WorldLayout.js` |
 | Which chunks are loaded around the player | `src/systems/ChunkManager.js` |
-| Car drawing (reads physics, never writes it), skid/tyre helpers | `src/entities/CarView.js` |
+| Car drawing (reads physics, never writes it), skid/tire helpers | `src/entities/CarView.js` |
 | Camera (world → screen), visible-ground helper | `src/render/projection.js` |
 | Camera behaviour: look-ahead, speed zoom, trauma shake (pure maths) | `src/render/CameraRig.js` |
 | Ground/shadow layers, depth sorting | `src/render/layers.js` |
 | Low-poly renderer (solids, flat shading, shadows, baking) | `src/render/lowpoly.js` |
-| Car models (player, police, interceptor, wreck, upside-down wreck) / car drawing sheets | `src/render/carModels.js`, `src/render/carAtlas.js` |
-| Prop models (blocks, barriers, trees, lamps, cones, islands, crates, containers, monument, roundabout, parked cars, block letters, gift box) | `src/render/propModels.js` |
+| Car models (player, police, interceptor, Bearcat, helicopter, wreck, upside-down wreck) / car drawing sheets | `src/render/carModels.js`, `src/render/carAtlas.js` |
+| Prop models (blocks, barriers, trees, lamps, cones, islands, crates, containers, monument, roundabout, parked cars, block letters, lucky die, spike strip) | `src/render/propModels.js` |
 | Drawing the loaded chunks (floor, holes, pooled props), culling, knocked props | `src/render/Scenery.js` |
 | Comic starbursts, puffy smoke, sparks, scorch marks, shockwave ring | `src/render/Effects.js` |
 | Hit-stop (brief freeze on big hits) | `src/systems/HitStop.js` |
@@ -73,6 +77,8 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Bundling the Playgama SDK file locally | `vite.config.js` (plugin), `public/playgama-bridge-config.json` (placeholder) |
 | Math helpers, seeded random | `src/utils/math.js` |
 | Game-logic tests (`npm test`) and bot balance runs (`npm run balance`) | `tests/` |
+| Try any power-up on demand (`?debug` toolbar buttons) | `src/dev/DevPanel.js`, `GameScene.givePower` |
+| Bring on a Bearcat, roadblock or helicopter on demand (`?debug` toolbar buttons) | `src/dev/DevPanel.js`, `GameScene.summon` |
 | 2.5D rendering rules | `RENDERING.md` |
 | Art direction | `ART_DIRECTION.md` |
 | Tuning history | `TUNING_LOG.md` |
@@ -87,7 +93,7 @@ Phaser is imported as `import * as Phaser from 'phaser'` (Phaser 3.90 has no def
     imperfect obstacle awareness, chasers + interceptors), off-screen spawn director with a difficulty
     curve, crash rules (impact thresholds, "pinned" bust), wrecks as obstacles, explosions with chain
     reactions, survival timer, results, instant retry, saved best/totals.
-  - **M3 game feel:** tyre smoke, skid marks for all cars, fire/debris/flash/scorch, camera shake, close
+  - **M3 game feel:** tire smoke, skid marks for all cars, fire/debris/flash/scorch, camera shake, close
     calls, combos, knock-over cones, Shockwave crate power-up with an off-screen arrow.
   - **M4 art/audio/UI:** police and wreck low-poly models, flashing light bars, crate model, lighter city
     blocks vs roads, synthesised Web Audio sound (engine, squeal, siren, crashes, UI), HTML title / HUD /

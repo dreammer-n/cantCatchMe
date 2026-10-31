@@ -2,7 +2,7 @@ import { AUDIO } from '../config/tuning.js';
 import { clamp } from '../utils/math.js';
 
 // All game sound is synthesised with the Web Audio API: no audio files to download.
-// Continuous sounds: engine (pitch follows speed), tyre squeal (follows sliding), police siren
+// Continuous sounds: engine (pitch follows speed), tire squeal (follows sliding), police siren
 // (louder when police are close). One-shots: crashes, explosions, pickups, menu clicks ...
 //
 // Browsers only allow sound after the player touches or presses something, so the audio
@@ -70,7 +70,7 @@ export class AudioSystem {
       return osc;
     });
 
-    // Tyre squeal: band-passed noise.
+    // Tire squeal: band-passed noise.
     const squeal = ctx.createBufferSource();
     squeal.buffer = this.noise;
     squeal.loop = true;

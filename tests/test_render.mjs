@@ -118,7 +118,7 @@ const visibleNames = (mesh, heading, pr) => projectMesh(mesh, heading, pr).flatM
     roofLift.push(groundY - roofTop.reduce((s, p) => s + p.y, 0) / roofTop.length);
   }
   check('every direction shows the glass cabin (windscreen, rear or side windows)', glassEverywhere);
-  check('every direction shows tyres', wheelsEverywhere);
+  check('every direction shows tires', wheelsEverywhere);
   check('every direction shows hood, middle and boot tops as separate surfaces', hoodOrBootEverywhere);
   check('roof stands at the same screen height in every direction (no squashing when turning)', Math.max(...roofLift) - Math.min(...roofLift) < 1e-6, `${roofLift[0].toFixed(2)} units`);
   const faceShades = (h) => Object.fromEntries(projectMesh(mesh, h, angled).filter((p) => p.layer === 1).flatMap((p) => p.faces.map((f) => [f.name, (f.color >> 16) & 255])));
@@ -175,10 +175,10 @@ for (const view of RENDER.views) {
 
 // --- Props ---
 {
-  for (const name of ['police', 'interceptor', 'wreck', 'wreckRoof']) {
+  for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'wreck', 'wreckRoof']) {
     check(`${name} car model shows faces from the angled camera`, projectMesh(carMesh(name), 0.3, angled).some((p) => p.faces.length > 0));
   }
-  const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.crate(), props.hatchback(0xf08fa0), props.sedan(0xecc94b), props.van(0x3fbfa8), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];
+  const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.luckyDie(0), props.hatchback(0xf08fa0), props.sedan(0xecc94b), props.van(0x3fbfa8), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];
   check('every prop model shows faces from the angled camera', models.every((m) => projectMesh(m, 0.3, angled).some((p) => p.faces.length > 0)));
   const faceCount = models.reduce((s, m) => s + m.reduce((t, p) => t + p.faces.length, 0), 0) + carMesh('player').reduce((t, p) => t + p.faces.length, 0);
   check('models stay low-poly', faceCount < 450, `${faceCount} faces for the car and all ${models.length} prop types`);

@@ -554,6 +554,15 @@ body {
   color: #7ff7ff;
 }
 
+/* The long "item ready" banner: smaller, on screen for longer. */
+.toast-ready {
+  color: #7ff7ff;
+  font-size: clamp(15px, 4.4vmin, 24px);
+  text-align: center;
+  padding: 0 14px;
+  animation-duration: 2.6s;
+}
+
 @keyframes toast {
   0% {
     transform: scale(0.4) translateY(10px);

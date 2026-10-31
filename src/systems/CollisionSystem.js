@@ -9,6 +9,7 @@ import { COLLISION, CURB } from '../config/tuning.js';
 //   breakable (cones, lamp posts, wooden crates): knocked away, reported through onTouch.
 //   curb      (parking islands, roundabouts): driven over, with a speed penalty and a bump on the way on.
 //   void      (sinkholes): a car whose centre is over one falls in, reported in result.voidShape.
+//   spikes    (spike strips): driven over, reported in result.spikes.
 // Results: "impact" = how fast the car was moving INTO a solid surface (units/s). A glancing scrape
 // gives a small impact, a head-on hit a big one; the crash rules compare it to thresholds.
 
@@ -44,8 +45,9 @@ export class StaticWorld {
       cos: Math.cos(item.heading),
       sin: Math.sin(item.heading),
       bound: c.type === 'circle' ? c.r : Math.hypot(c.hw, c.hl),
-      solid: !item.breakable && !item.curb && !item.isVoid,
+      solid: !item.breakable && !item.curb && !item.isVoid && !item.isSpikes,
       curb: Boolean(item.curb),
+      isSpikes: Boolean(item.isSpikes),
       isVoid: Boolean(item.isVoid),
       cone: null, // set by the chunk manager on breakable props
       item,
@@ -181,8 +183,8 @@ export function circleVsShape(cx, cy, r, shape, out) {
 
 // Centres of the car's two circles, written into out[0] (front) and out[1] (back).
 export function carCircles(car, out) {
-  const fx = Math.sin(car.heading) * OFF;
-  const fy = -Math.cos(car.heading) * OFF;
+  const fx = Math.sin(car.heading) * OFF * car.scale;
+  const fy = -Math.cos(car.heading) * OFF * car.scale;
   out[0].x = car.x + fx;
   out[0].y = car.y + fy;
   out[1].x = car.x - fx;
@@ -235,6 +237,44 @@ function climbCurb(car, nx, ny) {
   car.vy *= scale;
 }
 
+// A falling car can't pass through the far wall of its hole: this stops it there. Only a car heading
+// outward is stopped: it arrives at the edge, moving in.
+export function keepInsideHole(car, inset) {
+  const hole = car.fallShape;
+  if (!hole) return;
+  const dx = car.x - hole.x;
+  const dy = car.y - hole.y;
+  let moved = false;
+  if (hole.type === CIRCLE) {
+    const limit = Math.max(0, hole.r - inset);
+    const distance = Math.hypot(dx, dy);
+    if (distance > limit && distance > 0 && car.vx * dx + car.vy * dy > 0) {
+      car.x = hole.x + (dx / distance) * limit;
+      car.y = hole.y + (dy / distance) * limit;
+      moved = true;
+    }
+  } else {
+    const { cos, sin, hw, hl } = hole;
+    const lx = dx * cos + dy * sin;
+    const ly = dx * sin - dy * cos;
+    const limitX = Math.max(0, hw - inset);
+    const limitY = Math.max(0, hl - inset);
+    const vx = car.vx * cos + car.vy * sin;
+    const vy = car.vx * sin - car.vy * cos;
+    const cx = (lx > limitX && vx > 0) || (lx < -limitX && vx < 0) ? Math.sign(lx) * limitX : lx;
+    const cy = (ly > limitY && vy > 0) || (ly < -limitY && vy < 0) ? Math.sign(ly) * limitY : ly;
+    if (cx !== lx || cy !== ly) {
+      car.x = hole.x + cx * cos + cy * sin;
+      car.y = hole.y + cx * sin - cy * cos;
+      moved = true;
+    }
+  }
+  if (moved) {
+    car.vx = 0;
+    car.vy = 0;
+  }
+}
+
 const CENTRE_POINT = 0.01; // radius used to test only the car's centre against a hole
 
 const circles = [
@@ -250,17 +290,29 @@ export function collideWithWorld(car, world, result, onTouch) {
   result.shape = null;
   result.curbHit = false;
   result.voidShape = null;
+  result.spikes = null;
   let onCurb = false;
+  const r = R * car.scale;
   for (let i = 0; i < 2; i += 1) {
     carCircles(car, circles);
     const c = circles[i];
-    world.forEachNear(c.x, c.y, R, (shape) => {
-      if (!circleVsShape(c.x, c.y, R, shape, hit)) return;
+    world.forEachNear(c.x, c.y, r, (shape) => {
+      if (!circleVsShape(c.x, c.y, r, shape, hit)) return;
+      // Giant: holes and curbs mean nothing, and anything solid gets knocked away like a cone.
+      if (car.crushing) {
+        if (!shape.isVoid && !shape.curb && !shape.isSpikes && onTouch) onTouch(shape);
+        return;
+      }
+      if (shape.isSpikes) {
+        result.spikes = shape;
+        return;
+      }
       if (shape.isVoid) {
         if (circleVsShape(car.x, car.y, CENTRE_POINT, shape, hit)) result.voidShape = shape;
         return;
       }
       if (shape.curb) {
+        if (car.plowing) return;
         // Only the first touch of a crossing counts, however long the car stays on.
         if (!onCurb && !car.onCurb) {
           climbCurb(car, hit.nx, hit.ny);
@@ -294,15 +346,20 @@ const cb = [
   { x: 0, y: 0 },
 ];
 
+// Whether the last collideCars call found the two cars touching, even if they were already
+// moving apart (and so had no impact).
+export const carContact = { touched: false };
+
 // Two cars. Pushes them apart, exchanges momentum, spins them for off-centre hits.
 // Returns the impact speed (0 when they don't touch). Each car needs a `mass`.
 export function collideCars(a, b) {
+  carContact.touched = false;
   carCircles(a, ca);
   carCircles(b, cb);
   let best = -1;
   let bi = 0;
   let bj = 0;
-  const reach = R * 2;
+  const reach = R * (a.scale + b.scale);
   for (let i = 0; i < 2; i += 1) {
     for (let j = 0; j < 2; j += 1) {
       const dx = ca[i].x - cb[j].x;
@@ -319,6 +376,7 @@ export function collideCars(a, b) {
     }
   }
   if (best < 0) return 0;
+  carContact.touched = true;
 
   let nx = ca[bi].x - cb[bj].x;
   let ny = ca[bi].y - cb[bj].y;
@@ -332,11 +390,14 @@ export function collideCars(a, b) {
   }
   const ma = a.mass;
   const mb = b.mass;
+  // Each is moved out of the overlap by its share; a Giant car is not moved at all.
   const share = 1 / (ma + mb);
-  a.x += nx * best * mb * share;
-  a.y += ny * best * mb * share;
-  b.x -= nx * best * ma * share;
-  b.y -= ny * best * ma * share;
+  const moveA = a.crushing ? 0 : b.crushing ? 1 : mb * share;
+  const moveB = b.crushing ? 0 : a.crushing ? 1 : ma * share;
+  a.x += nx * best * moveA;
+  a.y += ny * best * moveA;
+  b.x -= nx * best * moveB;
+  b.y -= ny * best * moveB;
 
   const vr = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
   if (vr >= 0) return 0;
@@ -351,8 +412,8 @@ export function collideCars(a, b) {
   const cy = (ca[bi].y + cb[bj].y) / 2;
   a.angularVelocity += (((cx - a.x) * ny - (cy - a.y) * nx) * j * COLLISION.spin) / ma;
   b.angularVelocity -= (((cx - b.x) * ny - (cy - b.y) * nx) * j * COLLISION.spin) / mb;
-  deflectNose(a, nx, ny, -vr, 0.5);
-  deflectNose(b, -nx, -ny, -vr, 0.5);
+  if (!a.plowing) deflectNose(a, nx, ny, -vr, 0.5);
+  if (!b.plowing) deflectNose(b, -nx, -ny, -vr, 0.5);
   return -vr;
 }
 

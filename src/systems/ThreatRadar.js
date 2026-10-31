@@ -27,7 +27,7 @@ export class ThreatRadar {
     list.length = 0;
     for (const police of sim.police) {
       const entry = this.entries[police.id] || (this.entries[police.id] = { level: 0, x: 0, y: 0, eta: Infinity });
-      const target = police.alive && !police.parked ? this.targetLevel(police, player, view, entry) : 0;
+      const target = police.alive && !police.parked && police.frozen <= 0 ? this.targetLevel(police, player, view, entry) : 0;
       entry.level += (target - entry.level) * ease;
       if (entry.level < WARNING.minLevel) {
         entry.level = target > 0 ? entry.level : 0;
@@ -53,7 +53,7 @@ export class ThreatRadar {
     const dy = player.y - car.y;
     const distance = Math.max(1, Math.hypot(dx, dy));
     const closing = ((car.vx - player.vx) * dx + (car.vy - player.vy) * dy) / distance;
-    const needed = police.role === 'interceptor' ? WARNING.closingInterceptor : WARNING.closingFast;
+    const needed = police.role === 'interceptor' || police.armored ? WARNING.closingInterceptor : WARNING.closingFast;
     if (closing < needed) return 0;
     const eta = distance / closing;
     if (eta > WARNING.maxSeconds) return 0;

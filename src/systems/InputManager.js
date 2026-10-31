@@ -3,8 +3,9 @@ import { INPUT } from '../config/tuning.js';
 // Turns keyboard, mouse, touch and gamepad into one simple command per frame:
 //   { steer: -1 | 0 | 1, activatePowerUp, pausePressed, confirmPressed, restartPressed }
 // Gameplay reads only this command, so every device drives the car through the same code.
-// On-screen buttons (pause, Shockwave) are HTML buttons outside the steering surface: they
-// call press(), so tapping them never steers.
+// On-screen buttons (pause, power-up) are HTML buttons outside the steering surface: they
+// call press(), so tapping them never steers. A double tap anywhere on the steering surface of a
+// touch screen also uses the power-up.
 
 const LEFT_KEYS = new Set(['ArrowLeft', 'KeyA']);
 const RIGHT_KEYS = new Set(['ArrowRight', 'KeyD']);
@@ -19,9 +20,43 @@ const PAD_BUTTON = { primary: 0, start: 9, dpadLeft: 14, dpadRight: 15 };
 
 const NEUTRAL = Object.freeze({ steer: 0, activatePowerUp: false, pausePressed: false, confirmPressed: false, restartPressed: false });
 
+// Spots a double tap from touch-downs and touch-ups. Times in ms, positions in CSS pixels.
+// A long touch (steering) never counts. The second tap must land near the first, so quick
+// tap-steering left then right doesn't count either.
+export class DoubleTap {
+  constructor() {
+    this.downs = new Map(); // pointerId -> time it went down
+    this.lastTap = null;
+  }
+
+  // Returns true if this touch-down completes a double tap.
+  down(pointerId, time, x, y) {
+    this.downs.set(pointerId, { time, x, y });
+    const last = this.lastTap;
+    if (!last || time - last.time > INPUT.doubleTapMs) return false;
+    if (Math.hypot(x - last.x, y - last.y) > INPUT.doubleTapDistance) return false;
+    this.lastTap = null;
+    this.downs.delete(pointerId); // this touch is used up: it can't start another double tap
+    return true;
+  }
+
+  up(pointerId, time) {
+    const down = this.downs.get(pointerId);
+    if (!down) return;
+    this.downs.delete(pointerId);
+    if (time - down.time <= INPUT.tapMaxMs) this.lastTap = { time, x: down.x, y: down.y };
+  }
+
+  clear() {
+    this.downs.clear();
+    this.lastTap = null;
+  }
+}
+
 export class InputManager {
   constructor(surface) {
     this.surface = surface;
+    this.doubleTap = new DoubleTap();
     this.heldKeys = new Set();
     this.pointerSides = new Map(); // pointerId -> -1 (left half) or 1 (right half)
     this.padWasPressed = { start: false, primary: false };
@@ -87,6 +122,7 @@ export class InputManager {
 
   // Releases everything held. Used on blur, tab hide, pause and touch cancel.
   clear() {
+    this.doubleTap.clear();
     this.heldKeys.clear();
     this.pointerSides.forEach((_, pointerId) => this.releaseCapture(pointerId));
     this.pointerSides.clear();
@@ -141,6 +177,9 @@ export class InputManager {
     // Mouse: only the main button steers.
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     this.lastDevice = event.pointerType === 'mouse' ? 'mouse' : 'touch';
+    if (event.pointerType !== 'mouse' && this.doubleTap.down(event.pointerId, event.timeStamp, event.clientX, event.clientY)) {
+      this.pendingPowerUp = true;
+    }
     this.pointerSides.set(event.pointerId, this.sideOf(event.clientX));
     try {
       this.surface.setPointerCapture(event.pointerId);
@@ -156,6 +195,8 @@ export class InputManager {
   }
 
   onPointerEnd(event) {
+    if (event.type === 'pointercancel') this.doubleTap.clear();
+    else if (event.type === 'pointerup') this.doubleTap.up(event.pointerId, event.timeStamp);
     if (!this.pointerSides.has(event.pointerId)) return;
     this.pointerSides.delete(event.pointerId);
     this.releaseCapture(event.pointerId);

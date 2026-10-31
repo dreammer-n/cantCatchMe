@@ -1,6 +1,7 @@
 // Checks for the endless world: chunk layouts, streaming, holes and falling, police recycling.
 import { Camera, Car, CS, ChaseSimulation, SCREENS, T, buildLayout, fixedMap, isOnScreen, newSim, playRun, projection } from './simkit.mjs';
 import { ChunkManager } from '../src/systems/ChunkManager.js';
+import { holeLipY } from '../src/render/Tumble.js';
 import { buildChunk, chunkCoord, propCatalogue } from '../src/systems/WorldLayout.js';
 
 let pass = 0;
@@ -33,6 +34,17 @@ check('plaza chunks have a roundabout, a monument and trees', ['roundabout', 'mo
 check('industrial chunks have barriers, containers and crates', ['barrier', 'container', 'woodcrate'].every((k) => kindsIn('industrial').has(k)));
 check('city chunks have concrete blocks', kindsIn('city').has('block'));
 check('ruins chunks have holes', sample.filter((c) => c.preset === 'ruins').every((c) => c.voids.length > 0));
+
+// Holes are a surprise, not the landscape.
+{
+  const holes = sample.map((c) => c.voids.length);
+  const clear = holes.filter((n) => n === 0).length / holes.length;
+  const average = holes.reduce((a, b) => a + b, 0) / holes.length;
+  check('most chunks have no holes at all', clear > 0.8, `${(clear * 100).toFixed(0)}% clear`);
+  check('on average there is well under one hole a chunk', average < 0.5, `${average.toFixed(2)} a chunk`);
+  check('but they do turn up', average > 0.05);
+  check('even a ruined chunk doesn\'t overdo it', Math.max(...holes) <= 8, `at most ${Math.max(...holes)}`);
+}
 
 // Roads: nothing that blocks or swallows a car on any road around or between chunks. The roads
 // inside a plaza's paved square are the exception, on purpose: that is the roundabout.
@@ -259,6 +271,54 @@ function run(s, seconds, steer = 0) {
   check('curbs do not count as blocked', world.isClear(0, 0, 20));
 }
 
+// The fall itself.
+{
+  // It carries its speed onto the hole, and stops at the far wall.
+  const big = hole(1000, 1000, 400);
+  const s = quietSim([big]);
+  s.player.reset(1000, 1420, 0);
+  s.player.launch(300);
+  run(s, 0.2);
+  const y = s.player.y;
+  check('a falling car carries its speed over the edge', s.player.isFalling && s.player.speed > 200, `speed ${s.player.speed.toFixed(0)}`);
+  run(s, 0.3);
+  check('and keeps travelling across', s.player.y < y - 60, `moved ${(y - s.player.y).toFixed(0)} units`);
+  const small = hole(1000, 1000, 60);
+  const t = quietSim([small]);
+  t.player.reset(1000, 1100, 0);
+  t.player.launch(300);
+  let furthest = 0;
+  for (let i = 0; i < 90; i += 1) {
+    t.step(1 / 60, { steer: 0 }, quietView);
+    if (t.player.isFalling) furthest = Math.max(furthest, Math.hypot(t.player.x - 1000, t.player.y - 1000));
+  }
+  check('it cannot pass through the far wall of a small hole', t.player.isFalling && furthest <= 60 && t.player.y > 1000 - 60, `at most ${furthest.toFixed(1)} from the middle`);
+  check('it stops dead against it', t.player.speed < 1, `speed ${t.player.speed.toFixed(1)}`);
+  check('the car knows which hole it is in', t.player.fallShape && t.player.fallShape.item === small);
+
+  // A missing section of road, turned either way.
+  const gapItem = { kind: 'void', isVoid: true, x: 1000, y: 1000, heading: Math.PI / 2, collider: { type: 'box', hw: 92, hl: 60 }, breakable: false, outline: [] };
+  const g = quietSim([gapItem]);
+  g.player.reset(1250, 1000, -Math.PI / 2);
+  g.player.launch(300);
+  run(g, 2);
+  const hw = 92;
+  check('the same in a missing section of road', g.player.isFalling && Math.abs(g.player.x - 1000) <= hw && Math.abs(g.player.y - 1000) <= 60, `${(g.player.x - 1000).toFixed(0)}, ${(g.player.y - 1000).toFixed(0)}`);
+
+  // The near lip hides the car as it drops.
+  const ring = [];
+  for (let i = 0; i < 16; i += 1) ring.push({ x: 1000 + Math.cos((i / 16) * Math.PI * 2) * 100, y: 1000 + Math.sin((i / 16) * Math.PI * 2) * 100 });
+  const centre = projection.toScreen(1000, 1000);
+  const lip = holeLipY(ring, centre.x, projection);
+  check('the lip of a hole is the near side of it on screen', lip > centre.y + 60 && lip < centre.y + 100 * projection.squash + 2, `${(lip - centre.y).toFixed(0)} below the middle`);
+  check('beyond the hole\'s sides there is no lip', holeLipY(ring, centre.x + 400, projection) === Infinity);
+  check('no outline, no lip', holeLipY([], centre.x, projection) === Infinity);
+  check('the fall is drawn long enough to drop out of sight', T.VOID.fallDrop > T.VOID.sinkholeRadius[1] * 2 * projection.squash * 0.8);
+}
+
+// Wrecks clear away quickly.
+check('wrecks are gone within a few seconds', T.WRECK.lifetime <= 4, `${T.WRECK.lifetime} s`);
+
 // ---- Police recycling and spawning --------------------------------------------------------
 {
   const s = quietSim([]);
@@ -280,7 +340,6 @@ function run(s, seconds, steer = 0) {
   let unloaded = 0;
   let maxBodies = 0;
   let maxPool = 0;
-  let fell = 0;
   const causes = {};
   for (let seed = 200; seed < 215; seed += 1) {
     const r = playRun(s, {
@@ -289,7 +348,6 @@ function run(s, seconds, steer = 0) {
       maxSeconds: 90,
       onStep(sim, events, view) {
         for (const e of events) {
-          if (e.type === 'wreck' && e.cause === 'void') fell += 1;
           if (e.type !== 'spawn') continue;
           spawns += 1;
           const fx = ((e.x % cell) + cell) % cell;
@@ -309,8 +367,7 @@ function run(s, seconds, steer = 0) {
   check('police spawn along roads', spawns > 50 && onRoad === spawns, `${onRoad} of ${spawns}`);
   check('police never spawn on screen', onScreen === 0, `${onScreen} of ${spawns}`);
   check('police never spawn on an unloaded chunk', unloaded === 0);
-  check('cars and police pools stay within their limits', maxBodies <= T.POLICE.maxCars + 1 && maxPool <= T.POLICE.maxCars + 1, `most cars ${maxBodies}, pool ${maxPool}`);
-  check('police really do fall into holes in normal play', fell > 0, `${fell} in 15 runs; run endings ${JSON.stringify(causes)}`);
+  check('cars and police pools stay within their limits', maxBodies <= T.POLICE.maxCars + 1 && maxPool <= T.POLICE.maxCars + 1, `most cars ${maxBodies}, pool ${maxPool}; run endings ${JSON.stringify(causes)}`);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

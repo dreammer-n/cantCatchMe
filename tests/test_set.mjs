@@ -161,21 +161,24 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('arrows never cross a floor-square border, so never get cut', crossing === 0);
 }
 
-// ---- The gift box ---------------------------------------------------------------------------
+// ---- The lucky die --------------------------------------------------------------------------
 {
-  const gift = props.crate();
-  check('the gift box is a warm orange-red, with a cream ribbon', ((PALETTE.crate >> 16) & 255) > 200 && (PALETTE.crate & 255) < 90 && (PALETTE.crateRibbon & 255) > 180);
-  const shown = projectMesh(gift, 0, projection);
-  const decals = shown.flatMap((p) => p.faces).reduce((n, f) => n + f.decals.length, 0);
-  check('the ribbon wraps it', decals >= 4, `${decals} ribbon strips in view`);
-  check('it has a bow on top', Math.max(...gift.flatMap((p) => p.verts.map((v) => v[2]))) > props.CRATE_SIZE + 5);
+  const die = props.luckyDie(0);
+  check('the die is violet, with cream spots', (PALETTE.crate & 255) > 200 && ((PALETTE.crate >> 8) & 255) < 110 && ((PALETTE.cratePip >> 8) & 255) > 200);
+  const spotsShown = (mesh) => projectMesh(mesh, 0, projection).flatMap((p) => p.faces).reduce((n, f) => n + f.decals.length, 0);
+  check('its spots show on all three faces in view', projectMesh(die, 0, projection).flatMap((p) => p.faces).filter((f) => f.decals.length > 0).length === 3, `${spotsShown(die)} spots`);
+  props.DIE_ROLLS.forEach((roll, i) => {
+    const expected = roll[0] + roll[1] + roll[2];
+    check(`roll ${i + 1} shows the numbers it should`, spotsShown(props.luckyDie(i)) === expected, `${roll.join(' ')}: ${spotsShown(props.luckyDie(i))} spots`);
+  });
+  check('each roll looks different, so it seems to tumble', new Set(props.DIE_ROLLS.map((r) => r.join())).size === props.DIE_ROLLS.length);
   const lum = (c) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
   check('it stands out on the road', lum(PALETTE.crate) > lum(PALETTE.asphalt) * 2);
   const hue = (c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
   const [r, , b] = hue(PALETTE.crateArrow);
   check('the arrow to it stays teal, so it is never mistaken for a red warning', b > r, PALETTE.crateArrow.toString(16));
   const wood = props.woodCrate();
-  check('wooden crates are still brown, and different', wood[0].faces[0].color !== gift[0].faces[0].color);
+  check('wooden crates are still brown, and different', wood[0].faces[0].color !== die[0].faces[0].color);
 }
 
 // ---- Tumbling -------------------------------------------------------------------------------
@@ -277,7 +280,7 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   for (let t = 0; t < 1; t += 1 / 60) s.step(1 / 60, { steer: 0 }, quietView);
   check('it slides', Math.hypot(p.model.x - start.x, p.model.y - start.y) > 20, `${Math.hypot(p.model.x - start.x, p.model.y - start.y).toFixed(0)} units`);
   check('and turns as it goes', p.model.heading !== start.heading);
-  for (let t = 0; t < 3; t += 1 / 60) s.step(1 / 60, { steer: 0 }, quietView);
+  for (let t = 0; t < 1.5; t += 1 / 60) s.step(1 / 60, { steer: 0 }, quietView);
   check('and then it stops', p.model.speed < 5 && p.state === 'wreck', `${p.model.speed.toFixed(1)}`);
   // Falling into a hole is no such thing.
   const q = s.spawnPolice(1200, 1000, 0, { role: 'chaser', speedFactor: 1, turnDeg: 100, aimSide: 0, launchShare: 0 });

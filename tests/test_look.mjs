@@ -187,7 +187,7 @@ const handling = T.HANDLING_PRESETS.balanced;
 // ---- Skid marks -----------------------------------------------------------------------------
 {
   check('rubber stays on the road for longer', SKIDS.lifetimeMs >= 5000, `${SKIDS.lifetimeMs / 1000} s`);
-  // Spacing x speed gives marks per second per tyre. A drifting car has 2 tyres marking.
+  // Spacing x speed gives marks per second per tire. A drifting car has 2 tires marking.
   const perCar = (300 / SKIDS.minSegmentLength) * 2;
   const seconds = SKIDS.maxMarks / (perCar * 2);
   check('the pool can hold two cars drifting flat out for the whole time before reusing marks', seconds * 1000 >= SKIDS.lifetimeMs, `${seconds.toFixed(1)} s of marks`);

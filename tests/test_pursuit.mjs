@@ -319,7 +319,7 @@ function policeAt(x, y, headingDeg, role, options = {}) {
   const midY = cars.reduce((n, c) => n + c.model.y, 0) / cars.length;
   check('on a crossing, ahead of the player', midX % cell === 0 && midY % cell === 0 && midY < s.player.y, `${midX},${midY}`);
   check('out of sight when placed', cars.every((c) => !isOnScreen(c.model.x, c.model.y, view, 0)));
-  check('it blocks most of the road across the way the player is going', Math.abs(cars[0].model.x - cars[1].model.x) === T.ROADBLOCK.spacing && Math.abs(Math.cos(cars[0].model.heading)) < 0.2);
+  check('the two cars stand across the way the player is going, angled in', Math.abs(cars[0].model.x - cars[1].model.x) === T.ROADBLOCK.spacing && Math.abs(Math.cos(cars[0].model.heading)) < 0.6 && Math.abs(Math.cos(cars[0].model.heading)) > 0.3 && Math.sign(Math.cos(cars[0].model.heading)) !== Math.sign(Math.cos(cars[1].model.heading)));
   check('roadblocks do not count as pursuers', s.pursuers === 0 && s.alivePolice === T.ROADBLOCK.cars);
   const at = { x: cars[0].model.x, y: cars[0].model.y };
   s.player.reset(cell * 5 + 900, cell * 5 + 900, 0);

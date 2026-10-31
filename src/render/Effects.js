@@ -1,12 +1,12 @@
 import * as Phaser from 'phaser';
-import { DEPTH, EFFECTS, PALETTE } from '../config/tuning.js';
+import { DEPTH, EFFECTS, FLAMER, FREEZE, PALETTE } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { stepChunk } from './Tumble.js';
 import { projection } from './projection.js';
 
 const screen = { x: 0, y: 0 };
 const BURST_SIZE = 160; // pixels across the starburst drawing
-const CHUNK_TEXTURES = ['fx-tyre', 'fx-bumper', 'fx-panel', 'fx-tyre', 'fx-panel'];
+const CHUNK_TEXTURES = ['fx-tire', 'fx-bumper', 'fx-panel', 'fx-tire', 'fx-panel'];
 const SCORCH_ALPHA = 0.85;
 
 // A jagged star outline: long and short spikes of uneven length, like a comic-book "POW".
@@ -67,11 +67,11 @@ export function makeEffectTextures(scene) {
     ctx.restore();
     texture.refresh();
   }
-  // Big flying pieces of a wreck: a tyre, a bent bumper, a torn panel.
-  if (!scene.textures.exists('fx-tyre')) {
-    const texture = scene.textures.createCanvas('fx-tyre', 22, 22);
+  // Big flying pieces of a wreck: a tire, a bent bumper, a torn panel.
+  if (!scene.textures.exists('fx-tire')) {
+    const texture = scene.textures.createCanvas('fx-tire', 22, 22);
     const ctx = texture.context;
-    ctx.fillStyle = cssHex(PALETTE.chunkTyre);
+    ctx.fillStyle = cssHex(PALETTE.chunkTire);
     ctx.beginPath();
     ctx.arc(11, 11, 10.5, 0, Math.PI * 2);
     ctx.fill();
@@ -251,7 +251,7 @@ export class Effects {
     this.nextBurst = 0;
 
     this.chunks = Array.from({ length: EFFECTS.maxChunks }, () => ({
-      image: scene.add.image(0, 0, 'fx-tyre').setDepth(DEPTH.effects + 2).setVisible(false),
+      image: scene.add.image(0, 0, 'fx-tire').setDepth(DEPTH.effects + 2).setVisible(false),
       x: 0,
       y: 0,
       z: 0,
@@ -281,6 +281,39 @@ export class Effects {
     this.ring = scene.add.graphics();
     layers.ground.add(this.ring);
     this.pulse = null;
+
+    this.frost = scene.add
+      .particles(0, 0, 'fx-star', {
+        ...base,
+        lifespan: { min: 320, max: 680 },
+        speed: { min: 60, max: 260 },
+        angle: { min: 0, max: 360 },
+        rotate: { start: 0, end: 160 },
+        scale: { start: 1.1, end: 0.1 },
+        tint: [0xffffff, PALETTE.frost, PALETTE.ice],
+        maxAliveParticles: EFFECTS.maxFrost,
+      })
+      .setDepth(DEPTH.effects + 1);
+
+    // The Flamer's trail: big licking flames, drawn from the patches on the road.
+    this.trailFire = scene.add
+      .particles(0, 0, 'fx-puff', {
+        ...base,
+        lifespan: { min: 280, max: 560 },
+        speedX: { min: -12, max: 12 },
+        speedY: { min: -70, max: -30 },
+        scale: { start: 0.72, end: 0.12 },
+        color: [0xffe27a, 0xff9a2e, 0xe8451a],
+        maxAliveParticles: EFFECTS.maxTrailFire,
+      })
+      .setDepth(DEPTH.effects);
+
+    // And one glow on the road per patch, all in the ground-lights layer.
+    this.firePatches = Array.from({ length: FLAMER.maxPatches }, () => {
+      const glow = scene.add.image(0, 0, 'fx-glow').setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.fireGlow).setVisible(false);
+      layers.lights.add(glow);
+      return glow;
+    });
   }
 
   smokePuff(x, y, z = 4, dark = false) {
@@ -316,7 +349,7 @@ export class Effects {
     this.scene.tweens.add({ targets: ring, scale: radius / 58, alpha: 0, duration: EFFECTS.ringMs, ease: 'Quad.easeOut', onComplete: () => ring.setVisible(false) });
   }
 
-  // Tyres, bumpers and panels fly out, bounce and scrape to a stop.
+  // Tires, bumpers and panels fly out, bounce and scrape to a stop.
   throwChunks(x, y, count) {
     for (let i = 0; i < count; i += 1) {
       const chunk = this.chunks[this.nextChunk];
@@ -383,10 +416,79 @@ export class Effects {
   }
 
   // Shockwave: a ring that sweeps out over the ground.
-  shockwave(x, y, radius, seconds) {
-    this.pulse = { x, y, radius, seconds, age: 0 };
+  shockwave(x, y, radius, seconds, color = PALETTE.pulse) {
+    this.pulse = { x, y, radius, seconds, age: 0, color };
     projection.toScreen(x, y, 10, screen);
     this.flash(screen.x, screen.y, 6);
+  }
+
+  // Freeze: the same kind of ring in frost colours, and a burst of sparkles.
+  freezeBlast(x, y) {
+    this.shockwave(x, y, FREEZE.radius, FREEZE.ringSeconds, PALETTE.frost);
+    this.frost.emitParticleAt(screen.x, screen.y, 36);
+  }
+
+  // A frozen car smashed to bits: ice and panels, but no fire.
+  shatter(x, y) {
+    projection.toScreen(x, y, 14, screen);
+    this.flash(screen.x, screen.y, 2.5);
+    this.frost.emitParticleAt(screen.x, screen.y, 40);
+    this.throwChunks(x, y, 6);
+  }
+
+  // The bare rim scraping along the road.
+  rimSparks(x, y) {
+    projection.toScreen(x, y, 3, screen);
+    this.fire.emitParticleAt(screen.x, screen.y, 3);
+  }
+
+  // Bits of road crumbling away as a car goes over the edge of a hole. (x, y) is where it went over:
+  // only chips at the car itself, because a dust cloud there would hide the fall.
+  holeCrumble(x, y, edgeX, edgeY) {
+    projection.toScreen(x, y, 4, screen);
+    this.debris.emitParticleAt(screen.x, screen.y, 7);
+    projection.toScreen(edgeX, edgeY, 2, screen);
+    this.smoke.emitParticleAt(screen.x, screen.y, 2);
+  }
+
+  // Dust rising out of a hole, once the car has gone.
+  holeDust(x, y) {
+    projection.toScreen(x, y, 2, screen);
+    this.darkSmoke.emitParticleAt(screen.x, screen.y, 4);
+  }
+
+  // Stone dust where a pillar breaks through the road, or crumbles back into it.
+  pillarDust(x, y) {
+    projection.toScreen(x, y, 6, screen);
+    this.smoke.emitParticleAt(screen.x, screen.y, 5);
+    this.debris.emitParticleAt(screen.x, screen.y, 6);
+  }
+
+  // A police car catching fire.
+  ignite(x, y) {
+    projection.toScreen(x, y, 14, screen);
+    this.fire.emitParticleAt(screen.x, screen.y, 8);
+    this.flames.emitParticleAt(screen.x, screen.y, 5);
+  }
+
+  // Draws the Flamer's trail. patches: PowerUps.patches, one glow each; a burning patch gives off flames.
+  syncPatches(patches, dt) {
+    const size = (FLAMER.patchRadius * 1.5) / 32;
+    const chance = dt * FLAMER.flamesPerSecond;
+    for (let i = 0; i < patches.length; i += 1) {
+      const patch = patches[i];
+      const glow = this.firePatches[i];
+      if (!patch.active) {
+        glow.setVisible(false);
+        continue;
+      }
+      const life = 1 - patch.age / FLAMER.patchSeconds;
+      glow.setVisible(true).setPosition(patch.x, patch.y).setScale(size).setAlpha(EFFECTS.firePatchAlpha * Math.min(1, life * 2));
+      if (Math.random() < chance * life) {
+        projection.toScreen(patch.x, patch.y, 6, screen);
+        this.trailFire.emitParticleAt(screen.x + (Math.random() - 0.5) * 26, screen.y + (Math.random() - 0.5) * 14, 1);
+      }
+    }
   }
 
   update(dt) {
@@ -413,15 +515,16 @@ export class Effects {
     p.age += dt;
     const t = Math.min(1, p.age / p.seconds);
     const r = p.radius * (1 - (1 - t) * (1 - t));
-    g.fillStyle(PALETTE.pulse, 0.18 * (1 - t));
+    g.fillStyle(p.color, 0.18 * (1 - t));
     g.fillCircle(p.x, p.y, r);
-    g.lineStyle(14 * (1 - t) + 3, PALETTE.pulse, 0.85 * (1 - t));
+    g.lineStyle(14 * (1 - t) + 3, p.color, 0.85 * (1 - t));
     g.strokeCircle(p.x, p.y, r);
     if (t >= 1) this.pulse = null;
   }
 
   clear() {
-    for (const emitter of [this.smoke, this.darkSmoke, this.fireball, this.fire, this.debris, this.flames]) emitter.killAll();
+    for (const emitter of [this.smoke, this.darkSmoke, this.fireball, this.fire, this.debris, this.flames, this.frost, this.trailFire]) emitter.killAll();
+    for (const glow of this.firePatches) glow.setVisible(false);
     for (const chunk of this.chunks) chunk.image.setVisible(false);
     for (const ring of this.rings) {
       this.scene.tweens.killTweensOf(ring);

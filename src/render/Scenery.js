@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { CHUNKS, CONES, DEPTH, PALETTE, RENDER, SCENERY, WORLD } from '../config/tuning.js';
+import { CHUNKS, CONES, DEPTH, PALETTE, PILLARS, RENDER, ROADBLOCK, SCENERY, WORLD } from '../config/tuning.js';
 import { propCatalogue } from '../systems/WorldLayout.js';
 import { createRng } from '../utils/math.js';
 import { depthAt } from './layers.js';
@@ -37,6 +37,9 @@ export class Scenery {
     this.bakeCatalogue();
     for (let i = 0; i < CHUNKS.propPool; i += 1) this.freeProps.push(this.makeProp());
     this.freeSlots = createSlots(scene, layers);
+    this.pillarProps = Array.from({ length: PILLARS.pool }, () => this.makeProp());
+    this.applyPillarDrawing();
+    this.spikeProps = Array.from({ length: ROADBLOCK.maxSpikes }, () => this.makeProp());
   }
 
   // Draws every prop model for the current camera, once.
@@ -132,10 +135,71 @@ export class Scenery {
   // Called when the camera setup changes (debug tool): redraws everything for the new view.
   redraw() {
     this.bakeCatalogue();
+    this.applyPillarDrawing();
     for (const entry of this.loaded.values()) {
       for (const prop of entry.props) this.showProp(prop);
       this.drawHoles(entry.slot, entry.data);
       this.measureSlot(entry.slot, entry.data);
+    }
+  }
+
+  applyPillarDrawing() {
+    const key = propKey('pillar', 0);
+    this.pillarBody = bakeMesh(this.scene, key, null, 0, projection, 'body');
+    this.pillarShadow = bakeMesh(this.scene, `${key}:shadow`, null, 0, projection, 'shadow');
+    for (const prop of this.pillarProps) {
+      prop.body.setTexture(this.pillarBody.key).setOrigin(this.pillarBody.originX, this.pillarBody.originY);
+      prop.shadow.setTexture(this.pillarShadow.key).setOrigin(this.pillarShadow.originX, this.pillarShadow.originY);
+    }
+  }
+
+  // Spike strips lie flat on the road, under the cars.
+  syncSpikes(strips) {
+    for (let i = 0; i < strips.length; i += 1) {
+      const strip = strips[i];
+      const prop = this.spikeProps[i];
+      if (!strip.active) {
+        prop.body.setVisible(false);
+        prop.shadow.setVisible(false);
+        continue;
+      }
+      const key = propKey('spikes', strip.northSouth ? 0 : Math.PI / 2);
+      const body = bakeMesh(this.scene, key, null, 0, projection, 'body');
+      prop.body.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
+      projection.toScreen(strip.x, strip.y, 0, screen);
+      prop.body.setVisible(true).setPosition(screen.x, screen.y).setDepth(DEPTH.raised);
+    }
+  }
+
+  // Pillars grow out of the road with a little overshoot, then sink back into it.
+  syncPillars(pillars) {
+    for (let i = 0; i < pillars.length; i += 1) {
+      const pillar = pillars[i];
+      const prop = this.pillarProps[i];
+      if (!pillar.active) {
+        prop.body.setVisible(false);
+        prop.shadow.setVisible(false);
+        continue;
+      }
+      let height;
+      if (pillar.state === 'sinking') {
+        height = Math.max(0, 1 - pillar.time / PILLARS.sinkSeconds);
+      } else {
+        const t = Math.min(1, pillar.time / PILLARS.riseSeconds);
+        height = 1 + 2.2 * (t - 1) ** 3 + 1.2 * (t - 1) ** 2; // overshoots, then settles at 1
+      }
+      projection.toScreen(pillar.x, pillar.y, 0, screen);
+      prop.body
+        .setVisible(true)
+        .setPosition(screen.x, screen.y)
+        .setScale(1 / this.pillarBody.scale, height / this.pillarBody.scale)
+        .setDepth(depthAt(pillar.x, pillar.y));
+      prop.shadow
+        .setVisible(true)
+        .setPosition(screen.x, screen.y)
+        .setScale(height / this.pillarShadow.scale)
+        .setAlpha(RENDER.shadowAlpha)
+        .setDepth(DEPTH.shadows);
     }
   }
 
@@ -216,9 +280,8 @@ export class Scenery {
         continue;
       }
       // Flying: bounces that get smaller, and a spin, fading out at the end.
-      const feel = CONES.kinds[item.kind] || CONES;
-      const t = Math.min(1, cone.timer / (feel.flySeconds || CONES.flySeconds));
-      const bounces = Math.abs(Math.sin(Math.PI * t * 3)) * (1 - t) * (feel.hop || CONES.hop);
+      const t = Math.min(1, cone.timer / cone.flySeconds);
+      const bounces = Math.abs(Math.sin(Math.PI * t * 3)) * (1 - t) * cone.hop;
       this.place(prop, cone.x, cone.y, bounces);
       prop.body.setRotation(cone.angle).setAlpha(Math.min(1, (1 - t) * 3)).setDepth(depthAt(cone.x, cone.y));
       prop.shadow.setAlpha(RENDER.shadowAlpha * Math.min(1, (1 - t) * 3));

@@ -89,7 +89,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed) {
   if (preset === 'plaza') addPlaza(chunk);
   addLaneLines(chunk);
   addRoadArrows(chunk, rng);
-  addRoadHoles(chunk, def.roadHoles, rng);
+  if (rng() < def.holeChance) addRoadHoles(chunk, def.roadHoles, rng);
   if (hasStart) chunk.paint.push({ ring: true, x: START.x, y: START.y, r: SCENERY.startMarkRadius, width: 4, alpha: 0.35 });
   return chunk;
 }
@@ -117,6 +117,9 @@ export function propCatalogue() {
   push('cone', 'cone', 0);
   push('woodcrate', 'woodcrate', 0);
   push('monument', 'monument', 0);
+  push('pillar', 'pillar', 0);
+  push('spikes', 'spikes', 0);
+  push('spikes', 'spikes', 90);
   push('roundabout', 'roundabout', 0);
   return list;
 }

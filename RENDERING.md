@@ -44,7 +44,7 @@ Built in height bands, each its own solid so it catches the light differently:
 
 | Band | Parts | Height (world units) |
 |---|---|---|
-| layer 0 | tyres with hubs (outside the body so they always show), dark sills, bumpers | 0–13 |
+| layer 0 | tires with hubs (outside the body so they always show), dark sills, bumpers | 0–13 |
 | layer 1 | body: sloped hood, middle, sloped boot; head/tail lights and grille as flat paint | 9.5–17 |
 | layer 2 | glass cabin (windscreen, rear window, side windows with a pillar), flat roof, spoiler | 17–30 |
 
@@ -72,7 +72,7 @@ redraws everything in about a second.
 | `raised` (10) | low curbs, parking islands, roundabouts | baked images, always under cars |
 | `shadows` (20) | car shadows, prop shadows, crate glow, siren light on the road | cars: one shared live drawing in a ground container (all cars, cleared each frame); props: baked images; siren light: one additive image per cruiser, all in their own ground layer (`layers.lights`), so 24 cruisers cost one blend change, not 24 |
 | `objects` (1e9 + screen Y) | cars, police lights, blocks, trees, lamps, barriers, cones, crates, containers, monuments | sorted by their ground point: nearer the viewer = in front. The band is huge because screen Y has no limit in an endless world |
-| `effects` (4e9+) | tyre smoke, wreck smoke and flames, sparks, debris, starbursts | particles in screen space (positions through the projection), capped by `EFFECTS` |
+| `effects` (4e9+) | tire smoke, wreck smoke and flames, sparks, debris, starbursts | particles in screen space (positions through the projection), capped by `EFFECTS` |
 | UI | HUD, menus | separate `UIScene`, never affected by the camera |
 
 Rules:
@@ -89,6 +89,26 @@ while it rolls side-on, switching to the upside-down drawing past 90°. While in
 of the flames. The explosion is layered, back to front: comic star, flame clouds that cool from white through yellow and
 orange to dark red, flying pieces and the car, then a white flash on top. Smoke rises as the flames die, a ring runs
 out along the ground and the road keeps a burn for 45 s.
+
+## Power-ups
+
+- **Giant** is real: `Car.scale` is physics, so collisions change with it, and the sprite, shadow, skid marks and
+  camera all read it. The car drawing is stretched to size, so it is a little soft at 3.2 ×.
+- **Frozen cars** are the same drawing with an icy tint, lights out, and a cold glow in the ground-lights layer.
+- **The lucky die** has 4 drawings showing different numbers; the game swaps them at each bounce, and squashes
+  and stretches the drawing, so it looks as if it is rolling after the car. Its height is only drawn.
+- **Bearcats** are drawn from their own 32-direction sheet, enlarged on screen by `Car.scale`, like a Giant car. The
+  flashing lights come from `BEARCAT_LIGHTS`, not `LIGHT_BAR`.
+- **The helicopter** has a 16-direction sheet, drawn 1.5 × on screen so the sheet still fits 2048 px. Its height is only
+  drawn. The rotor is a Graphics object redrawn each frame in screen space. Its shadow goes in the shared car shadow
+  layer, thrown far away by `projection.shadowOffset(height)`. The searchlight is one additive glow in each ground-lights
+  layer (on the road, and a faint wash over cars and props), plus one screen-space beam.
+- **Flat tires** are drawn by `CarView` from `Car.flatness`: a small lean (flipped according to which way the flat corner
+  faces on screen) and a rattle. The lean is drawing only; physics stays flat.
+- **Spike strips** lie flat in the raised ground band (`Scenery.syncSpikes`), under the cars, with no shadow.
+- **Pillars** use a small pool of their own (`Scenery.syncPillars`): they are not part of any chunk. They grow from
+  the ground point by scaling the drawing, with a little overshoot.
+- **Flamer** patches are one additive glow each in the ground-lights layer, plus capped flames.
 
 ## Culling (skipping what is off screen)
 
@@ -110,8 +130,10 @@ a 3 x 3 grid of chunks loaded around the player, and `Scenery.sync` draws whatev
   shows along a map axis (about 2030 units on tall phones). A test checks this.
 - **Sinkholes** are drawn in the ground layer: a broken rim, a far wall, then the dark part pushed toward
   the viewer, which is what makes the hole read as deep.
-- **Falling cars** shrink, sink and fade (`CarView.drawFalling`) and lose their shadow. The physics only
-  tracks `fallProgress`; the drop itself is drawn.
+- **Falling cars** (`CarView.drawFalling`) carry their speed across the hole until its far wall stops them
+  (`keepInsideHole`). They tip nose first, drop faster and faster, go dark and lose their shadow. The drawing is
+  cropped at the near lip of the hole (`holeLipY`), so the road hides them as they sink. The physics only tracks
+  `fallProgress`; the drop itself is drawn.
 
 ## Inspecting a car from every direction
 
@@ -137,8 +159,6 @@ faces. Press T again to drive off.
 - Police light glows sit with their car in the draw order; a light can show over a prop right behind it.
 - A car in the air is drawn in front of everything standing, so a tumbling wreck can pass over a nearby tree.
 - Siren colour on props is a faint wash laid over everything nearby, not real lighting on each surface.
-- A falling car is drawn over its hole's near edge (no clipping), so it reads as shrinking into the dark
-  rather than disappearing behind the rim.
 
 ## Not used, on purpose
 
