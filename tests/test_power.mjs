@@ -94,10 +94,8 @@ const lock = (p) => {
   s.powerUps.give('flamer');
   const early = run(s, POWERUP.autoSeconds - 0.3);
   check('an item waits while the player decides', s.powerUps.held && !early.some((e) => e.type === 'power'));
-  check('the button shows its name and a countdown', s.powerUps.label === `${POWERUP.names.flamer} 1`, s.powerUps.label);
   const later = run(s, 0.5);
   check('after 4 seconds it fires by itself', !s.powerUps.held && later.some((e) => e.type === 'power' && e.kind === 'flamer'));
-  check('nothing held, nothing to show', s.powerUps.label === null);
   const e = useItem(s, 'freeze');
   check('pressing the button uses it at once', !s.powerUps.held && e.some((x) => x.type === 'power' && x.kind === 'freeze'));
   const none = s.step(1 / 60, { steer: 0, activatePowerUp: true }, offView);

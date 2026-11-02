@@ -1,4 +1,4 @@
-import { COMBO, STORAGE_KEYS } from '../config/tuning.js';
+import { CARS, COINS, COMBO, MAPS, STARS, STORAGE_KEYS, UNITS_PER_METER, carById, mapById } from '../config/tuning.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 
 // Score = survival time (game time while driving; pauses don't count).
@@ -48,8 +48,8 @@ export class RunStats {
 
 // Saved between visits through the platform (cloud saves where available, else the browser).
 export const Records = {
-  best: { time: 0, wrecks: 0, nearMisses: 0, combo: 0 },
-  totals: { runs: 0, wrecks: 0, seconds: 0 },
+  best: { time: 0, wrecks: 0, nearMisses: 0, combo: 0, distance: 0 },
+  totals: { runs: 0, wrecks: 0, seconds: 0, distance: 0 },
 
   async load() {
     const best = await PlatformManager.getStoredValue(STORAGE_KEYS.best, null);
@@ -66,15 +66,168 @@ export const Records = {
       wrecks: Math.max(this.best.wrecks, summary.wrecks),
       nearMisses: Math.max(this.best.nearMisses, summary.nearMisses),
       combo: Math.max(this.best.combo, summary.combo),
+      distance: Math.max(this.best.distance, summary.distance),
     };
     this.totals = {
       runs: this.totals.runs + 1,
       wrecks: this.totals.wrecks + summary.wrecks,
       seconds: this.totals.seconds + summary.time,
+      distance: this.totals.distance + summary.distance,
     };
     PlatformManager.setStoredValue(STORAGE_KEYS.best, this.best);
     PlatformManager.setStoredValue(STORAGE_KEYS.totals, this.totals);
     return { newBest, best: this.best };
+  },
+};
+
+// How many stars a survival time is worth.
+export function starsFor(seconds) {
+  return STARS.filter((needed) => seconds >= needed).length;
+}
+
+// What a finished run earned.
+export function coinsForRun(summary) {
+  const time = Math.floor(summary.time * COINS.perSecond);
+  const wrecks = summary.wrecks * COINS.perWreck;
+  const combo = summary.combo * COINS.perCombo;
+  return { time, wrecks, combo, total: time + wrecks + combo };
+}
+
+// Which maps are open: every map's best run earns stars, and enough stars in all unlock the next map.
+export const Maps = {
+  best: {}, // map id -> best time
+  selected: MAPS[0].id,
+
+  async load() {
+    const best = await PlatformManager.getStoredValue(STORAGE_KEYS.mapBest, null);
+    const selected = await PlatformManager.getStoredValue(STORAGE_KEYS.selectedMap, MAPS[0].id);
+    this.restore(best, selected);
+    // Runs from before there were maps were all on the first one.
+    if (!best && Records.best.time > 0) this.best[MAPS[0].id] = Records.best.time;
+  },
+
+  // Saved data could be edited or come from an older version: only what makes sense is kept.
+  restore(best, selected) {
+    this.best = {};
+    const saved = best && typeof best === 'object' ? best : {};
+    for (const map of MAPS) {
+      const time = Number(saved[map.id]);
+      if (Number.isFinite(time) && time > 0) this.best[map.id] = time;
+    }
+    const wanted = mapById(selected);
+    this.selected = this.isUnlocked(wanted) ? wanted.id : MAPS[0].id;
+  },
+
+  current() {
+    return mapById(this.selected);
+  },
+
+  bestTime(id) {
+    return this.best[id] || 0;
+  },
+
+  totalStars() {
+    return MAPS.reduce((sum, map) => sum + starsFor(this.bestTime(map.id)), 0);
+  },
+
+  isUnlocked(map) {
+    return this.totalStars() >= map.stars;
+  },
+
+  // Returns whether that map is now selected.
+  select(id) {
+    const map = mapById(id);
+    if (map.id !== id || !this.isUnlocked(map)) return false;
+    this.selected = id;
+    PlatformManager.setStoredValue(STORAGE_KEYS.selectedMap, id);
+    return true;
+  },
+
+  // The next locked map, and how many more stars it takes. Null when every map is open.
+  nextLocked() {
+    const map = MAPS.find((candidate) => !this.isUnlocked(candidate));
+    return map ? { map, needed: map.stars - this.totalStars() } : null;
+  },
+
+  // Records a run on the current map. Returns the maps it unlocked.
+  submit(seconds) {
+    const closed = MAPS.filter((map) => !this.isUnlocked(map));
+    if (seconds > this.bestTime(this.selected)) {
+      this.best[this.selected] = seconds;
+      PlatformManager.setStoredValue(STORAGE_KEYS.mapBest, this.best);
+    }
+    return closed.filter((map) => this.isUnlocked(map));
+  },
+};
+
+// The player's coins and cars, saved through the platform like everything else.
+export const Garage = {
+  coins: 0,
+  unlocked: [CARS[0].id],
+  selected: CARS[0].id,
+  listeners: new Set(),
+
+  async load() {
+    const coins = Number(await PlatformManager.getStoredValue(STORAGE_KEYS.totalCoins, 0));
+    const unlocked = await PlatformManager.getStoredValue(STORAGE_KEYS.unlockedCars, []);
+    const selected = await PlatformManager.getStoredValue(STORAGE_KEYS.selectedCar, CARS[0].id);
+    this.restore(coins, unlocked, selected);
+  },
+
+  // Saved data could be edited or come from an older version: only what makes sense is kept. The first car
+  // is always owned, and only an owned car can be selected.
+  restore(coins, unlocked, selected) {
+    this.coins = Number.isFinite(coins) && coins > 0 ? Math.floor(coins) : 0;
+    const list = Array.isArray(unlocked) ? unlocked : [];
+    this.unlocked = CARS.filter((car, i) => i === 0 || list.includes(car.id)).map((car) => car.id);
+    this.selected = this.unlocked.includes(selected) ? selected : CARS[0].id;
+  },
+
+  car() {
+    return carById(this.selected);
+  },
+
+  owns(id) {
+    return this.unlocked.includes(id);
+  },
+
+  canBuy(id) {
+    return !this.owns(id) && CARS.some((car) => car.id === id) && this.coins >= carById(id).price;
+  },
+
+  // Returns whether the car was bought.
+  buy(id) {
+    if (!this.canBuy(id)) return false;
+    this.coins -= carById(id).price;
+    this.unlocked.push(id);
+    this.save();
+    return true;
+  },
+
+  // Returns whether that car is now selected.
+  select(id) {
+    if (!this.owns(id)) return false;
+    this.selected = id;
+    this.save();
+    return true;
+  },
+
+  award(coins) {
+    this.coins += Math.max(0, Math.floor(coins));
+    this.save();
+  },
+
+  save() {
+    PlatformManager.setStoredValue(STORAGE_KEYS.totalCoins, this.coins);
+    PlatformManager.setStoredValue(STORAGE_KEYS.unlockedCars, this.unlocked);
+    PlatformManager.setStoredValue(STORAGE_KEYS.selectedCar, this.selected);
+    for (const listener of this.listeners) listener();
+  },
+
+  // Called whenever coins or cars change. Returns a function that stops it.
+  onChange(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   },
 };
 
@@ -89,9 +242,16 @@ function sanitize(object) {
 }
 
 // 83.4 -> "1:23.4"
-export function formatTime(seconds) {
-  const tenths = Math.floor(Math.max(0, seconds) * 10);
-  const minutes = Math.floor(tenths / 600);
-  const rest = (tenths % 600) / 10;
-  return `${minutes}:${rest < 10 ? '0' : ''}${rest.toFixed(1)}`;
+// 83.45 -> "01:23.45"
+export function formatClock(seconds) {
+  const hundredths = Math.floor(Math.max(0, seconds) * 100);
+  const minutes = Math.floor(hundredths / 6000);
+  const rest = (hundredths % 6000) / 100;
+  return `${minutes < 10 ? '0' : ''}${minutes}:${rest < 10 ? '0' : ''}${rest.toFixed(2)}`;
+}
+
+// World units -> "48.82 M"
+export function formatDistance(units) {
+  const metres = Math.max(0, units) / UNITS_PER_METER;
+  return `${metres.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M`;
 }

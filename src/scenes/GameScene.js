@@ -1,6 +1,9 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
 import {
+  WORLD,
+  applyMapPalette,
+  handlingFor,
   AUDIO,
   BEARCAT,
   BODY_LEAN,
@@ -28,19 +31,20 @@ import {
 import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { CameraRig } from '../render/CameraRig.js';
-import { ensureCarAtlas } from '../render/carAtlas.js';
+import { ensureCarAtlas, releaseCarSheets } from '../render/carAtlas.js';
 import { BEARCAT_LIGHTS, carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
 import { HelicopterView } from '../render/HelicopterView.js';
 import { createLayers, depthAt } from '../render/layers.js';
-import { bakeMesh, releaseOtherViews } from '../render/lowpoly.js';
+import { bakeMesh, cssColor, releaseOtherViews } from '../render/lowpoly.js';
+import { buildLayout } from '../systems/WorldLayout.js';
 import { projection } from '../render/projection.js';
 import { DIE_ROLLS, luckyDie } from '../render/propModels.js';
 import { Scenery } from '../render/Scenery.js';
 import { SirenBeams } from '../render/SirenBeams.js';
 import { ChaseSimulation } from '../systems/ChaseSimulation.js';
 import { HitStop } from '../systems/HitStop.js';
-import { Records } from '../systems/ScoreSystem.js';
+import { Records, Garage, coinsForRun, Maps } from '../systems/ScoreSystem.js';
 import { ThreatRadar } from '../systems/ThreatRadar.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
@@ -50,7 +54,7 @@ const ATTRACT_HEADING = degToRad(150); // a flattering three-quarter view on the
 
 // The game world. All rules live in ChaseSimulation (pure logic); this scene draws the result,
 // plays effects and sounds for the simulation's events, and runs the flow:
-//   'attract' (title screen: the car turns slowly on the start ring)
+//   'attract' (title screen: the car waits, still, on the start ring)
 //   'playing' -> 'crashed' (slow motion for a moment) -> results (GameOverScene)
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -62,8 +66,13 @@ export class GameScene extends Phaser.Scene {
     this.audio = this.registry.get('audio');
     this.layout = this.registry.get('layout');
     this.layers = createLayers(this);
-    this.scenery = new Scenery(this, this.layers);
+    this.mapId = Maps.selected;
+    this.showGroundColour();
+    this.scenery = new Scenery(this, this.layers, Maps.current());
+    this.carId = Garage.selected;
     this.sim = new ChaseSimulation({ layout: this.layout, handling: this.currentHandling() });
+    this.sim.setCar(Garage.car());
+    this.onHandlingChanged();
 
     // One shared drawing for every car's ground shadow (cleared each frame).
     this.carShadows = this.add.graphics();
@@ -111,17 +120,55 @@ export class GameScene extends Phaser.Scene {
   }
 
   currentHandling() {
-    return HANDLING_PRESETS[this.registry.get('handlingPreset')] || HANDLING_PRESETS[DEFAULT_HANDLING_PRESET];
+    return HANDLING_PRESETS[this.registry.get('handlingPreset')] || handlingFor(Garage.car()); // presets: debug toolbar only
   }
 
   onHandlingChanged() {
     this.sim.player.setHandling(this.currentHandling());
   }
 
+  // Puts the car chosen in the garage on the road. Call before a reset, which applies its size and weight.
+  useSelectedCar() {
+    this.sim.setCar(Garage.car());
+    this.onHandlingChanged();
+    if (this.carId === Garage.selected) return;
+    this.oldCarId = this.carId;
+    this.carId = Garage.selected;
+    this.looks.player = this.playerLook();
+  }
+
+  // Moves to the map chosen on the map screen. Everything on the map is drawn again in its colours: that
+  // takes a moment, so it only happens when the map really changes, between runs.
+  useSelectedMap() {
+    const map = Maps.current();
+    if (map.id === this.mapId) return;
+    this.mapId = map.id;
+    applyMapPalette(map);
+    this.showGroundColour();
+    this.sim.chunks.setLayout(buildLayout(WORLD.seed, map));
+    this.scenery.reload(map);
+    this.bakeCrate();
+    this.helicopterView.redraw();
+  }
+
+  // The garage shows its car on plain road of the map's colour.
+  showGroundColour() {
+    document.documentElement.style.setProperty('--ground', cssColor(PALETTE.uiGround));
+  }
+
+  // Back from the garage: the car on the title screen changes at once; after a run, it waits for the next one.
+  onGarageClosed() {
+    if (this.mode === 'attract') this.enterAttract();
+  }
+
+  playerLook() {
+    const id = this.carId;
+    return { atlasKey: ensureCarAtlas(this, `${id}Body`), wheelsKey: ensureCarAtlas(this, `${id}Wheels`), shadowPoints: carShadowPoints(id), lights: false };
+  }
+
   makeLooks() {
     const look = (name, lights, lightSpot) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights, lightSpot });
-    const player = { ...look('playerBody', false), shadowPoints: carShadowPoints('player'), wheelsKey: ensureCarAtlas(this, 'playerWheels') };
-    return { player, police: look('police', true), interceptor: look('interceptor', true), bearcat: look('bearcat', true, BEARCAT_LIGHTS), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
+    return { player: this.playerLook(), police: look('police', true), interceptor: look('interceptor', true), bearcat: look('bearcat', true, BEARCAT_LIGHTS), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
   }
 
   // ------------------------------------------------------------------------------------------
@@ -129,6 +176,8 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------------------------------------
 
   enterAttract() {
+    this.useSelectedCar();
+    this.useSelectedMap();
     this.sim.reset(1);
     this.sim.player.heading = ATTRACT_HEADING;
     this.mode = 'attract';
@@ -139,6 +188,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   startRun(seed = (Math.random() * 2 ** 31) >>> 0) {
+    this.useSelectedCar();
+    this.useSelectedMap();
     this.sim.reset(seed);
     this.hitStop.reset();
     this.pendingPower = false;
@@ -160,10 +211,15 @@ export class GameScene extends Phaser.Scene {
   finishRun() {
     this.finished = true;
     const summary = this.sim.stats.summary();
-    const { newBest, best } = Records.submit(summary);
+    const { best } = Records.submit(summary);
+    const newBest = summary.time > Maps.bestTime(Maps.selected);
+    const mapUnlocks = Maps.submit(summary.time);
+    const nextMap = Maps.nextLocked();
+    const coins = coinsForRun(summary);
+    Garage.award(coins.total);
     PlatformManager.flush();
     this.audio.quiet();
-    const data = { summary, best, newBest, cause: this.sim.crash ? this.sim.crash.cause : 'police' };
+    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause: this.sim.crash ? this.sim.crash.cause : 'police' };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
   }
@@ -173,6 +229,10 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.freeViews) view.hide();
     this.playerView.setLook(this.looks.player);
     this.playerView.setAlpha(1);
+    if (this.oldCarId) {
+      releaseCarSheets(this, this.oldCarId);
+      this.oldCarId = null;
+    }
     this.skids.clear();
     this.effects.clear();
     this.smokeClock.clear();
@@ -199,8 +259,10 @@ export class GameScene extends Phaser.Scene {
 
     if (frozen) {
       gameDt = 0; // the action holds; camera shake and starbursts carry on
-    } else if (this.mode === 'attract' || this.turntable) {
-      this.spinInPlace(this.turntable ? command.steer : 0, dt);
+    } else if (this.mode === 'attract') {
+      // The car waits on the title screen, still.
+    } else if (this.turntable) {
+      this.spinInPlace(command.steer, dt);
     } else {
       if (this.mode === 'crashed') {
         gameDt = dt * CRASH.slowMotion;
@@ -738,7 +800,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------------------------------
-  // Title screen showcase / debug turntable: the car turns on the spot.
+  // Debug turntable: the car turns on the spot.
   // ------------------------------------------------------------------------------------------
 
   setTurntable(on) {
@@ -830,6 +892,8 @@ export class GameScene extends Phaser.Scene {
     hook.sim = () => this.sim;
     hook.scene = () => this;
     hook.startRun = (seed) => this.startRun(seed);
+    hook.garage = Garage;
+    hook.maps = Maps;
     hook.spawnPolice = (x, y, heading, options) => {
       const police = this.sim.spawnPolice(x, y, heading, { role: 'chaser', speedFactor: 1.1, turnDeg: 125, aimSide: 0, ...options });
       this.acquireView(police, this.lookFor(police));

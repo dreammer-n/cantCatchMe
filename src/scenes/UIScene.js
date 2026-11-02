@@ -1,10 +1,10 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
-import { COLORS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, POWERUP, RENDER, STORAGE_KEYS, UI, WARNING } from '../config/tuning.js';
+import { COLORS, MAPS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, POWERUP, RENDER, STORAGE_KEYS, UI, WARNING } from '../config/tuning.js';
 import { DevPanel } from '../dev/DevPanel.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { findView, projection } from '../render/projection.js';
-import { Records } from '../systems/ScoreSystem.js';
+import { Records, Garage, Maps } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
 import { Hud } from '../ui/Hud.js';
 import { PauseScreen } from '../ui/Screens.js';
@@ -30,7 +30,7 @@ export class UIScene extends Phaser.Scene {
     this.touch = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
     this.zones = this.add.graphics();
 
-    this.hud = new Hud({ onPause: () => this.controls.press('pause'), onPower: () => this.controls.press('power') });
+    this.hud = new Hud({ onPause: () => this.controls.press('pause') });
     this.pauseScreen = new PauseScreen({
       onResume: () => this.setPaused(false),
       onRestart: () => this.restartRun(),
@@ -43,7 +43,7 @@ export class UIScene extends Phaser.Scene {
       this.events.once('shutdown', () => this.game.events.off(name, handler, this));
     };
     on('toast', (text, kind) => this.hud.toast(text, kind));
-    on('power-ready', (name) => this.hud.toast(`${name} READY! - ${this.touch ? 'DOUBLE TAP' : 'SPACE'} TO USE`, 'ready', 2600));
+    on('power-ready', (name) => this.hud.toast(`${name}! ${this.touch ? 'DOUBLE TAP' : 'SPACE'}`, 'ready', 2600));
     on('run-started', () => this.onRunStarted());
     on('run-crashed', () => this.hud.hideHint());
     on('run-over', () => this.hud.show(false));
@@ -60,10 +60,10 @@ export class UIScene extends Phaser.Scene {
   onRunStarted() {
     this.setPaused(false);
     this.hud.clearToasts();
-    this.hud.setBest(Records.best.time);
+    this.hud.setRecord(Maps.bestTime(Maps.selected));
     this.hud.show(true);
     if (Records.totals.runs < 3) {
-      this.hud.hint(this.touch ? 'Hold the left or right side to steer' : 'Steer with ← → or A D · lure the police into crashes', 4500);
+      this.hud.hint(this.touch ? 'Hold the left or right side to steer' : 'Steer with A D or the arrow keys', 4500);
     }
   }
 
@@ -76,7 +76,7 @@ export class UIScene extends Phaser.Scene {
       else if (command.restartPressed) this.restartRun();
     }
     const sim = this.world.sim;
-    if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.wrecks, running ? sim.powerUps.label : null);
+    if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.distance, sim.stats.wrecks);
     this.drawOverlay(running && !this.paused);
     if (this.devPanel && time >= this.nextReadoutAt) {
       this.nextReadoutAt = time + DEV_PANEL.readoutRefreshMs;
@@ -232,7 +232,7 @@ export class UIScene extends Phaser.Scene {
   createDevPanel() {
     this.nextReadoutAt = 0;
     this.devPanel = new DevPanel({
-      presets: HANDLING_PRESET_ORDER.map((id) => ({ id, label: HANDLING_PRESETS[id].label })),
+      presets: [...HANDLING_PRESET_ORDER.map((id) => ({ id, label: HANDLING_PRESETS[id].label })), { id: 'car', label: 'Chosen car' }],
       onSelectPreset: (id) => this.selectPreset(id),
       onRestart: () => this.restartRun(),
       onCycleView: () => this.cycleView(),
@@ -240,6 +240,14 @@ export class UIScene extends Phaser.Scene {
       powers: Object.entries(POWERUP.names).map(([id, label]) => ({ id, label })),
       onGivePower: (kind) => this.world.givePower(kind),
       onSummon: (kind) => this.world.summon(kind),
+      onCoins: () => Garage.award(50000),
+      onResetGarage: () => {
+        Garage.restore(0, [], null);
+        Garage.save();
+      },
+      onAllMaps: () => {
+        for (const map of MAPS) Maps.best[map.id] = Math.max(Maps.bestTime(map.id), 75);
+      },
     });
     this.devPanel.setActivePreset(this.registry.get('handlingPreset'));
     this.devPanel.setViewLabel(projection.viewLabel);

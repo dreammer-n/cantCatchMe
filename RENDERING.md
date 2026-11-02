@@ -103,6 +103,14 @@ out along the ground and the road keeps a burn for 45 s.
   drawn. The rotor is a Graphics object redrawn each frame in screen space. Its shadow goes in the shared car shadow
   layer, thrown far away by `projection.shadowOffset(height)`. The searchlight is one additive glow in each ground-lights
   layer (on the road, and a faint wash over cars and props), plus one screen-space beam.
+- **The gas station roof** is a prop with the band `overhead`: drawn above every car and prop, so a car can pass beneath
+  it. Keep tall props out from under it, because it covers them too. It has no collider; the fuel islands holding it up do.
+- **The player's cars** are too many to keep drawn. Only the selected car has sheets, made when it is first needed
+  and released when it is swapped (`releaseCarSheets`). Each is modelled at about the same size and enlarged by its
+  `scale`. Models must stay within x +-27 and y +-47, so they match their collision shape (`tests/test_garage.mjs`).
+- **The garage** paints one car live on an HTML canvas, every frame, through the same camera and painter as the sheets,
+  always at at least twice the screen's resolution. The car's shadow is blurred (canvas `shadowBlur`), which isn't possible in
+  the game itself, where shadows are hard shapes by design.
 - **Body lean** (`bodyLean` in `CarView`) reads `chassisRoll`, `chassisPitch` and the turn rate. It shifts the body over the
   ground, tilts it on screen (a roll shows as a tilt when the car faces up or down the screen, a pitch when it faces
   across) and picks a drawing slightly ahead of the true heading. The player's car has separate sheets for the wheels and

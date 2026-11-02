@@ -1,12 +1,12 @@
 // Debug toolbar for tuning, shown ONLY when the page address ends in ?debug (players never see
 // it). It sits outside the game surface, so tapping it never steers the car.
-// Keys: 1 / 2 / 3 choose handling, V changes the camera view, T parks the car on a turntable to
+// Keys: 1 / 2 / 3 override handling with a preset, 4 goes back to the chosen car's own, V changes the camera view, T parks the car on a turntable to
 // inspect it from every direction (R restarts, as in the normal game).
 
-const KEY_TO_INDEX = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 };
+const KEY_TO_INDEX = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3 };
 
 export class DevPanel {
-  constructor({ presets, onSelectPreset, onRestart, onCycleView, onTurntable, powers, onGivePower, onSummon }) {
+  constructor({ presets, onSelectPreset, onRestart, onCycleView, onTurntable, powers, onGivePower, onSummon, onCoins, onResetGarage, onAllMaps }) {
     this.presets = presets; // [{ id, label }]
     this.onSelectPreset = onSelectPreset;
     this.onRestart = onRestart;
@@ -54,6 +54,11 @@ export class DevPanel {
       const unit = this.makeButton(label, () => onSummon(kind));
       unit.classList.add('dev-panel__action');
       unitRow.append(unit);
+    }
+    for (const [label, action] of [['+50K COINS', onCoins], ['RESET GARAGE', onResetGarage], ['ALL MAPS', onAllMaps]]) {
+      const money = this.makeButton(label, action);
+      money.classList.add('dev-panel__action');
+      unitRow.append(money);
     }
     this.root.append(row, powerRow, unitRow, this.readout);
     document.body.appendChild(this.root);

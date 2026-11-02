@@ -123,7 +123,7 @@ check('wrecks disappear after their lifetime', p1.state === 'idle' && p2.state =
 
 // Police driving into a block at speed: wrecked.
 sim.reset(5);
-const block = sim.world.shapes.find((s) => s.item.kind === 'block' && s.item.heading === 0);
+const block = sim.world.add({ kind: 'block', x: T.START.x + 1200, y: T.START.y, heading: 0, model: 'b', params: {}, collider: { type: 'box', hw: 40, hl: 40 }, breakable: false });
 const p3 = sim.spawnPolice(block.x - block.hw - 150, block.y, Math.PI / 2, { role: 'chaser', speedFactor: 1.1, turnDeg: 0, aimSide: 0 });
 p3.handling.maxTurnRateDeg = 0;
 stepSim(1.2);

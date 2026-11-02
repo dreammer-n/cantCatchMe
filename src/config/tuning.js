@@ -25,17 +25,18 @@ export const CHUNKS = {
   // the tallest phones (checked by tests/test_world.mjs).
   size: 2400,
   activeRadius: 1, // chunks kept on each side of the player's: 1 = a 3 x 3 grid
-  propPool: 1000, // images prepared at startup (checked against the fullest chunks by the tests)
+  propPool: 1200, // images prepared at startup (checked against the fullest chunks by the tests)
   // weight: how often this layout appears. cells: [arrangement, weight] for each city block in it.
   // holeChance: how often this kind of chunk has holes in its inside roads (never on its border roads);
   // roadHoles: [fewest, most] when it does. Holes should be a surprise, not the landscape.
   presets: {
     // landmarks: the word statues this kind of chunk can have.
-    city: { weight: 32, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['open', 10]] },
-    parking: { weight: 26, holeChance: 0, roadHoles: [0, 0], landmarks: ['MALL', 'PARK'], cells: [['parking', 65], ['garden', 25], ['grove', 5], ['open', 5]] },
-    plaza: { weight: 13, holeChance: 0, roadHoles: [0, 0], landmarks: ['GAMES', 'DINER'], cells: [['garden', 30], ['grove', 30], ['open', 20], ['cones', 20]] },
-    industrial: { weight: 22, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['GAS', 'DEPOT'], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
-    ruins: { weight: 5, holeChance: 1, roadHoles: [1, 2], landmarks: ['STOP', 'GAS'], cells: [['sinkhole', 15], ['open', 50], ['barriers', 20], ['cones', 15]] },
+    suburb: { weight: 40, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['GAS', 'PARK', 'MALL'], cells: [['parking', 34], ['lawn', 28], ['shop', 14], ['booth', 10], ['station', 8], ['open', 6]] },
+    city: { weight: 12, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['open', 10]] },
+    parking: { weight: 24, holeChance: 0, roadHoles: [0, 0], landmarks: ['MALL', 'PARK'], cells: [['parking', 65], ['garden', 25], ['grove', 5], ['open', 5]] },
+    plaza: { weight: 8, holeChance: 0, roadHoles: [0, 0], landmarks: ['GAMES', 'DINER'], cells: [['garden', 30], ['grove', 30], ['open', 20], ['cones', 20]] },
+    industrial: { weight: 12, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['GAS', 'DEPOT'], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
+    ruins: { weight: 4, holeChance: 1, roadHoles: [1, 2], landmarks: ['STOP', 'GAS'], cells: [['sinkhole', 15], ['open', 50], ['barriers', 20], ['cones', 15]] },
   },
 };
 
@@ -63,8 +64,14 @@ export const VOID = {
 export const START = {
   x: 3000,
   y: 3000,
-  clearRadius: 430,
+  clearRadius: 400,
 };
+
+// [TUNE] Stars on the results screen: one for each of these survival times.
+export const STARS = [10, 20, 35, 50, 75];
+
+// How far the distance read-outs count a world unit to be. A car is 84 units long, about 4.2 metres.
+export const UNITS_PER_METER = 20;
 
 export const CAR_SIZE = {
   // Placeholder car footprint in world units.
@@ -102,8 +109,13 @@ export const COLORS = {
 };
 
 export const STORAGE_KEYS = {
-  handlingPreset: 'devHandlingPreset', // debug tools only
+  handlingPreset: 'devHandling', // debug tools only
   view: 'devView', // debug tools only
+  mapBest: 'mapBest', // { map id: best time }
+  selectedMap: 'selectedMap', // map id
+  totalCoins: 'totalCoins', // a whole number
+  unlockedCars: 'unlockedCars', // [car id, ...]
+  selectedCar: 'selectedCar', // car id
   best: 'bestRun', // { time, wrecks, nearMisses, combo }
   totals: 'totals', // { runs, wrecks, seconds }
   settings: 'settings', // { sound }
@@ -190,6 +202,198 @@ export const HANDLING_PRESETS = {
 
 export const HANDLING_PRESET_ORDER = ['grippy', 'balanced', 'drifty'];
 export const DEFAULT_HANDLING_PRESET = 'balanced';
+
+// [TUNE] What a run earns.
+export const COINS = {
+  perSecond: 2,
+  perWreck: 5,
+  perCombo: 10, // for each step of the run's best combo
+  tallyMs: 700, // the count-up on the results screen (drawing only)
+};
+
+// [TUNE] The cars, cheapest first, bought with coins. handling: changes from Balanced. scale: its size in play, collisions
+// included. mass: a share of the normal car's, which also sets how much harder a hit it survives (see below),
+// so a bigger car is always a tougher one. plows: light props and curbs don't slow it. The models are in render/playerCars.js.
+export const CARS = [
+  { id: 'coupe', name: 'Classic Coupe', price: 0, scale: 1, mass: 1, plows: false,
+    handling: { topSpeed: 320, maxTurnRateDeg: 195, gripTurning: 4.2 } },
+  { id: 'hatchback', name: 'Pocket Hatchback', price: 500, scale: 0.92, mass: 0.8, plows: false,
+    handling: { topSpeed: 310, maxTurnRateDeg: 230, gripTurning: 5.5, acceleration: 470 } },
+  { id: 'tuktuk', name: 'Tuk-Tuk', price: 1000, scale: 0.85, mass: 0.7, plows: false,
+    handling: { topSpeed: 285, maxTurnRateDeg: 240, gripTurning: 5, acceleration: 450 } },
+  { id: 'van', name: 'Drift Van', price: 1500, scale: 1.06, mass: 1.3, plows: false,
+    handling: { topSpeed: 330, maxTurnRateDeg: 180, gripTurning: 3.2, gripStraight: 5, gripChangeRate: 1.8, selfAlign: 2.5 } }, // its slides last
+  { id: 'pickup', name: 'Pickup', price: 2000, scale: 1.02, mass: 1.25, plows: false,
+    handling: { topSpeed: 325, maxTurnRateDeg: 185, gripTurning: 3.8 } },
+  { id: 'highway', name: 'Highway Interceptor', price: 3000, scale: 1, mass: 1, plows: false,
+    handling: { topSpeed: 350, maxTurnRateDeg: 190, gripTurning: 4 } },
+  { id: 'muscle', name: 'Muscle Car', price: 4000, scale: 1.02, mass: 1.15, plows: false,
+    handling: { topSpeed: 345, maxTurnRateDeg: 175, gripTurning: 3.6, acceleration: 460 } },
+  { id: 'ram', name: 'Battering Ram', price: 5000, scale: 1.12, mass: 2.2, plows: true,
+    handling: { topSpeed: 295, maxTurnRateDeg: 160, gripTurning: 4.4, acceleration: 340 } },
+  { id: 'bus', name: 'Flower Bus', price: 6500, scale: 1.06, mass: 1.4, plows: false,
+    handling: { topSpeed: 300, maxTurnRateDeg: 170, gripTurning: 3.4, acceleration: 360 } },
+  { id: 'suv', name: 'Trail SUV', price: 8000, scale: 1.06, mass: 1.5, plows: false,
+    handling: { topSpeed: 315, maxTurnRateDeg: 185, gripTurning: 4.6 } },
+  { id: 'tailfin', name: 'Tailfin Cruiser', price: 10000, scale: 1.04, mass: 1.3, plows: false,
+    handling: { topSpeed: 335, maxTurnRateDeg: 180, gripTurning: 3.5 } },
+  { id: 'hearse', name: 'Night Hearse', price: 12500, scale: 1.02, mass: 1.3, plows: false,
+    handling: { topSpeed: 340, maxTurnRateDeg: 170, gripTurning: 3.4 } },
+  { id: 'rally', name: 'Rally Wing', price: 15000, scale: 0.98, mass: 0.9, plows: false,
+    handling: { topSpeed: 340, maxTurnRateDeg: 225, gripTurning: 4.8, acceleration: 480 } },
+  { id: 'camper', name: 'Camper', price: 18000, scale: 1.12, mass: 1.6, plows: true,
+    handling: { topSpeed: 300, maxTurnRateDeg: 160, gripTurning: 3, acceleration: 340 } },
+  { id: 'hypercar', name: 'Hypercar', price: 25000, scale: 0.98, mass: 0.9, plows: false,
+    handling: { topSpeed: 380, maxTurnRateDeg: 205, gripTurning: 4.6, acceleration: 520 } },
+  { id: 'firetruck', name: 'Fire Engine', price: 35000, scale: 1.16, mass: 2.4, plows: true,
+    handling: { topSpeed: 315, maxTurnRateDeg: 165, gripTurning: 3.8, acceleration: 350 } },
+  { id: 'bulldozer', name: 'Bulldozer', price: 50000, scale: 1.2, mass: 3.2, plows: true,
+    handling: { topSpeed: 280, maxTurnRateDeg: 155, gripTurning: 5, acceleration: 300 } },
+  { id: 'monster', name: 'Monster Truck', price: 75000, scale: 1.2, mass: 2.8, plows: true,
+    handling: { topSpeed: 325, maxTurnRateDeg: 175, gripTurning: 4.2, acceleration: 400 } },
+  { id: 'tank', name: 'Tank', price: 100000, scale: 1.2, mass: 4.5, plows: true,
+    handling: { topSpeed: 265, maxTurnRateDeg: 150, gripTurning: 6, acceleration: 260 } },
+];
+
+// How much harder a hit than normal each car survives. Worked out from its mass, never set by hand.
+for (const car of CARS) car.durability = Math.sqrt(car.mass);
+
+// What the garage shows: each car's real numbers, as a share (0 to 1) of the way from the worst car to the best.
+// Worked out, never set by hand, so the screen can't drift from how the car really drives.
+const SPEC_READINGS = {
+  speed: (car) => handlingFor(car).topSpeed,
+  acceleration: (car) => handlingFor(car).acceleration,
+  handling: (car) => handlingFor(car).maxTurnRateDeg + handlingFor(car).gripTurning * 8, // how fast it turns, and how well it holds that turn
+  durability: (car) => car.durability,
+};
+
+export function carSpecs(car) {
+  const specs = {};
+  for (const [name, read] of Object.entries(SPEC_READINGS)) {
+    const values = CARS.map(read);
+    const low = Math.min(...values);
+    specs[name] = (read(car) - low) / (Math.max(...values) - low);
+  }
+  return specs;
+}
+
+// [TUNE] The maps. stars: how many stars, added up across every map's best run, unlock it. palette: what it
+// changes from the colours in PALETTE. trees: what grows on it. marks: soft patches on its ground; patch: tufts.
+// open: no roads are painted, only open ground with faint tire tracks where the roads run. The driving is the same.
+export const MAPS = [
+  {
+    id: 'suburb',
+    name: 'SUBURBS',
+    stars: 0,
+    palette: {},
+    trees: ['leafy', 'leafyDark'],
+    lamp: 'lamp',
+    shop: 'shop',
+    marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.6, size: [30, 85], stretch: 1.8 },
+    startPreset: 'suburb',
+    presets: null, // CHUNKS.presets
+  },
+  {
+    id: 'winter',
+    name: 'WINTER',
+    stars: 3,
+    palette: {
+      asphalt: 0xd3dde9, // the snow itself
+      uiGround: 0x59627a,
+      track: 0x7f90a8,
+      lot: 0xd3dde9,
+      plaza: 0xb4c0d0,
+      curb: 0x9fafc3,
+      median: 0xf4f7fa,
+      medianTuft: 0xdde6f0,
+      boulder: 0x8f98a6,
+      pine: 0x2f7a4a,
+      pineDark: 0x24603c,
+      asphaltPatchDark: 0xbecbdc,
+      asphaltPatchLight: 0xf1f5f9,
+      barrier: 0xf4f7fa,
+    },
+    trees: ['snowpine'],
+    lamp: 'lamp',
+    shop: 'cabin',
+    open: true,
+    marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.8, size: [110, 300], stretch: 2.2, drifts: 0.6 },
+    startPreset: 'snow',
+    presets: {
+      snow: { weight: 1, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['WINTER', 'PARK'], cells: [['parking', 30], ['lawn', 34], ['shop', 12], ['booth', 8], ['station', 6], ['barriers', 6], ['open', 4]] },
+    },
+  },
+  {
+    id: 'desert',
+    name: 'DESERT',
+    stars: 6,
+    palette: {
+      asphalt: 0xdcb077, // the sand itself
+      uiGround: 0x56545c,
+      track: 0x9c7445,
+      lot: 0xdcb077,
+      plaza: 0xcfa469,
+      curb: 0xc98f55,
+      median: 0xedc98a,
+      medianTuft: 0xd8ad6e,
+      boulder: 0xb5653f,
+      asphaltPatchDark: 0xcf9f62,
+      asphaltPatchLight: 0xeecb94,
+      paintWhite: 0xf4e9d4,
+      trunk: 0x6b4a2c,
+    },
+    trees: ['cactus'],
+    lamp: 'pole',
+    shop: 'shop',
+    extras: ['mesa', 'tower'],
+    open: true,
+    marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.75, size: [110, 300], stretch: 2.2, drifts: 0.75 },
+    startPreset: 'dunes',
+    presets: {
+      dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['lawn', 22], ['mesa', 26], ['grove', 20], ['shop', 10], ['tower', 10], ['barriers', 7], ['station', 5]] },
+    },
+  },
+  {
+    id: 'woods',
+    name: 'WOODS',
+    stars: 9,
+    palette: {
+      asphalt: 0x5d5a4a,
+      lot: 0x8f9040,
+      plaza: 0x7f8038,
+      curb: 0x6f7030,
+      median: 0xa6a84c,
+      medianTuft: 0x7f8234,
+      boulder: 0x9d9d92,
+      pine: 0x5e7a34,
+      pineDark: 0x4a6530,
+      asphaltPatchDark: 0x6f7030,
+      asphaltPatchLight: 0x7c7e36,
+    },
+    trees: ['pine', 'dead'],
+    lamp: 'pole',
+    shop: 'cabin',
+    extras: ['log'],
+    marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.7, size: [50, 140], stretch: 1.8, lotOnly: true },
+    patch: { perCell: 12, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.9, size: [10, 20], lotOnly: true, tuft: true },
+    startPreset: 'forest',
+    presets: {
+      forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 38], ['logs', 28], ['lawn', 14], ['open', 8], ['shop', 7], ['station', 5]] },
+    },
+  },
+];
+
+export function mapById(id) {
+  return MAPS.find((map) => map.id === id) || MAPS[0];
+}
+
+export function carById(id) {
+  return CARS.find((car) => car.id === id) || CARS[0];
+}
+
+export function handlingFor(car) {
+  return { ...HANDLING_PRESETS.balanced, label: car.name, ...car.handling };
+}
 
 // ---------------------------------------------------------------------------------------------
 // Survival loop. Everything below is [TUNE]: first guesses checked with the simulation tests
@@ -470,6 +674,8 @@ export const CONES = {
   kinds: {
     crushed: { knockSpeed: 0.9, slowdown: 1, spin: 3, sideKick: 240, flySeconds: 1.6, hop: 60 },
     lamp: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 }, // a long post tips over rather than whirls
+    pole: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 },
+    log: { knockSpeed: 0.8, slowdown: 0.92, spin: 6 },
     civilian: { knockSpeed: 0.8, slowdown: 0.82, spin: 2.5, sideKick: 190, flySeconds: 2.2, hop: 46 }, // a parked car bounces aside, and costs real speed
   },
 };
@@ -498,8 +704,8 @@ export const CURB = {
 export const POWERUP = {
   // How often each item comes up, compared with the others.
   kinds: { shockwave: 1, giant: 1, freeze: 1, pillars: 1, flamer: 1 },
-  names: { shockwave: 'KABOOM', giant: 'MONSTER', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER' }, // what the player sees
-  autoSeconds: 4, // a held item fires by itself after this long
+  names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER' }, // what the player sees
+  autoSeconds: 2.5, // a held item fires by itself after this long, unless double tapped first
   homingSpeed: 150, // it goes this much faster than the car, so it always catches up
   hopMs: 400, // each bounce (drawing only)
   hopHeight: 52, // world units (drawing only)
@@ -668,6 +874,7 @@ export const RENDER = {
   // Two things cost a lot of graphics memory for little visible gain, so they are drawn coarser: shadows,
   // and low flat props (islands, roundabouts), which are big but have no fine detail.
   shadowBakeScale: 0.75,
+  shadowSoftness: 2.2, // world units of soft edge on prop shadows
   flatBakeScale: 1,
   // Light, in camera terms: u = screen right, v = toward the viewer, z = up. [TUNE]
   // A low sun from the right and a little toward the viewer, so one side of everything is lit, the
@@ -698,33 +905,60 @@ export const DEPTH = {
 
 // World colours: the comic-arcade palette (low-poly, flat shaded). See ART_DIRECTION.md.
 export const PALETTE = {
-  asphalt: 0x2f3640, // roads
-  lot: 0x3a424e, // city blocks (parking lots, plazas): a little lighter than the roads
-  asphaltPatchDark: 0x2a3039,
-  asphaltPatchLight: 0x363e49,
+  asphalt: 0x3e444f, // roads: slate grey
+  uiGround: 0x3e444f, // behind the garage: always dark enough for the lettering
+  track: 0x2f343d, // tire tracks on open ground
+  lot: 0x484f5b, // city blocks (parking lots, forecourts): a little lighter than the roads
+  asphaltPatchDark: 0x373d47,
+  asphaltPatchLight: 0x464c58,
   paintWhite: 0xf8f6ef,
   paintYellow: 0xf0c04a,
-  curb: 0xf39c12, // gold rim of islands and roundabouts ...
-  median: 0xf1c40f, // ... around a vivid yellow top
+  curb: 0xece5d8, // warm cream rim of islands and roundabouts ...
+  median: 0x98c43d, // ... around fresh lime grass
+  medianTuft: 0x7fa932, // darker patches in the grass
   concrete: 0xb5aea2,
-  plaza: 0x47505d,
+  plaza: 0x565d69,
   void: 0x06070b,
   voidWall: 0x171a21,
   voidRim: 0x8791a1,
-  civilianTeal: 0x3fbfa8,
-  civilianPink: 0xf08fa0,
-  civilianYellow: 0xecc94b,
+  civilianBlue: 0x2f6fd0,
+  civilianYellow: 0xf2bf1d,
+  civilianWhite: 0xeef0ee,
+  civilianRed: 0xc23a2e,
+  log: 0xd9822b,
+  logEnd: 0xf0b56a,
+  snow: 0xf4f7fa,
+  cactus: 0x5f9a3f,
+  mesa: 0xb5653f,
+  towerWood: 0x6b4a2c,
+  towerTank: 0x7c5a3a,
+  cabinWall: 0x9a6a3f,
+  cabinRoof: 0x3a3e46,
+  statueOrange: 0xe0641c,
+  shopWall: 0xa4a8ad,
+  shopRoof: 0x3a3e46,
+  shopDoor: 0x2b2f36,
+  shopDoorLine: 0x41464f,
+  canopyRed: 0xe8352a,
+  canopyRim: 0xf5f3ee,
+  pumpBody: 0xf0efe9,
+  boothWall: 0xd8d4ca,
+  bench: 0xa06b3c,
+  boulder: 0x8c9096,
+  billboard: 0x2c3038,
+  crownGold: 0xf2c230,
   monument: 0xc9c1b1,
   woodCrate: 0xa9794a,
   woodStrap: 0x75522f,
   containerBlue: 0x3f6f9e,
   containerRust: 0xa8573a,
-  barrier: 0xd6d0c2,
-  barrierStripe: 0xe8553d,
+  barrier: 0xf0ede6, // white concrete ...
+  barrierStripe: 0xe84118, // ... with red safety stripes
   trunk: 0x7b5233,
   pine: 0x3f8a46,
   pineDark: 0x2f6e3a,
-  leafy: 0x5f9f3f,
+  leafy: 0x82b83c, // lime
+  leafyDark: 0x4a8f3c, // forest
   pole: 0x8b909a,
   lamp: 0xfff1bf,
   lampGlow: 0xffb02e,
@@ -743,7 +977,7 @@ export const PALETTE = {
   // Police car (original design: white with a blue side stripe and a red / blue light bar)
   policeBody: 0xf5f7fa,
   policeStripe: 0x1b2a6b,
-  swatBody: 0x565e69, // dark grey, but clearly lighter than the road
+  swatBody: 0x6a727e, // dark grey, but clearly lighter than the road
   swatDark: 0x272b32,
   swatStripe: 0xe8b93c,
   heliBody: 0x2f62d6,
@@ -762,15 +996,15 @@ export const PALETTE = {
   wreckGlass: 0x16181c,
   scorch: 0x0b0d10,
   // The lucky die
-  crate: 0x8f5cff, // violet: no other colour in the game is close to it
-  cratePip: 0xfff6e0,
-  crateGlow: 0xb98cff,
+  crate: 0xb8800f, // dark amber, the game's main colour ...
+  cratePip: 0x2c1c06, // ... with dark brown spots
+  crateGlow: 0xffb02e,
   ice: 0x9fdcff, // frozen police cars
   frost: 0x7fe9ff,
   fireGlow: 0xff7a18,
   pillar: 0xa39c8e,
   pillarCap: 0xc2bbab,
-  crateArrow: 0x5ff5e0, // stays teal, like the Shockwave button: orange would look like the red warnings
+  crateArrow: 0xf2b632, // amber, like the die: orange would look like the red warnings
   chunkTire: 0x17191e,
   chunkTireWall: 0x33363e,
   chunkHub: 0x5a5e66,
@@ -779,10 +1013,23 @@ export const PALETTE = {
   statueRed: 0xd7142f,
   statueNavy: 0x25408f,
   statueCream: 0xf6efdf,
-  pulse: 0x7ff7ff,
+  pulse: 0xffc64a,
   smoke: 0xf4efe0,
   fire: 0xffb02e,
 };
+
+const DEFAULT_PALETTE = {};
+for (const map of MAPS) for (const key of Object.keys(map.palette)) DEFAULT_PALETTE[key] = PALETTE[key];
+
+// Puts a map's colours in place. Drawings made after this use them.
+export function applyMapPalette(map) {
+  Object.assign(PALETTE, DEFAULT_PALETTE, map.palette);
+}
+
+// One of a map's colours, whichever map is in place.
+export function mapColor(map, key) {
+  return map.palette[key] ?? DEFAULT_PALETTE[key] ?? PALETTE[key];
+}
 
 // [TUNE] Synthesised sound levels (0..1) and siren behaviour.
 export const AUDIO = {
@@ -812,7 +1059,7 @@ export const EFFECTS = {
   tireScrape: 0.9,
   tireSeconds: 2.6,
   chunkShadowRadius: 15,
-  chunkShadowAlpha: 0.6,
+  chunkShadowAlpha: 0.42,
   ringRadius: 170, // world units a wreck's ground ring reaches
   ringRadiusBig: 240,
   ringMs: 360,
@@ -822,18 +1069,27 @@ export const EFFECTS = {
   maxTrailFire: 150, // flames on the Flamer's trail at once
   frozenGlowAlpha: 0.5, // the pool of cold light under a frozen car
   firePatchAlpha: 0.75,
-  maxBursts: 8, // comic starbursts on screen at once
-  burstPopMs: 90, // how fast one pops out ...
-  burstHoldMs: 40, // ... stays ...
-  burstFadeMs: 120, // ... and goes
-  // Starburst sizes (1 = 160 screen units across).
+  maxBursts: 16, // balls of fire on screen at once
+  burstPopMs: 110, // how fast one swells ...
+  burstHoldMs: 50, // ... stays ...
+  burstFadeMs: 150, // ... and goes, on a small hit
+  coreFadeMs: 260, // in an explosion it burns out more slowly
+  coresAround: 4, // smaller balls of fire round the main one ...
+  coreOuterTint: 0xffc48a, // ... tinted, so their middles aren't white and they don't look like separate orbs
+  blastGlowMs: 520, // how long the ground stays lit
+  chunkTrailSeconds: 0.7, // flying wreckage trails smoke this long
+  chunkTrailEvery: 0.06,
+  maxChunkSmoke: 60,
+  // Sizes of a ball of fire (1 = 160 screen units across).
   burstBig: 1.25, // the player's crash
   burstWreck: 0.85, // a police car wrecked
   burstSmash: 0.6, // a parked car hit
   burstBump: 0.42,
   burstScrape: 0.24,
-  sirenPoolRadius: 105, // world units: the red / blue light on the ground under a cruiser
-  sirenPoolAlpha: 0.62,
+  sirenPoolRadius: 150, // world units: the red / blue light on the ground under a cruiser, fading away
+  sirenPoolAlpha: 0.8,
+  lampPoolRadius: 190, // world units: the light on the ground under a street lamp, fading away
+  lampPoolAlpha: 0.34,
   maxDebris: 90,
   smokeEveryMs: 45, // a puff from each skidding rear tire this often
   wreckSmokeEveryMs: 160,
@@ -874,9 +1130,13 @@ export const SCENERY = {
   // Trees were a bit small next to the car (crown only 1.4x the car's width); 1.25 makes a pine
   // about 4 car-heights tall with a crown about twice the car's width. [TUNE]
   treeScale: 1.25,
-  patchesPerCell: 9, // small asphalt patches per city block (speed reference)
-  startMarkRadius: 70,
   stallLength: 92,
+  // Tire tracks on open ground.
+  trackStep: 90, // length of one piece
+  trackGauge: 22, // half the gap between the two ruts
+  trackWidth: 8,
+  trackAlpha: 0.3,
+  trackChance: 0.65, // share of road stretches that have them
   stallSpacing: 56,
   floorChunk: 800, // the floor is drawn in squares this big (must divide CHUNKS.size); off-screen squares are skipped
   laneDash: 60,
@@ -913,14 +1173,36 @@ export const WORLD = {
   containerTurnsDeg: [0, 90],
   parkedCarChance: 0.13, // chance that a parking stall has a car in it
   civilians: [
-    { shape: 'van', color: 'civilianTeal' },
-    { shape: 'hatchback', color: 'civilianPink' },
-    { shape: 'sedan', color: 'civilianYellow' },
+    { shape: 'sedan', color: 'civilianBlue' },
+    { shape: 'compact', color: 'civilianYellow' },
+    { shape: 'wagon', color: 'civilianWhite' },
+    { shape: 'coupe', color: 'civilianRed' },
   ],
+  lawnTypes: [
+    { width: 300, length: 200 },
+    { width: 220, length: 280 },
+  ],
+  mesaSizes: [1, 1.4],
+  mesaRadius: 42, // at size 1
+  logTurnsDeg: [20, 100, 160],
+  boulderSizes: [0.8, 1.15],
+  boulderRadius: 15, // at size 1
+  benchTurnsDeg: [0, 90],
+  shopTurnsDeg: [180, 90], // the doors face the camera either way
+  // The gas station, laid out around its canopy.
+  station: {
+    roofHalfWidth: 120,
+    roofHalfLength: 58,
+    pumpSpacing: 60, // from the middle to each pump island
+    pumpHalfWidth: 12,
+    pumpHalfLength: 42,
+    shopHalfWidth: 120,
+    shopHalfLength: 44,
+  },
   civilianTurnsDeg: [0, 90, 180, 270],
   // Word statues: giant block letters on a low plinth, one per chunk at most.
   landmarkChance: 0.75,
-  landmarkColors: { STOP: 'statueRed', MALL: 'statueNavy', HOTEL: 'statueCream', PARK: 'statueCream', GAMES: 'statueRed', DINER: 'statueNavy', GAS: 'statueRed', DEPOT: 'statueCream' },
+  landmarkColors: { STOP: 'statueRed', MALL: 'statueNavy', HOTEL: 'statueCream', PARK: 'statueCream', GAMES: 'statueRed', DINER: 'statueNavy', GAS: 'statueRed', DEPOT: 'statueCream', WINTER: 'statueRed', DESERT: 'statueOrange', WOODS: 'statueOrange' },
   letterUnit: 17, // world units per grid square of the block font: letters are 85 tall
   letterThickness: 20,
   letterGap: 10,

@@ -19,6 +19,8 @@ const MAX_DIRECTIONS = Math.max(RENDER.directions, ...Object.values(RENDER.carDi
 const FRAME_NAMES = Array.from({ length: MAX_DIRECTIONS }, (_, i) => `dir${i}`);
 
 export function directionsFor(name) {
+  if (name.endsWith('Body')) return RENDER.carDirections.playerBody;
+  if (name.endsWith('Wheels')) return RENDER.carDirections.playerWheels;
   return RENDER.carDirections[name] || RENDER.directions;
 }
 
@@ -84,6 +86,16 @@ export function ensureCarAtlas(scene, name, proj = projection) {
 
   atlasMeta.set(key, { originX: 0.5, originY: pivotY / cellH, cellW, cellH, width, height, directions: measure.directions });
   return key;
+}
+
+// There are too many cars to keep them all drawn: only the selected one has sheets, and these go when it is
+// swapped for another. Call once nothing is showing them.
+export function releaseCarSheets(scene, id, proj = projection) {
+  for (const name of [`${id}Body`, `${id}Wheels`]) {
+    const key = atlasKey(name, proj);
+    if (scene.textures.exists(key)) scene.textures.remove(key);
+    atlasMeta.delete(key);
+  }
 }
 
 // Picks the drawing for a world heading. Writes { frame, rotation } into `out`.

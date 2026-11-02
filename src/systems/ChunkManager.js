@@ -15,6 +15,16 @@ export class ChunkManager {
     this.version = 0; // goes up whenever the set of loaded chunks changes
   }
 
+  // Starts again on another map.
+  setLayout(layout) {
+    for (const [key, chunk] of this.active) this.unload(key, chunk);
+    this.layout = layout;
+    this.cones = [];
+    this.cx = null;
+    this.cy = null;
+    this.version += 1;
+  }
+
   // Returns true if the set of loaded chunks changed.
   update(x, y) {
     const cx = chunkCoord(x);

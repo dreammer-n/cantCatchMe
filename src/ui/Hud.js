@@ -1,74 +1,64 @@
-import { ICONS, button, el, uiRoot } from './dom.js';
-import { formatTime } from '../systems/ScoreSystem.js';
+import { button, el, uiRoot } from './dom.js';
+import { dt, setDisplay } from './displayFont.js';
+import { formatClock, formatDistance } from '../systems/ScoreSystem.js';
 
-// In-game overlay: survival timer (big, top centre), best time, police wrecked, pause button,
-// the power-up button (only while an item is held) and short pop-up messages.
+const REFRESH_MS = 33; // the clock changes every frame: no need to touch the page that often
+
+// In-game overlay: time, distance and police wrecked top left, pause and the record top right, and short
+// pop-up messages. Nothing else: a held power-up is used by double tap, or goes off by itself.
 export class Hud {
-  constructor({ onPause, onPower }) {
-    this.time = el('div', 'hud-time', '0:00.0');
-    this.best = el('div', 'hud-best', '');
-    const icon = el('span', 'hud-wrecks-icon');
-    icon.innerHTML = ICONS.police;
-    this.wrecks = el('div', 'hud-wrecks', [icon, el('span', 'hud-wrecks-count', '0')]);
-    this.wrecks.title = 'Police wrecked';
-    this.wrecksCount = this.wrecks.lastChild;
-    this.pauseButton = button('btn hud-pause', ICONS.pause, onPause, 'Pause');
-    this.power = button('hud-power', ICONS.bolt, onPower, 'Use power-up');
-    this.powerLabel = el('span', 'hud-power-label', '');
-    this.power.append(this.powerLabel);
+  constructor({ onPause }) {
+    this.time = dt('hud-line', 'TIME: 00:00.00');
+    this.distance = dt('hud-line', 'DIST: 0.00 M');
+    this.wrecks = dt('hud-line', 'CARS: 0');
+    this.record = dt('hud-record', 'RECORD: 00:00.00');
+    this.pauseButton = button('btn hud-pause', dt('', 'PAUSE'), onPause, 'Pause');
     this.toasts = el('div', 'hud-toasts');
-    this.hintBox = el('div', 'hud-hint', '');
+    this.hintBox = el('div', 'hud-hint', [dt('', '')]);
     this.node = el('div', 'hud', [
-      el('div', 'hud-top', [this.wrecks, el('div', 'hud-clock', [this.time, this.best]), this.pauseButton]),
+      el('div', 'hud-tele', [this.time, this.distance, this.wrecks]),
+      el('div', 'hud-right', [this.pauseButton, this.record]),
       this.toasts,
       this.hintBox,
-      this.power,
     ]);
     this.node.hidden = true;
     uiRoot().append(this.node);
-    this.shown = { time: -1, wrecks: -1, power: null };
+    this.shownWrecks = -1;
+    this.nextRefresh = 0;
   }
 
   show(visible) {
     this.node.hidden = !visible;
   }
 
-  setBest(seconds) {
-    this.best.textContent = seconds > 0 ? `BEST ${formatTime(seconds)}` : '';
+  setRecord(seconds) {
+    setDisplay(this.record, `RECORD: ${formatClock(seconds)}`);
   }
 
   // Cheap to call every frame: only touches the page when a value changes.
-  // power: what the power-up button should say, or null to hide it.
-  update(time, wrecks, power) {
-    const tenths = Math.floor(time * 10);
-    if (tenths !== this.shown.time) {
-      this.shown.time = tenths;
-      this.time.textContent = formatTime(time);
+  update(time, distance, wrecks) {
+    const now = performance.now();
+    if (now >= this.nextRefresh) {
+      this.nextRefresh = now + REFRESH_MS;
+      setDisplay(this.time, `TIME: ${formatClock(time)}`);
+      setDisplay(this.distance, `DIST: ${formatDistance(distance)}`);
     }
-    if (wrecks !== this.shown.wrecks) {
-      this.shown.wrecks = wrecks;
-      this.wrecksCount.textContent = String(wrecks);
-      this.wrecks.classList.remove('bump');
-      void this.wrecks.offsetWidth; // restart the little bounce animation
-      if (wrecks > 0) this.wrecks.classList.add('bump');
-    }
-    if (power !== this.shown.power) {
-      this.shown.power = power;
-      this.power.classList.toggle('ready', Boolean(power));
-      if (power) this.powerLabel.textContent = power;
+    if (wrecks !== this.shownWrecks) {
+      this.shownWrecks = wrecks;
+      setDisplay(this.wrecks, `CARS: ${wrecks}`);
     }
   }
 
   // kind: 'combo' | 'near' | 'power' | 'ready' | 'info'
   toast(text, kind = 'info', ms = 1400) {
-    const node = el('div', `toast toast-${kind}`, text);
+    const node = el('div', `toast toast-${kind}`, [dt('', text)]);
     this.toasts.append(node);
     while (this.toasts.childElementCount > 3) this.toasts.firstChild.remove();
     setTimeout(() => node.remove(), ms);
   }
 
   hint(text, ms) {
-    this.hintBox.textContent = text;
+    setDisplay(this.hintBox.firstChild, text);
     this.hintBox.classList.add('visible');
     clearTimeout(this.hintTimer);
     this.hintTimer = setTimeout(() => this.hintBox.classList.remove('visible'), ms);

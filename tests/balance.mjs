@@ -1,4 +1,5 @@
 // Bot playtests: survival time distribution, crash causes, fairness and simulation cost.
+import { buildLayout } from '../src/systems/WorldLayout.js';
 import { SCREENS, T, newSim, playRun } from './simkit.mjs';
 const overrides = JSON.parse(process.argv[5] || '{}');
 for (const [group, values] of Object.entries(overrides)) Object.assign(T[group], values);
@@ -6,7 +7,25 @@ for (const [group, values] of Object.entries(overrides)) Object.assign(T[group],
 const runs = Number(process.argv[2] || 40);
 const screenName = process.argv[3] || 'portrait';
 const skill = Number(process.argv[4] || 1);
+// Which car: a car's id (default: the one everyone starts with), or 'all' for a table of them all.
+const carChoice = process.argv[6] || 'coupe'; // after the overrides in argv[5]
+// Which map: a map's id (default: the first).
+const map = T.mapById(process.argv[7]);
+if (carChoice === 'all') {
+  for (const car of T.CARS) {
+    const carSim = newSim();
+    carSim.setCar(car);
+    const runsOfCar = [];
+    for (let i = 0; i < runs; i += 1) runsOfCar.push(playRun(carSim, { seed: 100 + i, screen: SCREENS[screenName], skill }));
+    const sorted = runsOfCar.map((r) => r.time).sort((a, b) => a - b);
+    const wrecks = runsOfCar.reduce((s, r) => s + r.wrecks, 0) / runs;
+    console.log(`${car.name.padEnd(20)} ${String(car.price).padStart(6)}  median ${sorted[Math.floor(runs / 2)].toFixed(1).padStart(5)} s  p90 ${sorted[Math.floor(runs * 0.9)].toFixed(1).padStart(5)} s  wrecks ${wrecks.toFixed(1)}`);
+  }
+  process.exit(0);
+}
 const sim = newSim();
+sim.setCar(T.carById(carChoice));
+sim.chunks.setLayout(buildLayout(undefined, map));
 const results = [];
 for (let i = 0; i < runs; i += 1) results.push(playRun(sim, { seed: 100 + i, screen: SCREENS[screenName], skill }));
 

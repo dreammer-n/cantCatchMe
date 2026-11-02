@@ -1,7 +1,8 @@
 import * as Phaser from 'phaser';
-import { DEFAULT_HANDLING_PRESET } from '../config/tuning.js';
 import { ensureCarAtlas } from '../render/carAtlas.js';
 import { makeEffectTextures } from '../render/Effects.js';
+import { applyMapPalette } from '../config/tuning.js';
+import { Maps } from '../systems/ScoreSystem.js';
 import { buildLayout } from '../systems/WorldLayout.js';
 
 // Prepares everything before the first frame. All art is built in code from low-poly models
@@ -13,9 +14,10 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     makeEffectTextures(this);
-    for (const name of ['playerBody', 'playerWheels', 'police', 'interceptor', 'bearcat', 'helicopter', 'wreck', 'wreckRoof']) ensureCarAtlas(this, name);
-    this.registry.set('handlingPreset', DEFAULT_HANDLING_PRESET);
-    this.registry.set('layout', buildLayout());
+    for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'wreck', 'wreckRoof']) ensureCarAtlas(this, name);
+    this.registry.set('handlingPreset', 'car');
+    applyMapPalette(Maps.current());
+    this.registry.set('layout', buildLayout(undefined, Maps.current()));
     this.scene.start('GameScene');
     this.scene.launch('UIScene');
     this.scene.launch('MenuScene');

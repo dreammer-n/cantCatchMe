@@ -13,14 +13,22 @@
 //       bridge.platform.isAudioEnabled + EVENT_NAME.AUDIO_STATE_CHANGED (isEnabled)
 //       bridge.platform.isPaused       + EVENT_NAME.PAUSE_STATE_CHANGED (isPaused)
 //       bridge.storage.get(key) -> Promise(value | null), bridge.storage.set(key, value) -> Promise
+//     Checked against wiki.playgama.com/playgama/bridge-sdk/api/advertisement/rewarded, 2026-10-31:
+//       bridge.advertisement.isRewardedSupported
+//       bridge.advertisement.showRewarded(placement)
+//       bridge.advertisement.on(EVENT_NAME.REWARDED_STATE_CHANGED, state)
+//         state: loading, opened, closed, rewarded, failed. Reward ONLY on 'rewarded', never on 'closed'.
 //   Local browser (no SDK): LocalStorage, page visibility for pause.
-// No adverts, analytics or external requests are made.
+// The only advert is a rewarded one the player asks for. No analytics or other external requests are made.
 
 const SDK_FILE = './playgama-bridge.js';
 const SDK_TIMEOUT_MS = 8000;
 const SAVE_KEY = 'cantcatchme_save'; // everything is saved as one small object
 const LOCAL_PREFIX = 'carchase:';
 const SAVE_DELAY_MS = 400;
+const AD_PLACEMENT = 'double_coins';
+const AD_TIMEOUT_MS = 180000; // never leaves the player stuck if an ad doesn't report back
+const AD_REWARD_GRACE_MS = 800; // some platforms may report 'rewarded' just after 'closed'
 
 const state = {
   initialized: false,
@@ -34,6 +42,9 @@ const state = {
   storageKind: 'memory',
   save: {},
   saveTimer: null,
+  adOpen: false,
+  onRewardedState: null,
+  pendingAd: null,
 };
 
 const listeners = {
@@ -66,7 +77,7 @@ function openLocalStorage() {
 
 // Paused when the platform says so OR the page is hidden (tab switched, phone locked).
 function updatePaused() {
-  const paused = state.platformPaused || state.pageHidden;
+  const paused = state.platformPaused || state.pageHidden || state.adOpen;
   if (state.paused === paused) return;
   state.paused = paused;
   emit(paused ? 'pause' : 'resume');
@@ -133,6 +144,15 @@ async function connectBridge() {
     }
   } catch (error) {
     console.warn('[platform] Bridge events unavailable:', error?.message || error);
+  }
+  try {
+    if (bridge.advertisement && events.REWARDED_STATE_CHANGED) {
+      bridge.advertisement.on(events.REWARDED_STATE_CHANGED, (adState) => {
+        if (state.onRewardedState) state.onRewardedState(adState);
+      });
+    }
+  } catch (error) {
+    console.warn('[platform] Bridge adverts unavailable:', error?.message || error);
   }
   try {
     const saved = parseSave(await withTimeout(bridge.storage.get(SAVE_KEY), SDK_TIMEOUT_MS));
@@ -265,6 +285,55 @@ export const PlatformManager = {
     state.save[key] = value;
     if (state.saveTimer) clearTimeout(state.saveTimer);
     state.saveTimer = setTimeout(writeSave, SAVE_DELAY_MS);
+  },
+
+  // How a rewarded ad works here: 'platform' (a real one), 'none' (the platform has none: offer no button) or
+  // 'simulated' (no platform at all: local testing, including the SDK's own 'mock' platform).
+  rewardedAdMode() {
+    if (!state.bridge || state.platformId === 'mock') return 'simulated';
+    return state.bridge.advertisement?.isRewardedSupported ? 'platform' : 'none';
+  },
+
+  // Shows a real rewarded ad. Resolves to true only if the platform says the reward was earned. The game is
+  // paused and silent while it is open. Call only when the player has asked for one.
+  showRewardedAd() {
+    if (state.pendingAd) return state.pendingAd;
+    if (this.rewardedAdMode() !== 'platform') return Promise.resolve(false);
+    state.pendingAd = new Promise((resolve) => {
+      let earned = false;
+      let timer = null;
+      const finish = () => {
+        clearTimeout(timer);
+        state.onRewardedState = null;
+        state.pendingAd = null;
+        state.adOpen = false;
+        updatePaused();
+        resolve(earned);
+      };
+      state.onRewardedState = (adState) => {
+        if (adState === 'opened') {
+          state.adOpen = true;
+          updatePaused();
+        } else if (adState === 'rewarded') {
+          earned = true;
+          if (!state.adOpen) finish();
+        } else if (adState === 'closed') {
+          state.adOpen = false;
+          clearTimeout(timer);
+          timer = setTimeout(finish, earned ? 0 : AD_REWARD_GRACE_MS);
+        } else if (adState === 'failed') {
+          finish();
+        }
+      };
+      timer = setTimeout(finish, AD_TIMEOUT_MS);
+      try {
+        const result = state.bridge.advertisement.showRewarded(AD_PLACEMENT);
+        if (result && typeof result.catch === 'function') result.catch(finish);
+      } catch {
+        finish();
+      }
+    });
+    return state.pendingAd;
   },
 
   // Writes pending changes now (e.g. right after a run ends).

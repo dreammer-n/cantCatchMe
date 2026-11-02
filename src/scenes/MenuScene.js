@@ -1,10 +1,10 @@
 import * as Phaser from 'phaser';
 import { PlatformManager } from '../platform/PlatformManager.js';
-import { Records } from '../systems/ScoreSystem.js';
+import { Garage } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
 import { MenuScreen } from '../ui/Screens.js';
 
-// Title screen (HTML) over the world, where the player's car turns slowly on the start ring.
+// Title screen (HTML) over the world, where the player's car waits on the start ring.
 // Play with the button, Enter / Space or gamepad A.
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -15,10 +15,15 @@ export class MenuScene extends Phaser.Scene {
     this.controls = this.registry.get('input');
     this.audio = this.registry.get('audio');
     if (!this.screen) {
-      this.screen = new MenuScreen({ onPlay: () => this.play(), onSound: () => this.toggleSound() });
+      this.screen = new MenuScreen({
+        onPlay: () => this.play(),
+        onSound: () => this.toggleSound(),
+        onGarage: () => this.openOver('GarageScene', { from: 'MenuScene' }),
+        onMaps: () => this.openOver('MapScene'),
+      });
     }
     const touch = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
-    this.screen.show({ best: Records.best, totals: Records.totals, soundOn: Settings.sound, touch });
+    this.screen.show({ soundOn: Settings.sound, touch, coins: Garage.coins });
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     const close = () => this.close();
     this.game.events.once('run-started', close);
@@ -36,6 +41,23 @@ export class MenuScene extends Phaser.Scene {
     this.audio.unlock();
     this.audio.play('click');
     this.scene.get('GameScene').startRun(); // emits 'run-started', which closes this screen
+  }
+
+  openOver(sceneKey, data) {
+    if (!this.screen || this.screen.node.hidden) return;
+    this.audio.unlock();
+    this.audio.play('click');
+    this.screen.hide();
+    this.scene.launch(sceneKey, data);
+    this.scene.pause();
+  }
+
+  // Back from the garage or the maps.
+  onGarageClosed() {
+    this.screen.node.hidden = false;
+    this.screen.refresh(Garage.coins);
+    this.readyAt = this.time.now + 250;
+    this.scene.get('GameScene').onGarageClosed();
   }
 
   close() {

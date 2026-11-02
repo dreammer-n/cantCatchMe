@@ -36,7 +36,7 @@ export class CarView {
     this.pool = null;
     this.glowOver = null;
     if (layers) {
-      this.pool = scene.add.image(0, 0, 'fx-glow').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+      this.pool = scene.add.image(0, 0, 'fx-pool').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
       layers.lights.add(this.pool);
       this.glowOver = scene.add.image(0, 0, 'fx-glow').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
       layers.lightsOver.add(this.glowOver);
@@ -221,7 +221,7 @@ export class CarView {
     this.pool
       .setVisible(true)
       .setPosition(model.x, model.y)
-      .setScale(EFFECTS.sirenPoolRadius / 32)
+      .setScale(EFFECTS.sirenPoolRadius / 64)
       .setTint(PALETTE.frost)
       .setAlpha(EFFECTS.frozenGlowAlpha * this.alpha);
   }
@@ -283,7 +283,7 @@ export class CarView {
       this.pool
         .setVisible(true)
         .setPosition(model.x, model.y)
-        .setScale(EFFECTS.sirenPoolRadius / 32)
+        .setScale(EFFECTS.sirenPoolRadius / 64)
         .setTint(phase === 0 ? PALETTE.lightRed : PALETTE.lightBlue)
         .setAlpha(EFFECTS.sirenPoolAlpha * pulse * this.alpha);
       this.glowOver

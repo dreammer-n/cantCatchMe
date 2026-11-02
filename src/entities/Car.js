@@ -14,6 +14,8 @@ export class Car {
   constructor(handling) {
     this.handling = handling;
     this.mass = 1; // used by car-to-car collisions
+    this.baseScale = 1; // the car's normal size (the player's car depends on which one it is)
+    this.plowing = false; // SWAT Bearcat and the player's heavy cars: light props and curbs don't slow it
     this.reset(0, 0, 0);
   }
 
@@ -35,11 +37,10 @@ export class Car {
     this.pitchVelocity = 0;
     this.longAccel = 0; // smoothed forward acceleration, for the pitch
     this.onCurb = false; // set by the collision system
-    this.scale = 1; // size: 1 = normal, bigger while Giant. Physics: collisions use it too
+    this.scale = this.baseScale; // size: bigger while Giant. Physics: collisions use it too
     this.scaleVelocity = 0;
-    this.scaleTarget = 1;
+    this.scaleTarget = this.baseScale;
     this.crushing = false; // Giant: nothing can hurt it, and it flattens what it touches
-    this.plowing = false; // SWAT Bearcat: light props and curbs don't slow it
     this.flatTime = 0; // seconds of flat tire left
     this.flatSeconds = 0; // how long it lasts in all
     this.flatSide = 1; // the corner that has gone: -1 left, 1 right

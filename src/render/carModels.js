@@ -1,9 +1,11 @@
 import { CAR_MODEL, CAR_SIZE, PALETTE } from '../config/tuning.js';
 import { box, decal, frustum, hexa, roundWheel, shadeColor } from './lowpoly.js';
+import { buildPlayerCar } from './playerCars.js';
 
 // Low-poly car models built from a handful of solids. Original designs:
 //   player  red compact muscle coupe with cream racing stripes and a spoiler
-//   playerBody, playerWheels  the same car in two pieces, so the body can lean over its wheels. The lower
+//   <car id>  any of the cars the player can drive (render/playerCars.js), where 'player' = the coupe
+//   <car id>Body, <car id>Wheels  a player's car in two pieces, so the body can lean over its wheels. The lower
 //     body and bumpers belong to the body: only the wheels are separate, or the car looks as if it comes apart
 //   police  white patrol car with a blue side stripe, push bar and red / blue light bar
 //   interceptor  the same patrol car in black and white: dark hood and boot, no stripes
@@ -304,12 +306,15 @@ const meshes = new Map();
 
 export function carMesh(name) {
   if (!meshes.has(name)) {
-    if (name === 'playerBody') meshes.set(name, buildCar(STYLES.player).filter((part) => part.tag !== 'wheel'));
-    else if (name === 'playerWheels') meshes.set(name, buildCar(STYLES.player).filter((part) => part.tag === 'wheel'));
+    const piece = name.match(/^(.+)(Body|Wheels)$/);
+    if (piece) {
+      const whole = piece[1] === 'player' ? buildCar(STYLES.player) : buildPlayerCar(piece[1]);
+      meshes.set(name, whole.filter((part) => (part.tag === 'wheel') === (piece[2] === 'Wheels')));
+    } else if (name in STYLES) meshes.set(name, buildCar(STYLES[name]));
     else if (name === 'wreckRoof') meshes.set(name, flipOver(buildCar(STYLES.wreck)));
     else if (name === 'bearcat') meshes.set(name, buildBearcat());
     else if (name === 'helicopter') meshes.set(name, buildHelicopter());
-    else meshes.set(name, buildCar(STYLES[name]));
+    else meshes.set(name, buildPlayerCar(name));
   }
   return meshes.get(name);
 }
@@ -320,8 +325,8 @@ export function carShadowPoints(name) {
   const seen = new Set();
   const points = [];
   for (const part of carMesh(name)) {
-    if (part.tag === 'wheel') continue;
-    for (const p of part.verts) {
+    if (part.noShadow || (part.tag === 'wheel' && !part.castsShadow)) continue;
+    for (const p of part.shadowVerts || part.verts) {
       const key = p.map((v) => Math.round(v * 2)).join(',');
       if (seen.has(key)) continue;
       seen.add(key);

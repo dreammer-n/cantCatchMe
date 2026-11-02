@@ -1,4 +1,4 @@
-import { CHUNKS, COLLISION, SCENERY, START, VOID, WORLD } from '../config/tuning.js';
+import { CHUNKS, COLLISION, MAPS, SCENERY, START, VOID, WORLD } from '../config/tuning.js';
 import { glyphWidth } from '../render/blockFont.js';
 import { createRng, lerp } from '../utils/math.js';
 
@@ -27,12 +27,12 @@ const DEG = Math.PI / 180;
 const ISLAND_WIDTH = 70; // matches propModels.js
 const CELLS_PER_CHUNK = Math.round(CHUNKS.size / WORLD.cell);
 const LAMP_FACINGS_DEG = [0, 90, 180, 270];
-const TREE_KINDS = ['pine', 'leafy'];
+let map = MAPS[0]; // the map the chunk now being built belongs to
 // Letters are turned so a word rises to the right on screen, its face on the sunlit side.
 const LETTER_TURN_DEG = 270;
 
-export function buildLayout(seed = WORLD.seed) {
-  return { chunkAt: (cx, cy) => buildChunk(cx, cy, seed) };
+export function buildLayout(seed = WORLD.seed, forMap = MAPS[0]) {
+  return { chunkAt: (cx, cy) => buildChunk(cx, cy, seed, forMap) };
 }
 
 export function chunkCoord(v) {
@@ -59,14 +59,16 @@ function chunkSeed(cx, cy, seed) {
   return (Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663) ^ Math.imul(seed, 83492791)) >>> 0;
 }
 
-export function buildChunk(cx, cy, seed = WORLD.seed) {
+export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
+  map = forMap;
+  const presetsHere = forMap.presets || CHUNKS.presets;
   const hash = chunkSeed(cx, cy, seed);
   const rng = createRng(hash);
   counter = 0;
   const hasStart = chunkCoord(START.x) === cx && chunkCoord(START.y) === cy;
-  const presets = Object.entries(CHUNKS.presets);
-  const preset = hasStart ? 'city' : pickWeighted(rng, presets.map(([name, def]) => [name, def.weight]));
-  const def = CHUNKS.presets[preset];
+  const presets = Object.entries(presetsHere);
+  const preset = hasStart ? forMap.startPreset : pickWeighted(rng, presets.map(([name, def]) => [name, def.weight]));
+  const def = presetsHere[preset];
   const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [] };
 
   // At most one word statue per chunk, in a block picked now. Near the start it is skipped.
@@ -75,14 +77,25 @@ export function buildChunk(cx, cy, seed = WORLD.seed) {
   const landmarkJ = Math.floor(rng() * CELLS_PER_CHUNK);
   if (preset === 'plaza' && isPlazaCell(landmarkI, landmarkJ)) landmarkI = 0;
   const word = pick(rng, def.landmarks);
+  let hasStation = false;
 
   for (let j = 0; j < CELLS_PER_CHUNK; j += 1) {
     for (let i = 0; i < CELLS_PER_CHUNK; i += 1) {
       const cell = makeCell(chunk, i, j);
       chunk.paint.push({ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' });
       if (preset === 'plaza' && isPlazaCell(i, j)) continue;
-      const statue = hasLandmark && i === landmarkI && j === landmarkJ && addLandmark(cell, word);
-      if (!statue) BUILDERS[pickWeighted(rng, def.cells)](cell, chunk.items, chunk.paint, rng);
+      // The chunk where a run starts has the gas station, in the block ahead and to the right of the start.
+      const hub = hasStart && cell.x0 > START.x && cell.x0 < START.x + WORLD.cell && cell.y1 < START.y && cell.y1 > START.y - WORLD.cell;
+      const statue = !hub && hasLandmark && i === landmarkI && j === landmarkJ && addLandmark(cell, word);
+      if (hub) {
+        BUILDERS.station(cell, chunk.items, chunk.paint, rng);
+      } else if (!statue) {
+        // One gas station to a chunk at most: the start chunk's is the one above.
+        let arrangement = pickWeighted(rng, def.cells);
+        if (arrangement === 'station' && (hasStart || hasStation)) arrangement = 'lawn';
+        if (arrangement === 'station') hasStation = true;
+        BUILDERS[arrangement](cell, chunk.items, chunk.paint, rng);
+      }
       if (rng() < WORLD.crosswalkChance) addCrosswalk(cell, chunk.paint, rng, i, j);
     }
   }
@@ -90,25 +103,32 @@ export function buildChunk(cx, cy, seed = WORLD.seed) {
   addLaneLines(chunk);
   addRoadArrows(chunk, rng);
   if (rng() < def.holeChance) addRoadHoles(chunk, def.roadHoles, rng);
-  if (hasStart) chunk.paint.push({ ring: true, x: START.x, y: START.y, r: SCENERY.startMarkRadius, width: 4, alpha: 0.35 });
+  if (forMap.open) {
+    // Open ground: no road paint, only paved aprons, and tire tracks where the roads run.
+    chunk.paint = chunk.paint.filter((mark) => mark.color === 'plaza');
+    addTracks(chunk, rng);
+  }
   return chunk;
 }
 
 // Every prop drawing the world can ask for, so all of them can be drawn at startup and none has to
 // be drawn during play. tests/test_world.mjs checks that chunks use nothing outside this list.
-export function propCatalogue() {
+export function propCatalogue(forMap = MAPS[0]) {
   const list = [];
+  const extras = forMap.extras || [];
+  const words = new Set(Object.values(forMap.presets || CHUNKS.presets).flatMap((preset) => preset.landmarks));
   const push = (kind, model, headingDeg, params = {}) => list.push({ kind, model, heading: headingDeg * DEG, params });
   for (const length of WORLD.islandLengths) for (const deg of [0, 90]) push('island', `island${length}`, deg, { length });
-  for (const treeKind of TREE_KINDS) for (const size of WORLD.treeSizes) push('tree', `${treeKind}${size}`, 0, { treeKind, size });
-  for (const deg of LAMP_FACINGS_DEG) push('lamp', 'lamp', deg);
+  for (const treeKind of forMap.trees) for (const size of WORLD.treeSizes) push('tree', `${treeKind}${size}`, 0, { treeKind, size });
+  for (const deg of LAMP_FACINGS_DEG) push(forMap.lamp, forMap.lamp, deg);
   for (const type of WORLD.blockTypes) for (const deg of WORLD.blockTurnsDeg) push('block', blockModel(type), deg, type);
   for (const length of WORLD.barrierLengths) for (const deg of WORLD.barrierTurnsDeg) push('barrier', `barrier${length}`, deg, { length });
   for (const type of WORLD.containerTypes) for (const deg of WORLD.containerTurnsDeg) push('container', containerModel(type), deg, type);
   for (const { shape, color } of WORLD.civilians) {
     for (const deg of WORLD.civilianTurnsDeg) push('civilian', civilianModel(shape, color), deg, { shape, color });
   }
-  for (const [word, color] of Object.entries(WORLD.landmarkColors)) {
+  for (const word of words) {
+    const color = WORLD.landmarkColors[word];
     for (const letter of word) {
       const model = letterModel(letter, color);
       if (!list.some((entry) => entry.model === model)) push('letter', model, LETTER_TURN_DEG, { letter, color });
@@ -121,6 +141,20 @@ export function propCatalogue() {
   push('spikes', 'spikes', 0);
   push('spikes', 'spikes', 90);
   push('roundabout', 'roundabout', 0);
+  for (const { width, length } of WORLD.lawnTypes) push('island', lawnModel(width, length), 0, { width, length });
+  push('canopy', 'canopy', 0);
+  push('pumps', 'pumps', 0);
+  for (const deg of WORLD.shopTurnsDeg) {
+    push('shop', 'shop', deg);
+    if (forMap.shop === 'cabin') push('cabin', 'cabin', deg);
+  }
+  if (extras.includes('mesa')) for (const size of WORLD.mesaSizes) push('mesa', mesaModel(size), 0, { size });
+  if (extras.includes('tower')) push('tower', 'tower', 0);
+  if (extras.includes('log')) for (const deg of WORLD.logTurnsDeg) push('log', 'log', deg);
+  push('booth', 'booth', 0);
+  for (const deg of WORLD.benchTurnsDeg) push('bench', 'bench', deg);
+  for (const size of WORLD.boulderSizes) push('boulder', boulderModel(size), 0, { size });
+  for (const deg of [0, 270]) push('billboard', 'billboard', deg); // its board faces the camera either way
   return list;
 }
 
@@ -134,6 +168,18 @@ function containerModel(type) {
 
 function letterModel(letter, color) {
   return `letter-${letter}-${color}`;
+}
+
+function mesaModel(size) {
+  return `mesa${size}`;
+}
+
+function lawnModel(width, length) {
+  return `lawn${width}x${length}`;
+}
+
+function boulderModel(size) {
+  return `boulder${size}`;
 }
 
 function civilianModel(shape, color) {
@@ -207,7 +253,7 @@ function named(kind) {
 }
 
 function tree(x, y, rng) {
-  const treeKind = rng() < 0.55 ? TREE_KINDS[0] : TREE_KINDS[1];
+  const treeKind = pick(rng, map.trees);
   const size = pick(rng, WORLD.treeSizes);
   return {
     kind: 'tree',
@@ -225,12 +271,12 @@ function tree(x, y, rng) {
 
 function lamp(x, y, headingDeg) {
   return {
-    kind: 'lamp',
+    kind: map.lamp,
     name: named('lamp'),
     x,
     y,
     heading: headingDeg * DEG,
-    model: 'lamp',
+    model: map.lamp,
     params: {},
     band: 'objects',
     collider: { type: 'circle', r: COLLISION.lampRadius },
@@ -253,7 +299,7 @@ function cone(x, y) {
   };
 }
 
-// A parked station wagon or van: breakable, so it gets shoved aside, never a crash.
+// A parked car: breakable, so it gets bumped or shoved aside, never a crash.
 function parkedCar(x, y, turnDeg, rng) {
   const { shape, color } = pick(rng, WORLD.civilians);
   return {
@@ -316,6 +362,105 @@ function addLandmark(cell, word) {
     y -= width + letterGap;
   }
   return true;
+}
+
+// A wide grass plot with a curb round it, built like an island.
+function lawn(x, y, width, length) {
+  return {
+    kind: 'island',
+    name: named('lawn'),
+    x,
+    y,
+    heading: 0,
+    model: lawnModel(width, length),
+    params: { width, length },
+    band: 'raised',
+    collider: { type: 'box', hw: width / 2, hl: length / 2 },
+    breakable: false,
+    curb: true,
+  };
+}
+
+function boulderAt(x, y, size) {
+  return {
+    kind: 'boulder',
+    name: named('boulder'),
+    x,
+    y,
+    heading: 0,
+    model: boulderModel(size),
+    params: { size },
+    band: 'objects',
+    collider: { type: 'circle', r: WORLD.boulderRadius * size },
+    breakable: false,
+  };
+}
+
+// A bench: knocked flying when hit, like a cone.
+function benchAt(x, y, turnDeg) {
+  return {
+    kind: 'bench',
+    name: named('bench'),
+    x,
+    y,
+    heading: turnDeg * DEG,
+    model: 'bench',
+    params: {},
+    band: 'objects',
+    collider: { type: 'box', hw: 24, hl: 8 },
+    breakable: true,
+  };
+}
+
+function billboardAt(x, y, turnDeg = 0) {
+  return {
+    kind: 'billboard',
+    name: named('billboard'),
+    x,
+    y,
+    heading: turnDeg * DEG,
+    model: 'billboard',
+    params: {},
+    band: 'objects',
+    collider: { type: 'box', hw: 62, hl: 6 },
+    breakable: false,
+  };
+}
+
+function shopAt(x, y, turnDeg, kind = map.shop) {
+  const { shopHalfWidth: hw, shopHalfLength: hl } = WORLD.station;
+  return {
+    kind,
+    name: named('shop'),
+    x,
+    y,
+    heading: turnDeg * DEG,
+    model: kind,
+    params: {},
+    band: 'objects',
+    collider: { type: 'box', hw, hl },
+    breakable: false,
+  };
+}
+
+function boothAt(x, y) {
+  return {
+    kind: 'booth',
+    name: named('booth'),
+    x,
+    y,
+    heading: 0,
+    model: 'booth',
+    params: {},
+    band: 'objects',
+    collider: { type: 'box', hw: 22, hl: 22 },
+    breakable: false,
+  };
+}
+
+// White lines for stalls in a row along x, from x0, with their fronts at y, reaching down to y + depth.
+function stalls(paint, x0, y, count, depth = SCENERY.stallLength) {
+  for (let i = 0; i <= count; i += 1) paint.push({ x: x0 + i * SCENERY.stallSpacing - 2, y, w: 4, h: depth, alpha: SCENERY.stallAlpha });
 }
 
 function woodCrate(x, y) {
@@ -402,6 +547,12 @@ const BUILDERS = {
     const [lx, ly] = along(lampOffset);
     const facing = ns ? (rng() < 0.5 ? 90 : 270) : rng() < 0.5 ? 0 : 180;
     items.push(lamp(lx, ly, facing));
+    if (rng() < 0.45) {
+      // A rock or a bench on the grass, clear of the lamp and the trees.
+      const [dx, dy] = along(lampOffset + (lampOffset > 0 ? -55 : 55));
+      if (rng() < 0.5) items.push(boulderAt(dx, dy, WORLD.boulderSizes[0]));
+      else items.push(benchAt(dx, dy, ns ? 90 : 0));
+    }
 
     // Stalls: short white lines across both sides of the island.
     const edge = ISLAND_WIDTH / 2 + 6;
@@ -478,6 +629,142 @@ const BUILDERS = {
         r,
       );
     }
+  },
+
+  // A wide lawn with trees, a bench or two, rocks, and sometimes a billboard.
+  lawn(cell, items, paint, rng) {
+    const { width, length } = pick(rng, WORLD.lawnTypes);
+    const x = cell.midX;
+    const y = cell.midY;
+    if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + Math.hypot(width, length) / 2) return;
+    add(cell, lawn(x, y, width, length), Math.max(width, length) / 2);
+    const inW = width / 2 - 34;
+    const inL = length / 2 - 34;
+    const spots = [[-0.8, -0.7], [0.75, -0.8], [-0.75, 0.75], [0.8, 0.7], [0.1, -0.15]];
+    const trees = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < trees; i += 1) {
+      const [u, v] = spots[i];
+      items.push(tree(x + u * inW, y + v * inL, rng));
+    }
+    items.push(benchAt(x + (rng() < 0.5 ? -0.35 : 0.35) * inW, y + 0.35 * inL, pick(rng, WORLD.benchTurnsDeg)));
+    items.push(boulderAt(x + 0.45 * inW, y - 0.3 * inL, pick(rng, WORLD.boulderSizes)));
+    if (rng() < 0.5) items.push(boulderAt(x - 0.45 * inW, y + 0.05 * inL, pick(rng, WORLD.boulderSizes)));
+    if (rng() < 0.3) items.push(billboardAt(x, y - 0.7 * inL));
+  },
+
+  // A repair shop facing a row of stalls, with a tree island beside it.
+  shop(cell, items, paint, rng) {
+    const { shopHalfLength: hl } = WORLD.station;
+    const x = cell.midX;
+    const y = cell.y0 + hl + 14;
+    if (Math.hypot(cell.midX - START.x, cell.midY - START.y) < START.clearRadius + cell.size / 2) return;
+    add(cell, shopAt(x, y, 180), 130);
+    paint.push({ x: cell.x0 + 20, y: y + hl, w: cell.size - 40, h: 110, alpha: 1, color: 'plaza' });
+    const rowY = y + hl + 130;
+    const count = 5;
+    const rowX = cell.midX - (count * SCENERY.stallSpacing) / 2;
+    stalls(paint, rowX, rowY, count);
+    for (let i = 0; i < count; i += 1) {
+      if (rng() < 0.5) items.push(parkedCar(rowX + (i + 0.5) * SCENERY.stallSpacing, rowY + SCENERY.stallLength / 2, rng() < 0.5 ? 0 : 180, rng));
+    }
+    items.push(island(cell.midX, cell.y1 - 26, WORLD.islandLengths[0], false));
+    items.push(tree(cell.midX - 90, cell.y1 - 26, rng));
+    items.push(tree(cell.midX + 90, cell.y1 - 26, rng));
+    items.push(lamp(cell.midX, cell.y1 - 26, pick(rng, LAMP_FACINGS_DEG)));
+    cell.placed.push({ x: cell.midX, y: cell.midY, r: cell.size });
+  },
+
+  // A parking lot with a guard booth and a barrier by its way in.
+  booth(cell, items, paint, rng) {
+    BUILDERS.parking(cell, items, paint, rng);
+    const spot = randomSpot(cell, 36, rng, 24);
+    if (!spot) return;
+    add(cell, boothAt(spot.x, spot.y), 36);
+    const barrierSpot = randomSpot(cell, 100, rng);
+    if (barrierSpot) add(cell, barrier(barrierSpot.x, barrierSpot.y, WORLD.barrierLengths[0], pick(rng, [0, 90])), 100);
+  },
+
+  // The gas station: a roof over two fuel islands, on a paved forecourt in front of a repair shop, with a
+  // row of stalls and a small planted island. The roof has no collider: cars can drive under it.
+  station(cell, items, paint, rng) {
+    const { roofHalfLength, pumpSpacing, pumpHalfWidth, pumpHalfLength, shopHalfLength } = WORLD.station;
+    const x = cell.midX;
+    const shopY = cell.y0 + shopHalfLength + 6;
+    const roofY = shopY + shopHalfLength + 30 + roofHalfLength;
+    paint.push({ x: cell.x0 + 8, y: shopY + shopHalfLength, w: cell.size - 16, h: cell.y1 - shopY - shopHalfLength - 8, alpha: 1, color: 'plaza' });
+    items.push(shopAt(x, shopY, 180, 'shop'));
+    for (const side of [-1, 1]) {
+      items.push({
+        kind: 'pumps',
+        name: named('pumps'),
+        x: x + side * pumpSpacing,
+        y: roofY,
+        heading: 0,
+        model: 'pumps',
+        params: {},
+        band: 'objects',
+        collider: { type: 'box', hw: pumpHalfWidth, hl: pumpHalfLength },
+        breakable: false,
+      });
+    }
+    items.push({ kind: 'canopy', name: named('canopy'), x, y: roofY, heading: 0, model: 'canopy', params: {}, band: 'overhead', collider: null, breakable: false });
+    // Stalls down the side with a car or two in them, and a planted island with a billboard on the far side.
+    const stallX = cell.x0 + 8;
+    const stallY = shopY - 20;
+    for (let i = 0; i <= 2; i += 1) paint.push({ x: stallX, y: stallY + i * SCENERY.stallSpacing - 2, w: SCENERY.stallLength - 16, h: 4, alpha: SCENERY.stallAlpha });
+    items.push(parkedCar(stallX + 38, stallY + SCENERY.stallSpacing / 2, 90, rng));
+    if (rng() < 0.7) items.push(parkedCar(stallX + 38, stallY + SCENERY.stallSpacing * 1.5, 270, rng));
+    const islandX = cell.x1 - 36;
+    const length = WORLD.islandLengths[0];
+    items.push(island(islandX, cell.midY, length, true));
+    items.push(tree(islandX, cell.midY - length * 0.36, rng));
+    items.push(tree(islandX, cell.midY + length * 0.38, rng));
+    items.push(billboardAt(islandX, cell.midY, 270));
+    cell.placed.push({ x: cell.midX, y: cell.midY, r: cell.size });
+  },
+
+  // A great rock or two.
+  mesa(cell, items, paint, rng) {
+    const count = 1 + Math.floor(rng() * 2);
+    for (let i = 0; i < count; i += 1) {
+      const size = pick(rng, WORLD.mesaSizes);
+      const radius = WORLD.mesaRadius * size;
+      const spot = randomSpot(cell, radius * 1.3, rng);
+      if (!spot) continue;
+      add(cell, {
+        kind: 'mesa',
+        name: named('mesa'),
+        x: spot.x,
+        y: spot.y,
+        heading: 0,
+        model: mesaModel(size),
+        params: { size },
+        band: 'objects',
+        collider: { type: 'circle', r: radius },
+        breakable: false,
+      }, radius * 1.3);
+    }
+  },
+
+  // A water tower, with a tree or two near it.
+  tower(cell, items, paint, rng) {
+    const spot = randomSpot(cell, 60, rng);
+    if (spot) {
+      add(cell, { kind: 'tower', name: named('tower'), x: spot.x, y: spot.y, heading: 0, model: 'tower', params: {}, band: 'objects', collider: { type: 'circle', r: 26 }, breakable: false }, 60);
+    }
+    BUILDERS.grove(cell, items, paint, rng);
+  },
+
+  // Felled logs lying about: knocked aside when hit.
+  logs(cell, items, paint, rng) {
+    const count = 3 + Math.floor(rng() * 4);
+    for (let i = 0; i < count; i += 1) {
+      const spot = randomSpot(cell, 50, rng);
+      if (!spot) continue;
+      add(cell, { kind: 'log', name: named('log'), x: spot.x, y: spot.y, heading: pick(rng, WORLD.logTurnsDeg) * DEG, model: 'log', params: {}, band: 'objects', collider: { type: 'box', hw: 9, hl: 34 }, breakable: true }, 50);
+    }
+    const spot = randomSpot(cell, 34, rng);
+    if (spot) add(cell, boulderAt(spot.x, spot.y, pick(rng, WORLD.boulderSizes)), 34);
   },
 
   // A small group of trees.
@@ -668,6 +955,42 @@ function addRoadArrows(chunk, rng) {
         if (nearBorder(x) || nearBorder(y) || onPlaza(x, y)) continue;
         const heading = northSouth ? (side > 0 ? 0 : Math.PI) : side > 0 ? Math.PI / 2 : -Math.PI / 2;
         chunk.paint.push({ arrow: true, x, y, heading, alpha: SCENERY.stallAlpha });
+      }
+    }
+  }
+}
+
+// A pair of wandering tire tracks along some of the roads of an open map, so the eye has something to follow.
+// Their wander comes from world position, so a track lines up with its neighbour across a chunk border. Each
+// chunk draws only the roads along its top and left edges and inside it: its neighbours have the others.
+function addTracks(chunk, rng) {
+  const { cell } = WORLD;
+  const { trackStep, trackGauge, trackWidth, trackAlpha, trackChance } = SCENERY;
+  const wander = (along, line) => 20 * Math.sin(along / 190 + line * 1.7) + 9 * Math.sin(along / 67 + line * 0.6);
+  for (const northSouth of [true, false]) {
+    for (let k = 0; k < CELLS_PER_CHUNK; k += 1) {
+      const line = (northSouth ? chunk.x0 : chunk.y0) + k * cell;
+      const start = northSouth ? chunk.y0 : chunk.x0;
+      for (let s = 0; s < CELLS_PER_CHUNK; s += 1) {
+        if (rng() >= trackChance) continue;
+        const steps = Math.round(cell / trackStep);
+        for (let i = 0; i < steps; i += 1) {
+          const a = start + s * cell + i * trackStep;
+          const b = a + trackStep;
+          // Fades in and out at the ends of a stretch.
+          const alpha = trackAlpha * Math.min(1, (Math.min(i, steps - 1 - i) + 0.5) / 2);
+          for (const side of [-1, 1]) {
+            const offsetA = wander(a, line) + side * trackGauge;
+            const offsetB = wander(b, line) + side * trackGauge;
+            const point = (along, across) => (northSouth ? [line + across, along] : [along, line + across]);
+            const [ax0, ay0] = point(a, offsetA - trackWidth / 2);
+            const [ax1, ay1] = point(a, offsetA + trackWidth / 2);
+            const [bx1, by1] = point(b, offsetB + trackWidth / 2);
+            const [bx0, by0] = point(b, offsetB - trackWidth / 2);
+            const middle = point((a + b) / 2, (offsetA + offsetB) / 2);
+            chunk.paint.push({ track: true, x: middle[0], y: middle[1], alpha, pts: [ax0, ay0, ax1, ay1, bx1, by1, bx0, by0] });
+          }
+        }
       }
     }
   }

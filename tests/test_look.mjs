@@ -37,9 +37,9 @@ const handling = T.HANDLING_PRESETS.balanced;
 // ---- Palette --------------------------------------------------------------------------------
 {
   const lum = (c) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
-  check('asphalt is the requested deep slate', PALETTE.asphalt === 0x2f3640);
-  check('curbs and medians are the requested gold and yellow', PALETTE.curb === 0xf39c12 && PALETTE.median === 0xf1c40f);
-  check('paint stands out clearly on the road', lum(PALETTE.paintWhite) > lum(PALETTE.asphalt) * 4);
+  check('asphalt is the requested slate grey', PALETTE.asphalt === 0x3e444f);
+  check('curbs are warm cream, islands lime grass, barriers white with red stripes', PALETTE.curb === 0xece5d8 && PALETTE.median === 0x98c43d && PALETTE.barrierStripe === 0xe84118);
+  check('paint stands out clearly on the road', lum(PALETTE.paintWhite) > lum(PALETTE.asphalt) * 3);
   check('blocks are still lighter than roads, so the street plan reads', lum(PALETTE.lot) > lum(PALETTE.asphalt));
   check('holes are still far darker than the road', lum(PALETTE.void) < lum(PALETTE.asphalt) / 3);
   check('the rim of a hole stands out from the road', lum(PALETTE.voidRim) > lum(PALETTE.lot) * 1.5);
@@ -57,8 +57,8 @@ const handling = T.HANDLING_PRESETS.balanced;
   const inParking = parking.flatMap((c) => c.items.filter((i) => i.kind === 'civilian'));
   check('parking chunks have parked cars', inParking.length > parking.length * 3, `${inParking.length} in ${parking.length} chunks`);
   check('other chunks have parking too only where there are islands', others.every((c) => c.items.every((i) => i.kind !== 'civilian') || c.items.some((i) => i.kind === 'island')));
-  check('vans, hatchbacks and sedans all appear', new Set(inParking.map((i) => i.params.shape)).size === 3);
-  check('each in its own colour: teal, pink, yellow', new Set(inParking.map((i) => `${i.params.shape}:${i.params.color}`)).size === 3);
+  check('sedans, compacts, wagons and coupes all appear', new Set(inParking.map((i) => i.params.shape)).size === 4);
+  check('each in its own colour: blue, yellow, white, red', new Set(inParking.map((i) => `${i.params.shape}:${i.params.color}`)).size === 4);
   const perChunk = parking.map((c) => c.items.filter((i) => i.kind === 'civilian').length);
   check('only some stalls are taken: occasional, not a wall of cars', Math.max(...perChunk) < 40, `at most ${Math.max(...perChunk)} per chunk`);
 

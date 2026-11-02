@@ -1,11 +1,12 @@
 import * as Phaser from 'phaser';
-import { CHUNKS, CONES, DEPTH, PALETTE, PILLARS, RENDER, ROADBLOCK, SCENERY, WORLD } from '../config/tuning.js';
+import { CHUNKS, CONES, DEPTH, EFFECTS, MAPS, PALETTE, PILLARS, RENDER, ROADBLOCK, SCENERY, WORLD } from '../config/tuning.js';
 import { propCatalogue } from '../systems/WorldLayout.js';
 import { createRng } from '../utils/math.js';
 import { depthAt } from './layers.js';
-import { bakeMesh } from './lowpoly.js';
+import { bakeMesh, releasePropDrawings } from './lowpoly.js';
 import { projection } from './projection.js';
 import { LAMP_REACH, propBakeScale, propMesh } from './propModels.js';
+import { groundMarksFor, paintBlob, paintDrift } from './softShapes.js';
 
 const DEG = Math.PI / 180;
 const screen = { x: 0, y: 0 };
@@ -15,8 +16,8 @@ const FLOOR_SQUARES = Math.round(CHUNKS.size / SCENERY.floorChunk);
 const MAX_NEW_CHUNKS_IN_A_STEP = 5; // crossing a corner brings in 5; more means a restart or a jump
 
 // Draws whatever chunks the simulation has loaded (systems/ChunkManager.js):
-//   floor   painted asphalt in the ground layer (world coordinates), split into squares so the
-//           squares off screen are skipped;
+//   floor   painted ground in the ground layer (world coordinates), split into squares so the
+//           squares off screen are skipped; soft marks and lamp light lie on top of it;
 //   holes   sinkholes, drawn on top of the floor;
 //   props   low-poly models drawn once at startup into images, depth-sorted by where they stand,
 //           hidden while off screen.
@@ -25,8 +26,9 @@ const MAX_NEW_CHUNKS_IN_A_STEP = 5; // crossing a corner brings in 5; more means
 // they arrive off screen, beyond what the camera shows.
 // Breakable props are the only ones that move (knocked flying); the simulation says where they are.
 export class Scenery {
-  constructor(scene, layers) {
+  constructor(scene, layers, map = MAPS[0]) {
     this.scene = scene;
+    this.map = map;
     this.meshes = new Map();
     this.items = []; // the prop on screen for each item of the loaded chunks
     this.bySource = new Map();
@@ -34,6 +36,7 @@ export class Scenery {
     this.loaded = new Map(); // chunk key -> { slot, props, data }
     this.seenVersion = -1;
     this.waiting = false; // chunks still to be filled in
+    this.makeMarkTextures();
     this.bakeCatalogue();
     for (let i = 0; i < CHUNKS.propPool; i += 1) this.freeProps.push(this.makeProp());
     this.freeSlots = createSlots(scene, layers);
@@ -42,9 +45,31 @@ export class Scenery {
     this.spikeProps = Array.from({ length: ROADBLOCK.maxSpikes }, () => this.makeProp());
   }
 
+  makeMarkTextures() {
+    for (const [key, paint] of [['fx-blob', paintBlob], ['fx-drift', paintDrift]]) {
+      if (this.scene.textures.exists(key)) continue;
+      const texture = this.scene.textures.createCanvas(key, MARK_TEXTURE, MARK_TEXTURE);
+      paint(texture.context, MARK_TEXTURE);
+      texture.refresh();
+    }
+  }
+
+  // Everything is drawn again in a new map's colours. Nothing of the old map stays on screen.
+  reload(map) {
+    this.map = map;
+    for (const [key, entry] of this.loaded) this.unloadChunk(key, entry);
+    this.items = [];
+    this.seenVersion = -1;
+    this.waiting = false;
+    this.meshes.clear();
+    releasePropDrawings(this.scene);
+    this.bakeCatalogue();
+    this.applyPillarDrawing();
+  }
+
   // Draws every prop model for the current camera, once.
   bakeCatalogue() {
-    for (const entry of propCatalogue()) {
+    for (const entry of propCatalogue(this.map)) {
       const key = propKey(entry.model, entry.heading);
       bakeMesh(this.scene, key, this.meshFor(entry), entry.heading, projection, 'body', propBakeScale(entry));
       bakeMesh(this.scene, `${key}:shadow`, this.meshFor(entry), entry.heading, projection, 'shadow');
@@ -114,6 +139,7 @@ export class Scenery {
       this.freeProps.push(prop);
     }
     for (const square of entry.slot.squares) square.floor.setVisible(false);
+    entry.slot.marks.setVisible(false);
     entry.slot.glow.setVisible(false);
     entry.slot.holes.setVisible(false);
     this.freeSlots.push(entry.slot);
@@ -128,7 +154,8 @@ export class Scenery {
     prop.body.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
     prop.shadow.setTexture(shadow.key).setOrigin(shadow.originX, shadow.originY).setScale(1 / shadow.scale).setAlpha(RENDER.shadowAlpha);
     this.place(prop, item.x, item.y, 0);
-    prop.body.setDepth(item.band === 'raised' ? DEPTH.raised : depthAt(item.x, item.y));
+    if (item.band === 'overhead') prop.body.setDepth(DEPTH.effects - 2); // a roof: cars drive under it
+    else prop.body.setDepth(item.band === 'raised' ? DEPTH.raised : depthAt(item.x, item.y));
     prop.shadow.setDepth(item.band === 'raised' ? DEPTH.raised - 1 : DEPTH.shadows);
   }
 
@@ -250,6 +277,7 @@ export class Scenery {
       }
       const b = slot.bounds;
       const visible = b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1;
+      slot.marks.setVisible(visible);
       slot.glow.setVisible(visible);
       slot.holes.setVisible(visible);
     }
@@ -294,8 +322,9 @@ export class Scenery {
 
   drawFloor(slot, data) {
     const size = SCENERY.floorChunk;
-    const random = createRng(data.seed + 77);
-    const patches = Math.round(SCENERY.patchesPerCell * (size / WORLD.cell) ** 2);
+    const random = createRng(data.seed + 78);
+    const patch = this.map.patch;
+    const patches = patch ? Math.round(patch.perCell * (size / WORLD.cell) ** 2) : 0;
     for (let row = 0; row < FLOOR_SQUARES; row += 1) {
       for (let col = 0; col < FLOOR_SQUARES; col += 1) {
         const square = slot.squares[row * FLOOR_SQUARES + col];
@@ -311,6 +340,15 @@ export class Scenery {
         // Each rectangle is cut at the same overlap, so a square never draws further outside itself
         // than that (culling stays exact) and its asphalt can't leave a line across a neighbour's paint.
         for (const mark of data.paint) {
+          if (mark.track) {
+            if (mark.x >= x0 && mark.x < x1 && mark.y >= y0 && mark.y < y1) {
+              const p = mark.pts;
+              g.fillStyle(PALETTE.track, mark.alpha);
+              g.fillTriangle(p[0], p[1], p[2], p[3], p[4], p[5]);
+              g.fillTriangle(p[0], p[1], p[4], p[5], p[6], p[7]);
+            }
+            continue;
+          }
           if (mark.ring) {
             if (mark.x >= x0 && mark.x < x1 && mark.y >= y0 && mark.y < y1) {
               g.lineStyle(mark.width, PALETTE.paintWhite, mark.alpha);
@@ -330,34 +368,69 @@ export class Scenery {
           g.fillStyle(floorColor(mark.color), mark.alpha);
           g.fillRect(px0, py0, px1 - px0, py1 - py0);
         }
-        // Worn asphalt patches: give the eye something to track at speed.
+        // Tufts of grass on the ground. Soft patches are images: see drawMarks.
         for (let i = 0; i < patches; i += 1) {
-          const r = 10 + random() * 30;
+          const r = patch.size[0] + random() * (patch.size[1] - patch.size[0]);
           const x = x0 + 40 + random() * (size - 80);
           const y = y0 + 40 + random() * (size - 80);
-          const angle = random() * Math.PI * 2;
-          g.fillStyle(i % 3 === 0 ? PALETTE.asphaltPatchLight : PALETTE.asphaltPatchDark, 0.8);
-          const corner = (k) => [x + Math.cos(angle + k * 2.2) * r, y + Math.sin(angle + k * 2.2) * r * 0.7];
-          const [a, b, c] = [corner(0), corner(1), corner(2)];
-          g.fillTriangle(a[0], a[1], b[0], b[1], c[0], c[1]);
+          const color = patch.colors[i % patch.colors.length];
+          if (patch.lotOnly && onRoad(x, y, r)) continue;
+          g.fillStyle(PALETTE[color], patch.alpha);
+          for (let blade = -2; blade <= 2; blade += 1) g.fillTriangle(x + blade * 4 - 2, y, x + blade * 4 + 2, y, x + blade * 6, y - r * (1 - Math.abs(blade) * 0.18));
         }
         square.x0 = x0;
         square.y0 = y0;
       }
     }
 
-    // Warm light pools under the street lamps (additive blend = glow).
-    slot.glow.clear();
+    this.drawMarks(slot, data);
+    this.drawLampLight(slot, data);
+    this.measureSlot(slot, data);
+  }
+
+  // Takes the next image from a set belonging to a chunk's floor, making it the first time it is needed.
+  nextImage(list, holder, used, texture, blend) {
+    let image = list[used];
+    if (!image) {
+      image = this.scene.add.image(0, 0, texture);
+      if (blend) image.setBlendMode(blend);
+      holder.add(image);
+      list.push(image);
+    }
+    return image.setTexture(texture).setVisible(true);
+  }
+
+  // Soft patches on the ground: worn road, snowdrifts, dunes.
+  drawMarks(slot, data) {
+    const marks = groundMarksFor(data, this.map, CHUNKS.size, WORLD.cell, WORLD.margin);
+    marks.forEach((mark, i) => {
+      this.nextImage(slot.markImages, slot.marks, i, mark.drift ? 'fx-drift' : 'fx-blob')
+        .setPosition(mark.x, mark.y)
+        .setRotation(mark.angle)
+        .setScale(mark.rx / (MARK_TEXTURE / 2), mark.ry / (MARK_TEXTURE / 2))
+        .setTint(PALETTE[mark.color])
+        .setAlpha(mark.alpha);
+    });
+    for (let i = marks.length; i < slot.markImages.length; i += 1) slot.markImages[i].setVisible(false);
+  }
+
+  // Warm light on the ground under the street lamps, fading away with no edge.
+  drawLampLight(slot, data) {
+    const random = createRng(data.seed + 79);
+    let used = 0;
     for (const item of data.items) {
       if (item.kind !== 'lamp') continue;
       const hx = item.x + Math.sin(item.heading) * LAMP_REACH;
       const hy = item.y - Math.cos(item.heading) * LAMP_REACH;
-      slot.glow.fillStyle(PALETTE.lampGlow, 0.13);
-      slot.glow.fillCircle(hx, hy, 115);
-      slot.glow.fillStyle(PALETTE.lampGlow, 0.15);
-      slot.glow.fillCircle(hx, hy, 65);
+      this.nextImage(slot.lampImages, slot.glow, used, 'fx-pool', Phaser.BlendModes.ADD)
+        .setPosition(hx, hy)
+        .setRotation(random() * Math.PI * 2)
+        .setScale((EFFECTS.lampPoolRadius * (0.9 + random() * 0.25)) / 64)
+        .setTint(PALETTE.lampGlow)
+        .setAlpha(EFFECTS.lampPoolAlpha);
+      used += 1;
     }
-    this.measureSlot(slot, data);
+    for (let i = used; i < slot.lampImages.length; i += 1) slot.lampImages[i].setVisible(false);
   }
 
   measureSlot(slot, data) {
@@ -397,8 +470,8 @@ export class Scenery {
 }
 
 // One set of floor drawings per chunk in the active grid. Order matters: everything in the ground
-// layer is drawn in the order it was added, so all floors come first and all lamp glows together.
-// Mixing them would cost an extra draw call per blend change.
+// layer is drawn in the order it was added, so all floors come first, then all soft marks, then all lamp
+// light together. Mixing them would cost an extra draw call per blend change.
 function createSlots(scene, layers) {
   const count = (CHUNKS.activeRadius * 2 + 1) ** 2;
   const slots = [];
@@ -409,10 +482,14 @@ function createSlots(scene, layers) {
       layers.ground.add(floor);
       squares.push({ floor, x0: 0, y0: 0, bounds: null });
     }
-    slots.push({ squares, glow: null, holes: null, bounds: null });
+    slots.push({ squares, marks: null, markImages: [], glow: null, lampImages: [], holes: null, bounds: null });
   }
   for (const slot of slots) {
-    slot.glow = scene.add.graphics().setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    slot.marks = scene.add.container(0, 0).setVisible(false);
+    layers.ground.add(slot.marks);
+  }
+  for (const slot of slots) {
+    slot.glow = scene.add.container(0, 0).setVisible(false);
     layers.ground.add(slot.glow);
   }
   for (const slot of slots) {
@@ -420,6 +497,13 @@ function createSlots(scene, layers) {
     layers.ground.add(slot.holes);
   }
   return slots;
+}
+
+const MARK_TEXTURE = 128;
+
+function onRoad(x, y, reach) {
+  const margin = WORLD.margin + reach;
+  return Math.abs(x - Math.round(x / WORLD.cell) * WORLD.cell) < margin || Math.abs(y - Math.round(y / WORLD.cell) * WORLD.cell) < margin;
 }
 
 function floorColor(color) {

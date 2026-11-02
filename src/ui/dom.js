@@ -43,15 +43,15 @@ export function button(className, content, onPress, label) {
 }
 
 export const ICONS = {
-  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+  film: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 5h20v14H2zM9 8.5v7l6.5-3.5z" fill-rule="evenodd"/></svg>',
+  star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.6l3.1 6.8 7.4.8-5.5 5 1.5 7.3L12 18.8 5.5 21.5 7 14.2 1.5 9.2l7.4-.8z"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10V7a6 6 0 0 1 12 0v3h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V11a1 1 0 0 1 1-1zm3 0h6V7a3 3 0 0 0-6 0z"/></svg>',
+  coin: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#f0c04a"/><circle cx="12" cy="12" r="6.6" fill="#d39a22"/><rect x="10.4" y="7.4" width="3.2" height="9.2" rx="1" fill="#f6dc8e"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>',
   soundOn:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   soundOff:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-  police:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="13" rx="3" fill="#eef1f4"/><rect x="7" y="10" width="10" height="5" rx="1.5" fill="#24344a"/><rect x="6" y="4" width="6" height="3" rx="1" fill="#ff3b30"/><rect x="12" y="4" width="6" height="3" rx="1" fill="#3d8bff"/></svg>',
-  bolt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>',
   retry:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12a7 7 0 1 0 2.1-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M4 3v5h5z"/></svg>',
 };

@@ -52,7 +52,7 @@ All drawn in code at startup. **Explosions:** a white flash, a jagged comic star
 flying up out of them. **Wreckage:** tires, bumpers and panels that bounce away; the car lands on its roof or
 wheels. **Smoke:** solid cloud puffs shaded on one side, cream for tires and dark for wrecks; they swell, hold and
 fade rather than drifting as haze. **Also:** four-pointed sparks, dark ragged burns that stay on the road, long
-rubber marks. Kaboom is a teal ring (`#7ff7ff`) sweeping out over the ground.
+rubber marks. Kaboom is an amber ring (`#ffc64a`) sweeping out over the ground.
 
 ## Set dressing
 
@@ -62,12 +62,41 @@ yellow sedans. **Road paint:** white arrows in the lanes, crisp stalls and cross
 
 ## Weight in the cars
 
+The best player cars (Coupe, Pickup, Ram, Rally, Hypercar) set the standard: a body with a shoulder line and raised fenders, thin black lips round polygon wheel arches, chunky tires with light rims, body-coloured frames round dark glass with a streak of reflection, and one or two accessories that say what the car is. Details smaller than about 2 units vanish in play, so a good outline and good wheels come first.
+
 Cars must never look like a rotated picture. In a turn the body leans to the outside (up to 8 degrees), the wheels stay
 on the road, the tail slides out with smoke from the rear wheels, and the body settles with a small bounce afterwards.
 Wheels are round: ten-sided, with a lighter sidewall and a hub. Knocks make the car jump. Wreckage must be seen to fall:
 every flying piece has a shadow, tires bounce and roll, panels thud down.
 
 The screen has no steering arrows or press flash: the car's own response is the feedback.
+
+## The suburban map
+
+Slate asphalt (`#3e444f`), slightly lighter lots, warm cream curbs (`#ece5d8`) around fresh lime grass (`#98c43d`), white
+concrete barriers with red stripes (`#e84118`). Round faceted trees in lime and forest green, grey rocks, wooden benches, a
+gas station with a bright red roof on a white rim, grey repair shops with dark garage doors, small guard booths, and a
+billboard with a gold crown. Parked cars are blue, yellow, white and red, in white stalls.
+
+## Winter, Desert and Woods
+
+Winter: blue-grey road, white snow on the islands and in patches on the road, pines capped with snow, wooden cabins.
+Desert: warm grey road through sand, cacti, red rock mesas, wooden water towers and telegraph poles. Woods: dusty road
+through olive grass with tufts, green pines, bare orange trees, felled logs, wooden cabins.
+
+## Interface
+
+Our own lettering: thick angular capitals with cut corners, leaning forward, drawn in code. Buttons are parallelograms
+with no rounded corners. One main colour, amber (`#e0a526`), for the main button, coins, stars and the power-up, on dark
+ink and white. Green only for what is done. Red only for danger.
+
+## The player's cars
+
+Chunky low-poly toys in one strong colour. Their panels have bevelled edges and cut corners (`shell` in `lowpoly.js`), with
+wheel wells, door lines, grilles, mirrors and glass with a reflection, so they look pressed rather than stacked. Each has
+one feature that reads at a glance:
+the wing on the Rally Wing, the tailfins, the Fire Engine's ladder, the Bulldozer's blade, the Tank's gun. The Battering
+Ram's orange plate keeps it from being mistaken for the police's dark grey SWAT truck. Gold is the colour of coins.
 
 ## Tactical units
 
@@ -83,26 +112,23 @@ The screen has no steering arrows or press flash: the car's own response is the 
 
 ## The lucky die
 
-The power-up is our own: a big violet die (`#8f5cff`, a colour nothing else in the game uses) with cream spots and a
+The power-up is our own: a big dark amber die (`#b8800f`), the game's main colour, with dark brown spots and a
 bevelled top, over a soft pulsing glow. It bounces after the car from the moment it appears, squashing as it lands
 and showing new numbers each bounce, then sinks into the car. A die suits it: you never know what you will get. When
-it is off screen, a teal arrow at the screen edge points to it, matching the power-up button.
+it is off screen, an amber arrow at the screen edge points to it.
 
 ## Power-ups
 
-**Monster:** the car itself, huge. **Cold Snap:** a frost ring (`#7fe9ff`), white and cyan sparkles, icy blue cars (`#9fdcff`).
+**Titan:** the car itself, huge. **Cold Snap:** a frost ring (`#7fe9ff`), white and cyan sparkles, icy blue cars (`#9fdcff`).
 **Stonewall:** rough grey stone (`#a39c8e`) with a pale top, in clouds of dust. **Scorcher:** yellow to deep orange flame
 clouds over a glowing road.
-
-## Interface
-
-System font (no download), heavy italic for the logo, titles and pop-ups. Cream text (`#f4efe6`) on
-dark translucent panels; red primary buttons (`#e0473c`) with a darker red "lip"; yellow (`#f0c04a`)
-for best times, combos and the NEW BEST badge; teal for the power-up button. Big touch targets
-(48–84 px), everything inside the phone's safe area.
 
 ## Still to decide (owner)
 
 - Final camera: Angled (default) vs Angled high vs Angled low (debug mode, V).
 - Time of day and seasons (current: one low-sun daylight).
 - Moving civilian traffic, more car designs, environment set pieces.
+
+## Nothing with a visible outline on the ground
+
+Light, smoke, burns and patches on the ground fade to nothing and are uneven: no clean circles or hard edges. Explosions are fire and smoke, not comic stars. Flying pieces are solid, with thickness. Winter and Desert have no painted roads: open snow and sand, drifts and dunes, and faint tire tracks to follow.

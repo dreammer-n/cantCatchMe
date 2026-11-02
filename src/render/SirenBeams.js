@@ -11,18 +11,19 @@ export function makeBeamTexture(scene) {
   if (scene.textures.exists('fx-beam')) return;
   const texture = scene.textures.createCanvas('fx-beam', TEXTURE_LENGTH, TEXTURE_WIDTH);
   const ctx = texture.context;
-  const gradient = ctx.createLinearGradient(0, 0, TEXTURE_LENGTH, 0);
-  gradient.addColorStop(0, 'rgba(255,255,255,1)');
-  gradient.addColorStop(0.55, 'rgba(255,255,255,0.45)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.moveTo(0, TEXTURE_WIDTH * 0.44);
-  ctx.lineTo(TEXTURE_LENGTH, 0);
-  ctx.lineTo(TEXTURE_LENGTH, TEXTURE_WIDTH);
-  ctx.lineTo(0, TEXTURE_WIDTH * 0.56);
-  ctx.closePath();
-  ctx.fill();
+  // Row by row, so the beam fades toward its sides as well as along its length: no edge shows on the road.
+  const STRIPS = 96;
+  for (let i = 0; i < STRIPS; i += 1) {
+    const along = i / STRIPS;
+    const fade = (1 - along) ** 1.6;
+    const half = TEXTURE_WIDTH * (0.06 + 0.44 * along);
+    const gradient = ctx.createLinearGradient(0, TEXTURE_WIDTH / 2 - half, 0, TEXTURE_WIDTH / 2 + half);
+    gradient.addColorStop(0, 'rgba(255,255,255,0)');
+    gradient.addColorStop(0.5, `rgba(255,255,255,${fade.toFixed(3)})`);
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect((i / STRIPS) * TEXTURE_LENGTH, TEXTURE_WIDTH / 2 - half, TEXTURE_LENGTH / STRIPS + 1, half * 2);
+  }
   texture.refresh();
 }
 

@@ -99,6 +99,26 @@ export function stepChunk(chunk, dt, gravity, bounce, scrape) {
   }
 }
 
+const TURN = Math.PI * 2;
+
+// Turns a flying piece over. { tumble, tumbleSpeed, z, vx, vy, tire }. In the air it keeps turning. On the road it
+// settles: a panel onto one flat side; a tire stands up and rolls while it has the speed, then falls over.
+export function stepChunkTurn(chunk, dt, rollSpeed = 70) {
+  if (chunk.z > 0) {
+    chunk.tumble += chunk.tumbleSpeed * dt;
+    return;
+  }
+  const rolling = chunk.tire && Math.hypot(chunk.vx, chunk.vy) > rollSpeed;
+  // Lying flat means a whole number of half turns; standing, an odd number of quarter turns.
+  const target = rolling ? (Math.round((chunk.tumble - TURN / 4) / (TURN / 2)) * TURN) / 2 + TURN / 4 : (Math.round(chunk.tumble / (TURN / 2)) * TURN) / 2;
+  chunk.tumble += (target - chunk.tumble) * Math.min(1, dt * 12);
+}
+
+// Which of a sheet's drawings shows a piece at this point of its turn.
+export function chunkPose(tumble, poses) {
+  return ((Math.round((tumble / TURN) * poses) % poses) + poses) % poses;
+}
+
 // One step of a car's little bounce after a knock { z, v }: up, down, and a smaller bounce or two.
 export function stepHop(hop, dt, gravity, bounce) {
   hop.v -= gravity * dt;

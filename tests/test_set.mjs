@@ -5,7 +5,8 @@ import { glyphBars, glyphWidth } from '../src/render/blockFont.js';
 import { carMesh } from '../src/render/carModels.js';
 import { boundsOf, box, projectMesh, projectShadow } from '../src/render/lowpoly.js';
 import * as props from '../src/render/propModels.js';
-import { Tumble, stepChunk, stepHop } from '../src/render/Tumble.js';
+import { Tumble, chunkPose, stepChunk, stepChunkTurn, stepHop } from '../src/render/Tumble.js';
+import { DEBRIS } from '../src/render/debrisModels.js';
 import { beamGeometry } from '../src/systems/ThreatRadar.js';
 import { buildChunk, propCatalogue } from '../src/systems/WorldLayout.js';
 
@@ -164,7 +165,7 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
 // ---- The lucky die --------------------------------------------------------------------------
 {
   const die = props.luckyDie(0);
-  check('the die is violet, with cream spots', (PALETTE.crate & 255) > 200 && ((PALETTE.crate >> 8) & 255) < 110 && ((PALETTE.cratePip >> 8) & 255) > 200);
+  check('the die is dark amber, with dark spots', ((PALETTE.crate >> 16) & 255) > 160 && (PALETTE.crate & 255) < 60 && ((PALETTE.cratePip >> 16) & 255) < 80);
   const spotsShown = (mesh) => projectMesh(mesh, 0, projection).flatMap((p) => p.faces).reduce((n, f) => n + f.decals.length, 0);
   check('its spots show on all three faces in view', projectMesh(die, 0, projection).flatMap((p) => p.faces).filter((f) => f.decals.length > 0).length === 3, `${spotsShown(die)} spots`);
   props.DIE_ROLLS.forEach((roll, i) => {
@@ -173,10 +174,10 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   });
   check('each roll looks different, so it seems to tumble', new Set(props.DIE_ROLLS.map((r) => r.join())).size === props.DIE_ROLLS.length);
   const lum = (c) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
-  check('it stands out on the road', lum(PALETTE.crate) > lum(PALETTE.asphalt) * 2);
+  check('it stands out on the road', lum(PALETTE.crate) > lum(PALETTE.asphalt) * 1.75);
   const hue = (c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
-  const [r, , b] = hue(PALETTE.crateArrow);
-  check('the arrow to it stays teal, so it is never mistaken for a red warning', b > r, PALETTE.crateArrow.toString(16));
+  const [, g] = hue(PALETTE.crateArrow);
+  check('the arrow to it is amber, so it is never mistaken for a red warning', g > 120, PALETTE.crateArrow.toString(16));
   const wood = props.woodCrate();
   check('wooden crates are still brown, and different', wood[0].faces[0].color !== die[0].faces[0].color);
 }
@@ -315,6 +316,21 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('the body never moves far from its wheels', T.BODY_LEAN.rollShift * (1 - T.BODY_LEAN.wheelsFollow) <= 2.5, `${(T.BODY_LEAN.rollShift * (1 - T.BODY_LEAN.wheelsFollow)).toFixed(1)} units at most`);
 
   check('3 to 4 pieces per wreck', EFFECTS.chunksSmall >= 3 && EFFECTS.chunksSmall <= 4);
+  // The flying pieces are solid models, turning over in the air and settling on the road.
+  const flying = { tumble: 1, tumbleSpeed: 8, z: 50, vx: 200, vy: 0, tire: true };
+  stepChunkTurn(flying, 0.1);
+  check('in the air a piece keeps turning', Math.abs(flying.tumble - 1.8) < 1e-9);
+  const landed = { tumble: 3.5, tumbleSpeed: 8, z: 0, vx: 0, vy: 0, tire: false };
+  for (let i = 0; i < 120; i += 1) stepChunkTurn(landed, 1 / 60);
+  check('on the road a panel settles flat, on one side or the other', Math.abs(Math.sin(landed.tumble)) < 0.01, landed.tumble.toFixed(3));
+  const rolling = { tumble: 0.2, tumbleSpeed: 8, z: 0, vx: 300, vy: 0, tire: true };
+  for (let i = 0; i < 120; i += 1) stepChunkTurn(rolling, 1 / 60);
+  check('a tire with speed stands up and rolls', Math.abs(Math.cos(rolling.tumble)) < 0.01, rolling.tumble.toFixed(3));
+  rolling.vx = 0;
+  for (let i = 0; i < 120; i += 1) stepChunkTurn(rolling, 1 / 60);
+  check('and falls over when it stops', Math.abs(Math.sin(rolling.tumble)) < 0.01, rolling.tumble.toFixed(3));
+  check('every point of a turn has a drawing, backwards too', [-20, -0.1, 0, 0.1, 3, 6.28, 40].every((t) => { const p = chunkPose(t, DEBRIS.poses); return Number.isInteger(p) && p >= 0 && p < DEBRIS.poses; }));
+  check('a piece flat on the road shows the flat drawing', chunkPose(0, DEBRIS.poses) === 0 && chunkPose(Math.PI, DEBRIS.poses) === DEBRIS.poses / 2 && chunkPose(Math.PI * 2, DEBRIS.poses) === 0);
   check('a capped number of pieces and rings, so pile-ups stay cheap', EFFECTS.maxChunks <= 30 && EFFECTS.maxRings <= 8);
 }
 

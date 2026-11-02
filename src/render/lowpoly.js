@@ -106,6 +106,109 @@ export function ngon({ x = 0, y = 0, sides, r0, r1, z0, z1, color, topColor = co
   return { verts, faces, layer };
 }
 
+const SHELL_SIDES = ['back', 'backRight', 'right', 'frontRight', 'front', 'frontLeft', 'left', 'backLeft'];
+
+// One level of a shell: a rectangle with its four corners cut off. z = a height, or [back, front] for a slope.
+function shellRing(hw, y0, y1, z, cutBack, cutFront) {
+  const [zb, zf] = Array.isArray(z) ? z : [z, z];
+  const cutB = Math.min(cutBack, (y1 - y0) * 0.45); // a short panel can't lose more than it has
+  const cutF = Math.min(cutFront, (y1 - y0) * 0.45);
+  const at = (y) => zb + ((y - y0) / (y1 - y0 || 1)) * (zf - zb);
+  return [
+    [-hw + cutB, y0, at(y0)],
+    [hw - cutB, y0, at(y0)],
+    [hw, y0 + cutB, at(y0 + cutB)],
+    [hw, y1 - cutF, at(y1 - cutF)],
+    [hw - cutF, y1, at(y1)],
+    [-hw + cutF, y1, at(y1)],
+    [-hw, y1 - cutF, at(y1 - cutF)],
+    [-hw, y0 + cutB, at(y0 + cutB)],
+  ];
+}
+
+// A body panel: a convex solid with cut corners and a bevelled top edge, so it catches the light like pressed
+// metal. hw = half width at the bottom, y0 = back, y1 = front. z1 may be [back, front]. cut, bevel: how much is
+// taken off the corners and the top edge; cutB / cutF, bevelB / bevelF set the back and front ends on their own
+// (0 where one panel joins the next). lean, leanB, leanF draw the sides and ends in toward the top, as on a
+// windscreen. Faces are named back, right, front, left and top, like a box, so decal() works the same.
+export function shell({ hw, y0, y1, z0, z1, color, cut = 2.5, cutB = cut, cutF = cut, bevel = 1.5, bevelB = bevel, bevelF = bevel, lean = 0, leanB = 0, leanF = 0, layer = 0 }) {
+  const [zb, zf] = Array.isArray(z1) ? z1 : [z1, z1];
+  const rings = [shellRing(hw, y0, y1, z0, cutB, cutF), shellRing(hw - lean, y0 + leanB, y1 - leanF, [zb - bevel, zf - bevel], cutB, cutF)];
+  const topHw = hw - lean - bevel;
+  const topY0 = y0 + leanB + bevelB;
+  const topY1 = y1 - leanF - bevelF;
+  if (bevel > 0) rings.push(shellRing(topHw, topY0, topY1, [zb, zf], cutB, cutF));
+  const verts = rings.flat();
+  const faces = [];
+  const count = 8;
+  for (let r = 0; r < rings.length - 1; r += 1) {
+    for (let k = 0; k < count; k += 1) {
+      const a = r * count + k;
+      const b = r * count + ((k + 1) % count);
+      const c = (r + 1) * count + ((k + 1) % count);
+      const d = (r + 1) * count + k;
+      // Where a corner isn't cut, its face has no width.
+      if (Math.hypot(verts[a][0] - verts[b][0], verts[a][1] - verts[b][1]) < 1e-6) continue;
+      faces.push({ name: r === 0 ? SHELL_SIDES[k] : `${SHELL_SIDES[k]}Bevel`, v: [a, b, c, d], color, decals: [] });
+    }
+  }
+  const last = (rings.length - 1) * count;
+  const topCut = bevel > 0 ? topHw : hw - lean;
+  const backY = bevel > 0 ? topY0 : y0 + leanB;
+  const frontY = bevel > 0 ? topY1 : y1 - leanF;
+  faces.push({
+    name: 'top',
+    v: Array.from({ length: count }, (_, i) => last + i),
+    color,
+    decals: [],
+    // The full rectangle of the top, so decal() can place things across it.
+    quad: [[-topCut, backY, zb], [topCut, backY, zb], [topCut, frontY, zf], [-topCut, frontY, zf]],
+  });
+  return { verts, faces, layer, minX: -hw, maxX: hw };
+}
+
+// A faceted round solid: rings of points, each turned half a step from the last, joined by triangles, with
+// a little variation in colour from facet to facet. rings: [height share, radius share] from the bottom up,
+// the last being its point on top. squash flattens it, for a rock.
+export function faceted({ x = 0, y = 0, z0, z1, radius, color, sides = 7, layer = 0, rings = [[0, 0.5], [0.3, 1], [0.68, 0.84], [1, 0]] }) {
+  const verts = [];
+  const ringStart = [];
+  rings.forEach(([h, r], index) => {
+    ringStart.push(verts.length);
+    const count = r === 0 ? 1 : sides;
+    for (let i = 0; i < count; i += 1) {
+      const a = ((i + (index % 2) * 0.5) * Math.PI * 2) / sides;
+      verts.push([x + radius * r * Math.cos(a), y + radius * r * Math.sin(a), z0 + (z1 - z0) * h]);
+    }
+  });
+  const faces = [];
+  const tone = (n) => shadeColor(color, 0.92 + ((n * 7) % 5) * 0.045);
+  const face = (v, n) => faces.push({ name: `facet${n}`, v, color: tone(n), decals: [] });
+  let n = 0;
+  for (let r = 0; r < rings.length - 1; r += 1) {
+    const a = ringStart[r];
+    const b = ringStart[r + 1];
+    const toPoint = rings[r + 1][1] === 0;
+    const odd = r % 2 === 1;
+    for (let i = 0; i < sides; i += 1) {
+      const j = (i + 1) % sides;
+      if (toPoint) {
+        face([a + i, a + j, b], n);
+        n += 1;
+      } else if (odd) {
+        face([a + i, a + j, b + j], n);
+        face([a + i, b + j, b + i], n + 1);
+        n += 2;
+      } else {
+        face([a + i, a + j, b + i], n);
+        face([a + j, b + j, b + i], n + 1);
+        n += 2;
+      }
+    }
+  }
+  return { verts, faces, layer };
+}
+
 // A round wheel, its axle along local x: a many-sided drum with a hub painted on the outer face (side -1 =
 // the car's left, 1 = its right). radius sets its height too: it stands on z = 0.
 export function roundWheel({ x0, x1, y, radius, color, hub, side, sides = 10 }) {
@@ -139,12 +242,93 @@ export function roundWheel({ x0, x1, y, radius, color, hub, side, sides = 10 }) 
   return { verts, faces, layer: 0 };
 }
 
+// A chunky wheel for the pressed-body cars: the tread's outer edge is taken off, and the outer face carries a
+// tire wall, a contrasting rim and a dark centre.
+export function chunkyWheel({ x0, x1, y, radius, color, rim, hub, side, sides = 12, chamfer = 1.1, layer = 0 }) {
+  const outerX = side < 0 ? x0 : x1;
+  const innerX = side < 0 ? x1 : x0;
+  const point = (x, share, i) => {
+    const a = -Math.PI / 2 + (i * Math.PI * 2) / sides;
+    return [x, y + radius * share * Math.cos(a), radius + radius * share * Math.sin(a)];
+  };
+  const verts = [];
+  for (const [x, share] of [[innerX, 1], [outerX - side * chamfer, 1], [outerX, 1 - chamfer / radius]]) {
+    for (let i = 0; i < sides; i += 1) verts.push(point(x, share, i));
+  }
+  const faces = [];
+  for (let r = 0; r < 2; r += 1) {
+    for (let i = 0; i < sides; i += 1) {
+      const j = (i + 1) % sides;
+      faces.push({ name: `${r ? 'edge' : 'tread'}${i}`, v: [r * sides + i, r * sides + j, (r + 1) * sides + j, (r + 1) * sides + i], color, decals: [] });
+    }
+  }
+  const ring = (start) => Array.from({ length: sides }, (_, i) => start + i);
+  faces.push({ name: 'inner', v: ring(0), color, decals: [] });
+  const disc = (share, discColor) => ({ pts: Array.from({ length: sides }, (_, i) => point(outerX, share, i)), color: discColor, unlit: false });
+  faces.push({
+    name: 'outer',
+    v: ring(sides * 2),
+    color: shadeColor(color, 1.5),
+    decals: [disc(0.64, rim), disc(0.46, shadeColor(rim, 0.62)), disc(0.24, hub)],
+  });
+  return { verts, faces, layer };
+}
+
+// A body built from slices, back to front, like the frames of a real car: each station is { y, half }, half
+// being the same number of [x, z] points on its right side, from the bottom edge up to the inner edge of the
+// top. The left side is the mirror image; the underneath stays open, since it is never seen. Unlike a shell it
+// need not be convex, so it can have wheel arches, a waist and a raised hood: its faces are sorted when drawn.
+// paint(band, yMiddle) gives each face's colour (band = the gap between two half points; the last is the top).
+// Faces are named right0:3, left0:3 (band, then the gap between stations) and top:3, plus front and back.
+export function loft({ stations, paint, layer = 0 }) {
+  const n = stations[0].half.length;
+  const size = n * 2;
+  const verts = [];
+  for (const { y, half } of stations) {
+    for (const [x, z] of half) verts.push([x, y, z]);
+    for (let i = n - 1; i >= 0; i -= 1) verts.push([-half[i][0], y, half[i][1]]);
+  }
+  const faces = [];
+  const heights = (station) => station.half.map((p) => p[1]);
+  // A point each face looks away from. Well below the body, since a top can dip below its own fenders, and the
+  // inner slope of a fender has to count as facing up.
+  const floor = Math.min(...stations.flatMap(heights)) - 40;
+  const middleOf = (a, b) => [0, (a.y + b.y) / 2, floor];
+  const add = (name, v, band, inside, quad = v.map((i) => verts[i])) => {
+    faces.push({ name, v, color: paint(band, inside[1]), decals: [], inside, quad });
+  };
+  for (let s = 0; s < stations.length - 1; s += 1) {
+    const a = s * size;
+    const c = (s + 1) * size;
+    const inside = middleOf(stations[s], stations[s + 1]);
+    for (let band = 0; band < n - 1; band += 1) {
+      add(`right${band}:${s}`, [a + band, c + band, c + band + 1, a + band + 1], band, inside);
+      const low = size - 1 - band;
+      const high = size - 2 - band;
+      add(`left${band}:${s}`, [a + low, c + low, c + high, a + high], band, inside);
+    }
+    add(`top:${s}`, [a + n, a + n - 1, c + n - 1, c + n], n - 1, inside);
+  }
+  const cap = (name, index, next) => {
+    const { y, half } = stations[index];
+    const zs = heights(stations[index]);
+    const x = Math.max(...half.map((p) => p[0]));
+    const low = Math.min(...zs);
+    const high = Math.max(...zs);
+    const quad = [[-x, y, low], [x, y, low], [x, y, high], [-x, y, high]];
+    add(name, Array.from({ length: size }, (_, i) => index * size + i), 1, middleOf(stations[index], stations[next]), quad);
+  };
+  cap('back', 0, 1);
+  cap('front', stations.length - 1, stations.length - 2);
+  return { verts, faces, layer, sortFaces: true, stations };
+}
+
 // Paints a smaller rectangle onto one face of a part (windows, lights, stripes).
 // u runs along the face's first edge, v from that edge to the opposite one (bottom to top on sides,
 // back to front on the top face). 0..1 each.
 export function decal(part, faceName, u0, u1, v0, v1, color, unlit = false) {
   const face = part.faces.find((f) => f.name === faceName);
-  const [p0, p1, p2, p3] = face.v.map((i) => part.verts[i]);
+  const [p0, p1, p2, p3] = face.quad || face.v.map((i) => part.verts[i]);
   const at = (u, v) => {
     const a = lerp3(p0, p1, u);
     const b = lerp3(p3, p2, u);
@@ -223,6 +407,8 @@ export function brightness(n) {
   return RENDER.ambient + RENDER.keyGain * key + RENDER.fillGain * fill + RENDER.skyGain * Math.max(0, n[2]);
 }
 
+const TOP_LIGHT = brightness([0, 0, 1]);
+
 export function shadeColor(hex, factor) {
   const r = Math.min(255, Math.round(((hex >> 16) & 255) * factor));
   const g = Math.min(255, Math.round(((hex >> 8) & 255) * factor));
@@ -245,20 +431,27 @@ export function projectMesh(mesh, heading, proj) {
       const pts = face.v.map((i) => cam[i]);
       let n = polygonNormal(pts);
       const c = centre(pts);
-      // Point the normal outward (away from the part's middle).
-      if (n[0] * (c.u - middle.u) + n[1] * (c.v - middle.v) + n[2] * (c.z - middle.z) < 0) n = n.map((k) => -k);
+      // Point the normal outward (away from the part's middle, or from a point the face says is inside it).
+      const inner = face.inside ? toCamera(face.inside, heading, proj) : middle;
+      if (n[0] * (c.u - inner.u) + n[1] * (c.v - inner.v) + n[2] * (c.z - inner.z) < 0) n = n.map((k) => -k);
       if (n[0] * view[0] + n[1] * view[1] + n[2] * view[2] <= 1e-4) continue; // faces away
-      const light = brightness(n);
+      // The sun is low: a top that slopes even slightly would swing from bright to dark as a car turns, and
+      // look like a different paint. Near-flat tops stay close to a flat top's light; bevels keep their contrast.
+      const flatTop = Math.max(0, Math.min(1, (Math.abs(n[2]) - 0.9) / 0.1));
+      const light = brightness(n) + (TOP_LIGHT - brightness(n)) * flatTop * 0.75;
       faces.push({
         name: face.name,
+        nearness: c.v * proj.lift + c.z * proj.squash,
         pts: pts.map((p) => toScreen(p, proj)),
         color: face.unlit ? face.color : shadeColor(face.color, light),
         decals: face.decals.map((d) => ({
           pts: d.pts.map((p) => toScreen(toCamera(p, heading, proj), proj)),
           color: d.unlit ? d.color : shadeColor(d.color, light),
+          joined: d.joined,
         })),
       });
     }
+    if (part.sortFaces) faces.sort((a, b) => a.nearness - b.nearness); // only a convex part can skip this
     // Distance toward the camera, for painting far parts first.
     const nearness = middle.v * proj.lift + middle.z * proj.squash;
     return { layer: part.layer, nearness, faces, cam };
@@ -329,20 +522,38 @@ export function paintMesh(ctx, projected) {
         tracePolygon(ctx, d.pts);
         ctx.fillStyle = cssColor(d.color);
         ctx.fill();
+        if (d.joined) {
+          // A stripe across several faces: closes the gaps between its pieces.
+          ctx.strokeStyle = ctx.fillStyle;
+          ctx.stroke();
+        }
       }
     }
   }
 }
 
+const SHADOW_FAR = 8000;
+
 // Shadows are painted fully dark; the image is shown semi-transparent, so overlapping parts
 // don't make darker patches.
-export function paintShadow(ctx, outlines) {
-  ctx.fillStyle = cssColor(RENDER.shadowColor);
+// blur: pixels of soft edge. The outlines are drawn far off the canvas and only their blur lands on it.
+export function paintShadow(ctx, outlines, blur = 0) {
+  const css = cssColor(RENDER.shadowColor);
+  ctx.fillStyle = css;
+  ctx.save();
+  if (blur > 0) {
+    const scale = ctx.getTransform().a;
+    ctx.shadowColor = css;
+    ctx.shadowBlur = blur;
+    ctx.shadowOffsetX = SHADOW_FAR;
+    ctx.translate(-SHADOW_FAR / scale, 0);
+  }
   for (const outline of outlines) {
     if (outline.length < 3) continue;
     tracePolygon(ctx, outline);
     ctx.fill();
   }
+  ctx.restore();
 }
 
 // Screen-space box around a set of projected faces and/or shadow outlines.
@@ -366,7 +577,7 @@ const bakedMeta = new Map();
 export function bakeMesh(scene, key, mesh, heading, proj, which = 'body', bodyScale = RENDER.bakeScale) {
   if (scene.textures.exists(key) && bakedMeta.has(key)) return bakedMeta.get(key);
   const scale = which === 'shadow' ? RENDER.shadowBakeScale : bodyScale;
-  const pad = 2;
+  const pad = which === 'shadow' ? 2 + RENDER.shadowSoftness : 2;
   const projected = which === 'body' ? projectMesh(mesh, heading, proj) : [];
   const shadows = which === 'shadow' ? projectShadow(mesh, heading, proj) : [];
   const b = boundsOf(projected, shadows);
@@ -382,7 +593,7 @@ export function bakeMesh(scene, key, mesh, heading, proj, which = 'body', bodySc
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
   if (which === 'body') paintMesh(ctx, projected);
-  else paintShadow(ctx, shadows);
+  else paintShadow(ctx, shadows, RENDER.shadowSoftness * scale);
   ctx.restore();
   texture.refresh();
 
@@ -393,6 +604,15 @@ export function bakeMesh(scene, key, mesh, heading, proj, which = 'body', bodySc
 
 // Frees every baked drawing (cars and props) made for other camera setups. Called after a view
 // change, so only one set of drawings is ever kept in graphics memory.
+// Every prop drawing goes when the map changes: a new map's colours need new ones.
+export function releasePropDrawings(scene) {
+  for (const key of scene.textures.getTextureKeys()) {
+    if (!key.startsWith('prop:')) continue;
+    scene.textures.remove(key);
+    bakedMeta.delete(key);
+  }
+}
+
 export function releaseOtherViews(scene, viewKey) {
   for (const key of scene.textures.getTextureKeys()) {
     const baked = key.startsWith('prop:') || key.startsWith('car:');

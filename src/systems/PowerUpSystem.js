@@ -37,12 +37,6 @@ export class PowerUps {
   }
 
   // The name and countdown for the on-screen button, or null when nothing is held.
-  get label() {
-    if (!this.held) return null;
-    const name = POWERUP.names[this.kind || 'shockwave'];
-    return `${name} ${Math.max(1, Math.ceil(POWERUP.autoSeconds - this.heldTime))}`;
-  }
-
   update(sim, dt) {
     const crate = this.crate;
     const player = sim.player;
@@ -146,13 +140,13 @@ export class PowerUps {
       this.giantTime -= dt;
       if (this.giantTime <= 0 || !running) {
         this.giantTime = 0;
-        player.scaleTarget = 1;
+        player.scaleTarget = player.baseScale;
       }
     }
     // Still unstoppable until it has shrunk back, or it could be caught inside something.
-    if (player.crushing && this.giantTime === 0 && player.scale < GIANT.endScale) {
+    if (player.crushing && this.giantTime === 0 && player.scale < player.baseScale + GIANT.endScale - 1) {
       player.crushing = false;
-      if (running) player.mass = COLLISION.playerMass;
+      if (running) player.mass = sim.playerMass;
     }
     this.tickPillars(sim, dt);
     this.tickFlamer(sim, dt, running);

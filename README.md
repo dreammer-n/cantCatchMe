@@ -25,28 +25,34 @@ files), so the whole game is well under 1 MB compressed. The city has no edge: i
 - Police are not careful drivers: make them hit trees, blocks, barriers, each other and burning
   wrecks. Several in quick succession is a combo.
 - Passing very close to a police car at speed is a **close call**.
-- A violet lucky die bounces after you and sinks into your car, giving you a random power-up.
-  Double tap anywhere (Space on a keyboard, or the ⚡ button) to use it, or it fires by itself after 4 seconds:
+- A dark amber lucky die bounces after you and sinks into your car, giving you a random power-up.
+  Double tap anywhere (Space on a keyboard) to use it, or it fires by itself after 2.5 seconds:
   - **Kaboom:** wrecks every police car close around you.
-  - **Monster:** 7 seconds at 3.2 × size. Nothing can hurt you, and you flatten police and scenery alike.
+  - **Titan:** 7 seconds at 3.2 × size. Nothing can hurt you, and you flatten police and scenery alike.
   - **Cold Snap:** police nearby freeze solid for 4.5 seconds. Others crash into them, and you can smash straight through them.
   - **Stonewall:** three stone blocks erupt behind you and wreck whatever hits them. They last 6 seconds.
   - **Scorcher:** 5 seconds of burning trail. Police that touch it spin out and explode a second later.
 - The longer you last, the harder it gets:
   - **From 15 seconds:** black-and-white interceptors cut you off at corners and crossings.
-  - **From 30 seconds:** dark grey **SWAT Bearcats**. Touching one ends your run, unless you are in Monster mode or it is frozen. They are slow to
+  - **From 30 seconds:** dark grey **SWAT Bearcats**. Touching one ends your run, unless you are a Titan or it is frozen. They are slow to
     turn, so make them overshoot. They ram through cones, lamps and parked cars without slowing down.
   - **From 35 seconds:** **roadblocks**: two parked cruisers and a spike strip. Drive over the spikes and a tire goes flat
     for 3 seconds: the car lurches, drags hard toward that side and loses speed. Steer against it to hold it straight.
-    Monster mode ignores spikes, and mends a flat tire.
+    A Titan ignores spikes, and mends a flat tire.
   - **From 45 seconds:** a **police helicopter** keeps its searchlight on you. A red flare and a ring on the road mark
     where it will drop a concrete block, just over a second later. Steer around it. Blocks wreck police too.
+- Every run pays coins: 2 a second, 5 per police car wrecked, 10 per step of your best combo. On the results
+  screen you can double them by watching an ad, if you choose to.
+- Each map's best run gives you 1 to 5 stars, at 10, 20, 35, 50 and 75 seconds. Stars add up and unlock new maps:
+  Winter at 3, Desert at 6, Woods at 9.
+- Spend them in the **Garage**: 19 cars, up to 100,000 coins, each with its own speed, acceleration, handling and durability, shown as blocks.
+  The heavy ones go straight through cones, lamps and parked cars.
 - Score = survival time. Your best time, police wrecked, close calls and best combo are saved.
 
 | Device | Steer | Power-up | Pause | Start / retry |
 |---|---|---|---|---|
 | Keyboard | ← → or A / D | Space (or ↑ / W) | Esc or P | Enter or Space (R = retry) |
-| Phone / tablet | Hold the left or right half of the screen | Double tap, or ⚡ button | ⏸ button | Buttons |
+| Phone / tablet | Hold the left or right half of the screen | Double tap | ⏸ button | Buttons |
 | Mouse | Hold the left or right half of the window | ⚡ button | ⏸ button | Buttons |
 | Gamepad | D-pad or left stick | A | Start | A |
 
@@ -103,7 +109,8 @@ Add `?debug` to the address (for example `http://localhost:5173/?debug`). A tool
 **1 / 2 / 3** handling presets (Grippy / Balanced / Drifty), **V** camera views (Angled / Angled
 high / Angled low / North-up), **T** turntable (park the car and turn it to inspect it), and one
 button per power-up, to try any of them without waiting for a die, and **SWAT**, **ROADBLOCK** and
-**CHOPPER** buttons to bring those on at once. Test hooks
+**CHOPPER** buttons to bring those on at once, **+50K COINS**, **RESET GARAGE** and **ALL MAPS** for trying things out, and
+**4 Chosen car**, which goes back to the selected car's own handling after using 1, 2 or 3. Test hooks
 are available as `window.__carChaseDebug` in the browser console.
 
 ## Project documents

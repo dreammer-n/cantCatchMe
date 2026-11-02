@@ -3,7 +3,7 @@ import { DISPLAY } from './config/tuning.js';
 import { getPixelRatio } from './utils/screen.js';
 import { InputManager } from './systems/InputManager.js';
 import { AudioSystem } from './systems/AudioSystem.js';
-import { Records } from './systems/ScoreSystem.js';
+import { Records, Garage, Maps } from './systems/ScoreSystem.js';
 import { Settings } from './systems/Settings.js';
 import { PlatformManager } from './platform/PlatformManager.js';
 import { BootScene } from './scenes/BootScene.js';
@@ -11,6 +11,8 @@ import { GameScene } from './scenes/GameScene.js';
 import { UIScene } from './scenes/UIScene.js';
 import { MenuScene } from './scenes/MenuScene.js';
 import { GameOverScene } from './scenes/GameOverScene.js';
+import { GarageScene } from './scenes/GarageScene.js';
+import { MapScene } from './scenes/MapScene.js';
 
 const container = document.getElementById('game');
 
@@ -48,7 +50,8 @@ function watchWindowSize(game) {
 
 async function start() {
   await PlatformManager.initialize();
-  await Promise.all([Records.load(), Settings.load()]);
+  await Promise.all([Records.load(), Settings.load(), Garage.load()]);
+  await Maps.load(); // after the records, which older saves take their first best time from
 
   const input = new InputManager(container);
   const audio = new AudioSystem();
@@ -78,7 +81,7 @@ async function start() {
     // InputManager reads every device itself; menus and HUD are HTML buttons.
     input: { keyboard: false, gamepad: false, mouse: false, touch: false },
     render: { antialias: true, powerPreference: 'high-performance' },
-    scene: [BootScene, GameScene, UIScene, MenuScene, GameOverScene],
+    scene: [BootScene, GameScene, UIScene, MenuScene, GarageScene, MapScene, GameOverScene],
   });
 
   game.registry.set('input', input);

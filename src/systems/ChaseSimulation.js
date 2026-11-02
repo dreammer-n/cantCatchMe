@@ -1,7 +1,7 @@
 import { Car } from '../entities/Car.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -36,7 +36,23 @@ export class ChaseSimulation {
     this.explosions = [];
     this.touchingCar = null;
     this.onConeTouch = (shape) => this.knockCone(shape, this.touchingCar);
+    this.car = null; // the car the player has chosen (CARS); null = plain handling, for tests
     this.reset(1);
+  }
+
+  // Takes effect at the next reset, when the player's car is put back on the road.
+  setCar(car) {
+    this.car = car;
+    this.player.setHandling(handlingFor(car));
+  }
+
+  get playerMass() {
+    return COLLISION.playerMass * (this.car ? this.car.mass : 1);
+  }
+
+  // A hit harder than this wrecks the player's car.
+  get playerCrashImpact() {
+    return CRASH.playerImpact * (this.car ? this.car.durability : 1);
   }
 
   reset(seed) {
@@ -45,8 +61,10 @@ export class ChaseSimulation {
     this.state = 'running';
     this.crash = null;
     this.pinnedTime = 0;
+    this.player.baseScale = this.car ? this.car.scale : 1;
     this.player.reset(START.x, START.y, 0);
-    this.player.mass = COLLISION.playerMass;
+    this.player.mass = this.playerMass;
+    this.player.plowing = this.car ? this.car.plows : false;
     for (const police of this.police) police.release();
     this.bodies.length = 0;
     this.bodies.push(this.playerBody);
@@ -206,7 +224,7 @@ export class ChaseSimulation {
       player.puncture(FLAT_TIRE.seconds, this.rng() < 0.5 ? -1 : 1);
       this.emit('flat', { x: player.x, y: player.y });
     }
-    if (this.result.impact > CRASH.playerImpact) this.crashPlayer('obstacle');
+    if (this.result.impact > this.playerCrashImpact) this.crashPlayer('obstacle');
     else if (this.result.impact > 60) this.emit('bump', { x: player.x, y: player.y, impact: this.result.impact, player: true });
     else if (this.result.impact > CRASH.scrapeImpact) this.emit('scrape', { x: player.x, y: player.y, impact: this.result.impact });
     if (this.result.curbHit) this.emit('curb', { x: player.x, y: player.y });
@@ -294,7 +312,7 @@ export class ChaseSimulation {
       if (this.state !== 'running') return;
       if (police.alive && police.armored && police.frozen <= 0 && impact > BEARCAT.fatalImpact) {
         this.crashPlayer('bearcat');
-      } else if (impact > CRASH.playerImpact) {
+      } else if (impact > this.playerCrashImpact) {
         if (!police.alive) this.crashPlayer('wreck');
         else this.crashPlayer(police.parked ? 'roadblock' : 'police');
         if (police.alive && impact > CRASH.policeCarImpact) this.wreckPolice(police, 'player');
@@ -315,6 +333,7 @@ export class ChaseSimulation {
     const player = this.player;
     this.state = 'crashed';
     player.crushing = false;
+    player.plowing = false;
     player.flatTime = 0;
     player.mass = COLLISION.wreckMass;
     this.crash = { cause, x: player.x, y: player.y, time: this.time };
