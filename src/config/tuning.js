@@ -705,6 +705,7 @@ export const POWERUP = {
   // How often each item comes up, compared with the others.
   kinds: { shockwave: 1, giant: 1, freeze: 1, pillars: 1, flamer: 1 },
   names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER' }, // what the player sees
+  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'] }, // see AUDIO.files
   autoSeconds: 2.5, // a held item fires by itself after this long, unless double tapped first
   homingSpeed: 150, // it goes this much faster than the car, so it always catches up
   hopMs: 400, // each bounce (drawing only)
@@ -1034,12 +1035,35 @@ export function mapColor(map, key) {
 // [TUNE] Synthesised sound levels (0..1) and siren behaviour.
 export const AUDIO = {
   master: 0.55,
-  engine: 0.16,
   skid: 0.12,
-  siren: 0.07,
+  siren: 0.5,
+  helicopter: 0.6,
   sirenRange: 950, // world units: the siren fades in as the nearest police car gets closer
-  sirenCycle: 1.4, // seconds per wail
   explosionRange: 1500, // explosions further away than this are silent
+  menuMusic: 0.8,
+  chaseMusic: 0.65, // under the effects
+  musicFade: 0.3, // seconds: how quickly one track gives way to the other (a time constant: about 5 x this in all)
+  musicDim: 0.65, // share of its volume the music keeps on the pause menu and the results
+  menuOverlap: 1.2, // seconds the menu track overlaps itself where it repeats
+  musicLookAhead: 2, // seconds ahead that its next pass is prepared
+  loopTrim: 0.06, // seconds skipped at each end of a looping effect: the silence an MP3 adds
+  // Files in public/assets. The rest of the game's sounds are synthesised.
+  music: { menu: 'bg_audios/bgm_menu.mp3', chase: 'bg_audios/bgm_chase.mp3' },
+  // volume; cooldown: minimum seconds apart; vary: pitch change each time; fallback: the synthesised sound to use if
+  // the file isn't there.
+  files: {
+    carCrash: { path: 'soundEffects/carCrash.mp3', volume: 1, cooldown: 0.25, vary: 0.08, fallback: 'crash' },
+    freeze_shatter: { path: 'soundEffects/freeze_shatter.mp3', volume: 1, cooldown: 0.1, fallback: 'cone' },
+    shockwave: { path: 'soundEffects/shockwave.mp3', volume: 1, fallback: 'pulse' },
+    kaboom: { path: 'soundEffects/kaboom.mp3', volume: 1 },
+    titan: { path: 'soundEffects/titan.mp3', volume: 1, fallback: 'pulse' },
+    cold_snap: { path: 'soundEffects/cold_snap.mp3', volume: 1, fallback: 'pulse' },
+    stone_wall: { path: 'soundEffects/stone_wall.mp3', volume: 1, fallback: 'bump' },
+    scorcher: { path: 'soundEffects/scorcher.mp3', volume: 1, fallback: 'pickup' },
+    police_radio: { path: 'soundEffects/police_radio.mp3', volume: 0.8, cooldown: 30 },
+    siren: { path: 'soundEffects/siren.mp3' }, // these two loop: see AudioSystem
+    helicopter_loop: { path: 'soundEffects/helicopter_loop.mp3' },
+  },
 };
 
 // [TUNE] Visual effects budget (particles are capped so phones stay smooth).

@@ -141,3 +141,5 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-02 | Explosions | `maxBursts` 8 -> 16, new `coresAround` 4, `coreFadeMs` 260, `blastGlowMs` 520, `chunkShadowAlpha` 0.6 -> 0.42 | fire clouds 20 / 30, embers 20 / 34, smoke 12 / 18 (wreck / player) | Owner: effect looked low effort; pieces looked like paper. |
 | 2026-11-02 | Ground | `SCENERY.track*`: pieces 90 long, ruts 44 apart, 8 wide, alpha 0.3, on 65% of road stretches; `MAPS.marks` | Winter and Desert ground 0xd3dde9, 0xdcb077 | Owner: snow and desert don't need roads. |
 | 2026-11-02 | Shadows | `RENDER.shadowSoftness` 2.2 | world units | Soft edges on prop shadows. |
+| 2026-11-02 | Sound | `AUDIO`: menu music 0.8, chase music 0.65, siren 0.07 -> 0.5, helicopter 0.6, effect files 0.8-1; engine removed | through `master` 0.55 | First guesses, set without listening: they need the owner's ears. |
+| 2026-11-02 | Sound | `AUDIO.musicDim` 0.65 | pause menu and results | Owner: quieter there, but subtly. |

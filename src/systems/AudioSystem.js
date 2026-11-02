@@ -1,26 +1,43 @@
 import { AUDIO } from '../config/tuning.js';
 import { clamp } from '../utils/math.js';
 
-// All game sound is synthesised with the Web Audio API: no audio files to download.
-// Continuous sounds: engine (pitch follows speed), tire squeal (follows sliding), police siren
-// (louder when police are close). One-shots: crashes, explosions, pickups, menu clicks ...
+const ASSETS = './assets/'; // relative, like everything else: no outside requests
+
+// All game sound. Music and the bigger effects are files in public/assets, listed in AUDIO; the small
+// everyday ones (bumps, clicks, near misses, pickups, tire squeal, explosions) are synthesised with the Web Audio
+// API. A file that fails to load falls back to a synthesised sound, so the game always plays.
+//   Music: the menu track is decoded and overlaps itself where it repeats, so no gap can be heard. The chase track
+//   is three minutes long, about 70 MB once decoded, so it streams from an audio element instead.
+//   Continuous: tire squeal (follows sliding), police siren (louder when police are close), helicopter.
 //
 // Browsers only allow sound after the player touches or presses something, so the audio
-// starts in unlock(), called from the first input. Sound plays only when the in-game setting
-// is on AND the platform allows audio AND the game isn't paused.
+// starts in unlock(), called from the first input. Sound plays only when the in-game setting is on AND the platform
+// allows audio AND the platform hasn't paused the game. The pause menu is different: the music carries on, a little
+// quieter, and only the sounds of the road stop.
 export class AudioSystem {
   constructor() {
     this.ctx = null;
     this.soundOn = true; // in-game setting
     this.platformAllowed = true; // platform mute always wins
-    this.paused = false; // in-game pause menu
+    this.paused = false; // in-game pause menu: the music dips
     this.platformPaused = false; // tab hidden / platform pause
     this.cooldowns = new Map();
-    this.sirenPhase = 0;
+    this.track = null; // the music wanted now: 'menu', 'chase' or null
+    this.dimmed = false; // a little quieter, on the results
+    this.buffers = new Map();
+    this.menuNextAt = 0;
+    this.chase = null;
+    this.chasePrimed = false;
+    this.chasePriming = false;
+    // Fetched now, so the sound is ready at the first touch; decoded once there is a context to do it with.
+    this.downloads = new Map();
+    const fetchFile = (name, path) => this.downloads.set(name, fetch(ASSETS + path).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null));
+    fetchFile('menu', AUDIO.music.menu);
+    for (const [name, file] of Object.entries(AUDIO.files)) fetchFile(name, file.path);
   }
 
   get audible() {
-    return this.soundOn && this.platformAllowed && !this.paused && !this.platformPaused;
+    return this.soundOn && this.platformAllowed && !this.platformPaused;
   }
 
   unlock() {
@@ -35,6 +52,7 @@ export class AudioSystem {
       this.build();
     }
     if (this.ctx.state === 'suspended' && this.audible) this.ctx.resume().catch(() => {});
+    this.primeChase();
   }
 
   build() {
@@ -51,25 +69,6 @@ export class AudioSystem {
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
 
-    // Engine: two detuned oscillators through a low-pass filter.
-    this.engineGain = ctx.createGain();
-    this.engineGain.gain.value = 0;
-    this.engineFilter = ctx.createBiquadFilter();
-    this.engineFilter.type = 'lowpass';
-    this.engineFilter.frequency.value = 500;
-    this.engineFilter.connect(this.engineGain).connect(this.master);
-    this.engineOscs = ['sawtooth', 'square'].map((type, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = type;
-      osc.frequency.value = 60;
-      osc.detune.value = i * 9;
-      const g = ctx.createGain();
-      g.gain.value = i === 0 ? 0.6 : 0.25;
-      osc.connect(g).connect(this.engineFilter);
-      osc.start();
-      return osc;
-    });
-
     // Tire squeal: band-passed noise.
     const squeal = ctx.createBufferSource();
     squeal.buffer = this.noise;
@@ -83,14 +82,114 @@ export class AudioSystem {
     squeal.connect(band).connect(this.skidGain).connect(this.master);
     squeal.start();
 
-    // Siren: a triangle wave whose pitch wails up and down.
-    this.siren = ctx.createOscillator();
-    this.siren.type = 'triangle';
-    this.siren.frequency.value = 700;
-    this.sirenGain = ctx.createGain();
-    this.sirenGain.gain.value = 0;
-    this.siren.connect(this.sirenGain).connect(this.master);
-    this.siren.start();
+    // The looping effects are started when their files are ready. These hold their volumes.
+    this.sirenGain = this.outputGain();
+    this.helicopterGain = this.outputGain();
+
+    // Music.
+    this.menuGain = this.outputGain();
+    this.chaseGain = this.outputGain();
+    this.chase = new Audio(ASSETS + AUDIO.music.chase);
+    this.chase.loop = true;
+    this.chase.preload = 'auto';
+    ctx.createMediaElementSource(this.chase).connect(this.chaseGain);
+    this.setMusic(this.track);
+
+    for (const [name, download] of this.downloads) {
+      download
+        .then((bytes) => (bytes ? ctx.decodeAudioData(bytes) : null))
+        .then((buffer) => {
+          if (!buffer) return;
+          this.buffers.set(name, buffer);
+          if (name === 'siren') this.startLoop(buffer, this.sirenGain);
+          if (name === 'helicopter_loop') this.startLoop(buffer, this.helicopterGain);
+        })
+        .catch(() => {});
+    }
+    this.downloads.clear();
+  }
+
+  outputGain() {
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(this.master);
+    return gain;
+  }
+
+  // Runs for good; its volume decides whether it is heard. Skips the silence an MP3 has at each end.
+  startLoop(buffer, gain) {
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.loopStart = AUDIO.loopTrim;
+    source.loopEnd = buffer.duration - AUDIO.loopTrim;
+    source.connect(gain);
+    source.start(0, AUDIO.loopTrim);
+  }
+
+  // A phone only lets an audio element play if it was first started by the player's own touch, and the chase track
+  // starts in response to a button press that may not count. So it is started once, silently, at the first touch
+  // that does count, and paused again unless it is wanted.
+  primeChase() {
+    if (!this.chase || this.chasePrimed || this.chasePriming) return;
+    this.chasePriming = true;
+    this.chase
+      .play()
+      .then(() => {
+        this.chasePrimed = true;
+        this.syncChase();
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.chasePriming = false;
+      });
+  }
+
+  // The chase track plays only while it can be heard, so a pause or mute stops it for real.
+  syncChase() {
+    if (!this.chase) return;
+    if (this.track === 'chase' && this.audible) this.chase.play().catch(() => {});
+    else this.chase.pause();
+  }
+
+  // 'menu', 'chase' or null. The old track fades out as the new one fades in. The chase track carries on from
+  // where it stopped, so that quick retries don't keep hearing its first seconds. dimmed: a little quieter.
+  setMusic(track, dimmed = false) {
+    this.track = track;
+    this.dimmed = dimmed;
+    if (!this.ctx) return;
+    this.applyMusicLevels();
+    clearTimeout(this.chaseStop);
+    if (track === 'chase') this.syncChase();
+    else this.chaseStop = setTimeout(() => this.syncChase(), AUDIO.musicFade * 5000);
+  }
+
+  applyMusicLevels() {
+    const now = this.ctx.currentTime;
+    const dip = this.dimmed || this.paused ? AUDIO.musicDim : 1;
+    this.menuGain.gain.setTargetAtTime(this.track === 'menu' ? AUDIO.menuMusic * dip : 0, now, AUDIO.musicFade);
+    this.chaseGain.gain.setTargetAtTime(this.track === 'chase' ? AUDIO.chaseMusic * dip : 0, now, AUDIO.musicFade);
+  }
+
+  // Lays the next pass of the menu track over the end of the last one. Does nothing unless it is wanted, and
+  // picks up where it left off if an earlier pass is still sounding.
+  scheduleMenu(now) {
+    const buffer = this.buffers.get('menu');
+    if (!buffer || this.track !== 'menu') return;
+    if (this.menuNextAt < now) this.menuNextAt = now;
+    if (this.menuNextAt > now + AUDIO.musicLookAhead) return;
+    const at = this.menuNextAt;
+    const overlap = AUDIO.menuOverlap;
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(1, at + overlap);
+    gain.gain.setValueAtTime(1, at + buffer.duration - overlap);
+    gain.gain.linearRampToValueAtTime(0, at + buffer.duration);
+    source.connect(gain).connect(this.menuGain);
+    source.start(at);
+    this.menuNextAt = at + buffer.duration - overlap;
   }
 
   setSoundOn(on) {
@@ -103,9 +202,12 @@ export class AudioSystem {
     this.applyMaster();
   }
 
+  // The game stops, so the sounds of the road do too: nothing updates them while it is stopped.
   setPaused(paused) {
     this.paused = paused;
-    this.applyMaster();
+    if (!this.ctx) return;
+    if (paused) this.quiet();
+    this.applyMusicLevels();
   }
 
   setPlatformPaused(paused) {
@@ -118,50 +220,56 @@ export class AudioSystem {
     const now = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(now);
     this.master.gain.setTargetAtTime(this.audible ? AUDIO.master : 0, now, 0.03);
-    if (this.audible && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
-    if (!this.audible && this.ctx.state === 'running') {
-      // Let the fade finish, then stop the audio clock entirely (saves battery while paused).
-      setTimeout(() => {
-        if (!this.audible && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
-      }, 150);
-    }
+    this.syncChase();
+    // Starting the audio takes a moment, so what was asked for may have changed by the time it has happened.
+    if (this.audible && this.ctx.state === 'suspended') this.ctx.resume().then(() => this.suspendIfSilent()).catch(() => {});
+    // Let the fade finish, then stop the audio clock entirely (saves battery while paused).
+    if (!this.audible) setTimeout(() => this.suspendIfSilent(), 150);
   }
 
-  // Called every frame. state: { driving, speed (units/s), slip (sideways units/s), sirenDistance }
+  suspendIfSilent() {
+    if (!this.audible && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+  }
+
+  // Called every frame. state: { driving, slip (sideways units/s), sirenDistance, helicopter }
   update(dt, state) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
-    const speed = clamp(state.speed / 330, 0, 1.2);
-    const engineLevel = state.driving ? AUDIO.engine * (0.55 + 0.45 * speed) : 0;
-    this.engineGain.gain.setTargetAtTime(engineLevel, now, 0.08);
-    for (const osc of this.engineOscs) osc.frequency.setTargetAtTime(48 + speed * 95, now, 0.06);
-    this.engineFilter.frequency.setTargetAtTime(380 + speed * 900, now, 0.08);
+    this.scheduleMenu(now);
 
     const slip = state.driving ? clamp((state.slip - 70) / 180, 0, 1) : 0;
     this.skidGain.gain.setTargetAtTime(slip * AUDIO.skid, now, 0.05);
 
-    this.sirenPhase += dt / AUDIO.sirenCycle;
-    const wail = 0.5 - 0.5 * Math.cos(this.sirenPhase * Math.PI * 2);
-    this.siren.frequency.setTargetAtTime(620 + wail * 380, now, 0.05);
     const near = clamp(1 - state.sirenDistance / AUDIO.sirenRange, 0, 1);
     this.sirenGain.gain.setTargetAtTime(near * near * AUDIO.siren, now, 0.15);
+    this.helicopterGain.gain.setTargetAtTime(state.helicopter ? AUDIO.helicopter : 0, now, 0.4);
   }
 
-  // Stops the continuous sounds (menus, game over).
+  // Stops the continuous sounds (menus, game over). The music is left to setMusic.
   quiet() {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    for (const gain of [this.engineGain, this.skidGain, this.sirenGain]) gain.gain.setTargetAtTime(0, now, 0.1);
+    for (const gain of [this.skidGain, this.sirenGain, this.helicopterGain]) gain.gain.setTargetAtTime(0, now, 0.1);
   }
 
   // One-shot sound effects. volume 0..1 (e.g. quieter for far-away explosions).
   play(name, volume = 1) {
     if (!this.ctx || this.ctx.state !== 'running' || volume <= 0.01) return;
-    const limit = SOUND_COOLDOWNS[name] || 0;
+    const file = AUDIO.files[name];
+    const buffer = this.buffers.get(name);
+    if (file && !buffer) {
+      if (file.fallback) this.play(file.fallback, volume); // not loaded, or it failed to
+      return;
+    }
+    const limit = file ? file.cooldown || 0 : SOUND_COOLDOWNS[name] || 0;
     const now = this.ctx.currentTime;
-    if (limit && now - (this.cooldowns.get(name) || -1) < limit) return;
+    if (limit && now - (this.cooldowns.get(name) ?? -Infinity) < limit) return;
     this.cooldowns.set(name, now);
     const v = clamp(volume, 0, 1);
+    if (file) {
+      this.playFile(file, buffer, now, v);
+      return;
+    }
     switch (name) {
       case 'explosion':
         this.noiseHit(now, 0.7 * v, 1600, 120, 0.7);
@@ -189,10 +297,6 @@ export class AudioSystem {
         this.tone(now, 'sine', 900, 110, 0.4 * v, 0.55);
         this.noiseSweep(now, 0.35 * v, 1800, 200, 0.6);
         break;
-      case 'combo':
-        this.tone(now, 'square', 520, 520, 0.08 * v, 0.07);
-        this.tone(now + 0.07, 'square', 780, 780, 0.08 * v, 0.1);
-        break;
       case 'start':
         this.tone(now, 'square', 440, 440, 0.07 * v, 0.1);
         this.tone(now + 0.12, 'square', 660, 660, 0.07 * v, 0.16);
@@ -203,6 +307,17 @@ export class AudioSystem {
       default:
         break;
     }
+  }
+
+  // file.vary: changes the pitch a little each time, so a sound heard often doesn't get tiring.
+  playFile(file, buffer, now, v) {
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    if (file.vary) source.playbackRate.value = 1 + (Math.random() * 2 - 1) * file.vary;
+    const gain = this.ctx.createGain();
+    gain.gain.value = file.volume * v;
+    source.connect(gain).connect(this.master);
+    source.start(now);
   }
 
   tone(at, type, from, to, volume, seconds) {
@@ -253,4 +368,4 @@ export class AudioSystem {
 }
 
 // Minimum seconds between two of the same sound (stops a pile-up from becoming noise).
-const SOUND_COOLDOWNS = { bump: 0.15, cone: 0.06, explosion: 0.07, nearMiss: 0.3, combo: 0.2 };
+const SOUND_COOLDOWNS = { bump: 0.15, cone: 0.06, explosion: 0.07, nearMiss: 0.3 };

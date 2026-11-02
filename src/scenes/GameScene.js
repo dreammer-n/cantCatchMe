@@ -185,6 +185,7 @@ export class GameScene extends Phaser.Scene {
     this.resetVisuals();
     this.snapCamera();
     this.audio.quiet();
+    this.audio.setMusic('menu');
   }
 
   startRun(seed = (Math.random() * 2 ** 31) >>> 0) {
@@ -200,6 +201,7 @@ export class GameScene extends Phaser.Scene {
     this.resetVisuals();
     this.snapCamera();
     this.audio.play('start');
+    this.audio.setMusic('chase');
     PlatformManager.runStarted();
     this.game.events.emit('run-started');
   }
@@ -219,6 +221,7 @@ export class GameScene extends Phaser.Scene {
     Garage.award(coins.total);
     PlatformManager.flush();
     this.audio.quiet();
+    this.audio.setMusic('menu', true); // the results: a little quieter
     const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause: this.sim.crash ? this.sim.crash.cause : 'police' };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
@@ -319,6 +322,7 @@ export class GameScene extends Phaser.Scene {
           this.effects.explosion(e.x, e.y, e.player);
           if (!e.player && distance < HITSTOP.wreckRange) this.punch(HITSTOP.wreckMs);
           this.audio.play('explosion', 1 - distance / AUDIO.explosionRange);
+          this.audio.play('carCrash', 1 - distance / AUDIO.explosionRange);
           if (!e.player && distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.explosion * (1 - distance / EXPLOSION.shakeDistance));
           break;
         }
@@ -333,7 +337,7 @@ export class GameScene extends Phaser.Scene {
             this.playerView.setLook(this.looks.wreck);
             this.playerView.startTumble(this.looks.wreckRoof);
             this.hitStop.trigger(HITSTOP.crashMs);
-            this.audio.play('crash');
+            this.audio.play('carCrash');
             this.rig.addTrauma(TRAUMA.crash);
           }
           this.controls.releaseHeld();
@@ -346,7 +350,6 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'combo':
           this.toast(comboText(e.count), 'combo');
-          this.audio.play('combo');
           this.punch(HITSTOP.comboMs);
           break;
         case 'nearMiss':
@@ -363,6 +366,7 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'helicopter':
           this.toast('POLICE CHOPPER!', 'near');
+          this.audio.play('police_radio');
           break;
         case 'dropLand': {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
@@ -385,8 +389,7 @@ export class GameScene extends Phaser.Scene {
           this.toast('SMASHED!', 'combo');
           this.rig.addTrauma(TRAUMA.shatter);
           this.punch(HITSTOP.smashMs);
-          this.audio.play('cone', 1);
-          this.audio.play('bump', 0.7);
+          this.audio.play('freeze_shatter');
           break;
         case 'crush':
           this.rig.addTrauma(TRAUMA.crush);
@@ -402,7 +405,6 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'pulse':
           this.effects.shockwave(e.x, e.y, e.radius, POWERUP.pulseSeconds);
-          this.audio.play('pulse');
           this.rig.addTrauma(TRAUMA.pulse);
           break;
         case 'bump':
@@ -453,21 +455,17 @@ export class GameScene extends Phaser.Scene {
 
   onPowerUsed(e) {
     if (e.kind !== 'shockwave') this.toast(`${POWERUP.names[e.kind]}!`, 'power');
+    for (const sound of POWERUP.sounds[e.kind]) this.audio.play(sound);
     if (e.kind === 'giant') {
       this.rig.addTrauma(TRAUMA.giant);
-      this.audio.play('pulse');
     } else if (e.kind === 'freeze') {
       this.effects.freezeBlast(e.x, e.y);
       this.rig.addTrauma(TRAUMA.freeze);
-      this.audio.play('pulse');
     } else if (e.kind === 'pillars') {
       for (const pillar of this.sim.powerUps.pillars) {
         if (pillar.active && pillar.state === 'up' && pillar.time === 0) this.effects.pillarDust(pillar.x, pillar.y);
       }
       this.rig.addTrauma(TRAUMA.pillars);
-      this.audio.play('bump', 0.9);
-    } else if (e.kind === 'flamer') {
-      this.audio.play('pickup');
     }
   }
 
@@ -793,9 +791,9 @@ export class GameScene extends Phaser.Scene {
     }
     this.audio.update(dt, {
       driving: this.mode === 'playing' && !this.turntable,
-      speed: player.speed,
       slip: Math.abs(player.lateralSpeed),
       sirenDistance: this.mode === 'playing' ? nearest : Infinity,
+      helicopter: this.mode === 'playing' && this.sim.helicopter.active,
     });
   }
 
