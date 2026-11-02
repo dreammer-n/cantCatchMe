@@ -1,8 +1,8 @@
 import * as Phaser from 'phaser';
 import { DEPTH, HELICOPTER, PALETTE, RENDER } from '../config/tuning.js';
 import { atlasMeta, ensureCarAtlas, frameFor } from './carAtlas.js';
-import { carShadowPoints, ROTOR } from './carModels.js';
-import { bakeMesh, worldShadowOutline } from './lowpoly.js';
+import { ROTOR } from './carModels.js';
+import { bakeMesh } from './lowpoly.js';
 import { projection } from './projection.js';
 import { concreteBlock } from './propModels.js';
 import { makeBeamTexture } from './SirenBeams.js';
@@ -18,16 +18,20 @@ const BEAM_WIDTH = 128;
 // the road, a searchlight on the car, and the flares and concrete blocks it drops. Reads
 // entities/Helicopter.js and never changes it.
 export class HelicopterView {
-  // shadows: the shared Graphics for car shadows, in the ground shadow layer.
-  constructor(scene, layers, shadows) {
+  constructor(scene, layers) {
     this.scene = scene;
-    this.shadows = shadows;
     makeBeamTexture(scene);
     this.body = scene.add.image(0, 0, ensureCarAtlas(scene, 'helicopter'), 'dir0').setScale(ROTOR.modelScale / RENDER.bakeScale).setDepth(DEPTH.effects + 6).setVisible(false);
     this.rotor = scene.add.graphics().setDepth(DEPTH.effects + 7).setVisible(false);
-    this.points = carShadowPoints('helicopter');
-    this.scratch = this.points.map(() => ({ x: 0, y: 0 }));
-    this.outline = this.points.map(() => ({ x: 0, y: 0 }));
+    this.disc = scene.add.image(0, 0, 'fx-glow').setTint(PALETTE.rotorBlur).setDepth(DEPTH.effects + 6.5).setVisible(false);
+    // Soft, because it is far above the road: one patch for the body, a fainter one for the spinning rotor.
+    const softShadow = () => {
+      const image = scene.add.image(0, 0, 'fx-glow').setTint(RENDER.shadowColor).setVisible(false);
+      layers.shadows.add(image);
+      return image;
+    };
+    this.bodyShadow = softShadow();
+    this.rotorShadow = softShadow();
     this.beam = scene.add.image(0, 0, 'fx-beam').setOrigin(0, 0.5).setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.effects + 5).setTint(PALETTE.searchlight).setVisible(false);
     this.spot = scene.add.image(0, 0, 'fx-glow').setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.searchlight).setVisible(false);
     layers.lights.add(this.spot);
@@ -67,7 +71,7 @@ export class HelicopterView {
   }
 
   hide() {
-    for (const image of [this.body, this.rotor, this.beam, this.spot, this.spotOver]) image.setVisible(false);
+    for (const image of [this.body, this.rotor, this.disc, this.bodyShadow, this.rotorShadow, this.beam, this.spot, this.spotOver]) image.setVisible(false);
     for (const drop of this.drops) for (const image of [drop.glow, drop.ring, drop.flare, drop.block, drop.shadow]) image.setVisible(false);
   }
 
@@ -89,31 +93,49 @@ export class HelicopterView {
     this.body.setVisible(true).setFrame(pick.frame).setRotation(pick.rotation).setPosition(screen.x, screen.y);
   }
 
-  // A blurred disc and two blades, turned to a new angle each frame.
+  // One tapered blade through the hub, as a thin diamond seen from this camera.
+  drawBlade(cx, cy, angle, alpha) {
+    const g = this.rotor;
+    const r = ROTOR.radius;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle) * projection.squash;
+    const nx = -dy * HELICOPTER.bladeWidth;
+    const ny = dx * HELICOPTER.bladeWidth;
+    g.fillStyle(PALETTE.rotorBlade, alpha);
+    g.beginPath();
+    g.moveTo(cx - dx * r, cy - dy * r);
+    g.lineTo(cx + nx, cy + ny);
+    g.lineTo(cx + dx * r, cy + dy * r);
+    g.lineTo(cx - nx, cy - ny);
+    g.closePath();
+    g.fillPath();
+  }
+
+  // A soft blur of spinning, then the blades with a fading trail behind each, turned to a new angle each frame.
   drawRotor(heli, time) {
     const g = this.rotor;
     g.clear();
     g.setVisible(true);
     const angle = (time / 1000) * HELICOPTER.rotorSpeed;
-    const r = ROTOR.radius;
     projection.toScreen(heli.x, heli.y, heli.z + ROTOR.height, screen);
     const cx = screen.x;
     const cy = screen.y;
-    g.fillStyle(PALETTE.rotorBlur, 0.2);
-    g.fillEllipse(cx, cy, r * 2, r * 2 * projection.squash);
+    const size = (ROTOR.radius * 2.3) / 64;
+    this.disc.setVisible(true).setPosition(cx, cy).setScale(size, size * projection.squash).setAlpha(HELICOPTER.rotorBlurAlpha);
     for (const offset of [0, Math.PI / 2]) {
-      const dx = Math.cos(angle + offset) * r;
-      const dy = Math.sin(angle + offset) * r * projection.squash;
-      g.lineStyle(5, PALETTE.rotorBlade, 0.85);
-      g.lineBetween(cx - dx, cy - dy, cx + dx, cy + dy);
+      this.drawBlade(cx, cy, angle + offset - 0.3, 0.14);
+      this.drawBlade(cx, cy, angle + offset - 0.15, 0.3);
+      this.drawBlade(cx, cy, angle + offset, 0.92);
     }
-    // The small rotor at the tail.
+    g.fillStyle(PALETTE.rotorBlade, 1);
+    g.fillEllipse(cx, cy, 11, 11 * projection.squash);
+    // The small rotor at the side of the tail.
     const tx = heli.x - Math.sin(heli.heading) * ROTOR.tailReach;
     const ty = heli.y + Math.cos(heli.heading) * ROTOR.tailReach;
     projection.toScreen(tx, ty, heli.z + ROTOR.tailHeight, screen);
     const spin = angle * 1.7;
     g.lineStyle(3, PALETTE.rotorBlade, 0.85);
-    g.lineBetween(screen.x, screen.y - Math.cos(spin) * 12, screen.x, screen.y + Math.cos(spin) * 12);
+    g.lineBetween(screen.x, screen.y - Math.cos(spin) * 15, screen.x, screen.y + Math.cos(spin) * 15);
   }
 
   // Far from the helicopter on the road: the higher it flies, the further the sun throws its shadow.
@@ -121,18 +143,17 @@ export class HelicopterView {
     projection.shadowOffset(heli.z, shift);
     const x = heli.x + shift.x;
     const y = heli.y + shift.y;
-    const count = worldShadowOutline(this.points, x, y, heli.heading, projection, this.outline, this.scratch, ROTOR.modelScale);
-    const g = this.shadows;
-    if (count >= 3) {
-      g.fillStyle(RENDER.shadowColor, RENDER.shadowAlpha);
-      g.beginPath();
-      g.moveTo(this.outline[0].x, this.outline[0].y);
-      for (let i = 1; i < count; i += 1) g.lineTo(this.outline[i].x, this.outline[i].y);
-      g.closePath();
-      g.fillPath();
-    }
-    g.fillStyle(RENDER.shadowColor, RENDER.shadowAlpha * 0.5);
-    g.fillCircle(x, y, ROTOR.radius);
+    this.bodyShadow
+      .setVisible(true)
+      .setPosition(x, y)
+      .setRotation(heli.heading)
+      .setScale(HELICOPTER.shadowWidth / 64, HELICOPTER.shadowLength / 64)
+      .setAlpha(HELICOPTER.shadowAlpha);
+    this.rotorShadow
+      .setVisible(true)
+      .setPosition(x, y)
+      .setScale((ROTOR.radius * 2.2) / 64)
+      .setAlpha(HELICOPTER.shadowAlpha * 0.4);
   }
 
   // A pool of light on the road, a faint wash on what stands in it, and a beam down to it.

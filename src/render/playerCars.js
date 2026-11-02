@@ -87,19 +87,19 @@ function cab({ hw, y0, y1, z0, z1, lean = 3.5, leanF = 7, leanB = 4, roof, cut =
   return [glass, slab];
 }
 
-function headlights(part, face = 'front', v0 = 0.3, v1 = 0.8) {
+export function headlights(part, face = 'front', v0 = 0.3, v1 = 0.8) {
   decal(part, face, 0.04, 0.25, v0, v1, PALETTE.headlight, true);
   decal(part, face, 0.75, 0.96, v0, v1, PALETTE.headlight, true);
   return part;
 }
 
-function taillights(part, v0 = 0.4, v1 = 0.8) {
+export function taillights(part, v0 = 0.4, v1 = 0.8) {
   decal(part, 'back', 0.04, 0.26, v0, v1, PALETTE.taillight, true);
   decal(part, 'back', 0.74, 0.96, v0, v1, PALETTE.taillight, true);
   return part;
 }
 
-function grille(part, v0 = 0.25, v1 = 0.75, color = DARK) {
+export function grille(part, v0 = 0.25, v1 = 0.75, color = DARK) {
   decal(part, 'front', 0.31, 0.69, v0, v1, color);
   return part;
 }
@@ -208,14 +208,14 @@ const WHEEL_LAYER = -3;
 const mix = (a, b, t) => a + (b - a) * t;
 
 // A small part that doesn't change the car's shadow (which is worked out every frame).
-function detail(part) {
+export function detail(part) {
   part.noShadow = true;
   return part;
 }
 
 // outline: [y, shoulder height, top height, share of the width], back to front. A station is added wherever the
 // body has to rise over a wheel, and the shoulder rises with it, which is what shapes the fenders.
-function pressedBody({ outline, axles, radius, W, flare = 0.8, sill = 6, crown = 0.3, color, panel = () => color }) {
+export function pressedBody({ outline, axles, radius, W, flare = 0.8, sill = 6, crown = 0.3, color, panel = () => color }) {
   const R = radius + ARCH_ROOM;
   const reach = R + 1.2;
   const shoulderOf = 0.7 * R;
@@ -259,7 +259,7 @@ function topMark(body, u0, u1, y0, y1, color, unlit = false) {
 }
 
 // Paints on both side panels at real heights, so that a line stays straight where the panel dips over a wheel.
-function sideMark(body, y0, y1, z0, z1, color, unlit = false) {
+export function sideMark(body, y0, y1, z0, z1, color, unlit = false) {
   const on = (station, z) => {
     const [low, high] = [station.half[1], station.half[2]];
     const t = Math.max(0, Math.min(1, (z - low[1]) / (high[1] - low[1] || 1)));
@@ -287,13 +287,13 @@ function sideMark(body, y0, y1, z0, z1, color, unlit = false) {
 }
 
 // A door line and handle.
-function doorLine(body, y, sill, shoulder, color) {
+export function doorLine(body, y, sill, shoulder, color) {
   sideMark(body, y - 0.3, y + 0.3, sill + 1, shoulder - 0.4, shadeColor(color, 0.62));
   sideMark(body, y - 5, y - 2, shoulder - 3.2, shoulder - 2.3, shadeColor(color, 0.5));
 }
 
 // Four wheels (the axles run along x), and the dark floor seen through the arches.
-function wheelsAndFloor({ axles, radius, width, reach, hw, length, floor }) {
+export function wheelsAndFloor({ axles, radius, width, reach, hw, length, floor }) {
   const parts = [];
   for (const side of [-1, 1]) {
     for (const y of axles) {
@@ -310,7 +310,7 @@ function wheelsAndFloor({ axles, radius, width, reach, hw, length, floor }) {
 
 // The cabin: body-coloured pillars and frames around panes of glass, and a roof on top. panes: [u0, u1] along
 // the side, 0 at the front. roofY0, roofY1: where the top of the cabin ends, so the glass slopes.
-function greenhouse({ hw, y0, y1, roofY0, roofY1, z0, z1, frame, roof = frame, panes, lean = 3, layer = 2 }) {
+export function greenhouse({ hw, y0, y1, roofY0, roofY1, z0, z1, frame, roof = frame, panes, lean = 3, layer = 2 }) {
   const roofZ = z1 - 1.6;
   const cabin = shell({ hw, y0, y1, z0, z1: roofZ, color: frame, cut: 2, bevel: 0, lean, leanF: y1 - roofY1, leanB: roofY0 - y0, layer });
   decal(cabin, 'front', 0.05, 0.95, 0.07, 0.93, PALETTE.glass);
@@ -329,7 +329,7 @@ function greenhouse({ hw, y0, y1, roofY0, roofY1, z0, z1, frame, roof = frame, p
   return [cabin, slab];
 }
 
-const mirrors = (x, y, z, color) => [-1, 1].map((s) => detail(box(s * x - 1.5, s * x + 1.5, y - 1.4, y + 1.4, z, z + 2.2, color, 2)));
+export const mirrors = (x, y, z, color) => [-1, 1].map((s) => detail(box(s * x - 1.5, s * x + 1.5, y - 1.4, y + 1.4, z, z + 2.2, color, 2)));
 
 // A wing on two struts.
 function wing({ hw, y0, y1, z, strutX, strutZ, color, strutColor = color, thick = 2.4 }) {

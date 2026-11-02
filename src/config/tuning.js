@@ -473,8 +473,10 @@ export const WARNING = {
   fadeRate: 8, // how quickly an arrow fades in and out (per second)
   minLevel: 0.03,
   maxShown: 5,
-  size: 11, // at the UI's reference size
+  size: 7.5, // at the UI's reference size
+  pulse: 0.6, // how much it swells and shrinks
   pulseMs: 130,
+  alpha: 0.55, // subtle: a hint at the edge of the screen, not an alarm
   // The siren light that sweeps across the road ahead of an arriving car.
   beamReach: 0.8, // share of the way from the car to the player
   beamMaxLength: 1500,
@@ -535,6 +537,11 @@ export const FLAT_TIRE = {
 
 // [TUNE] The police helicopter. It can't be stopped; it arrives at 45 s.
 export const HELICOPTER = {
+  bladeWidth: 4.5, // half a rotor blade's width at the hub
+  rotorBlurAlpha: 0.42,
+  shadowWidth: 78, // its soft shadow on the road
+  shadowLength: 190,
+  shadowAlpha: 0.55,
   firstAt: 45,
   arriveDistance: 1500,
   height: 250,
@@ -632,16 +639,24 @@ export const WRECK = {
 
 // [TUNE] How a wreck is thrown about on screen. Drawing only: see render/Tumble.js.
 export const TUMBLE = {
-  hopMin: 70, // how high it flies (world units)
-  hopMax: 115,
-  airSeconds: 0.6,
-  bounceShare: 0.2, // the bounce after landing, as a share of the first height
-  bounceSeconds: 0.24,
-  roofChance: 0.6, // otherwise it rolls all the way round, back onto its wheels
-  spin: 1.1, // extra turn on screen, up to this much either way (radians)
-  minSquash: 0.42, // the drawing never gets thinner than this mid-roll
+  hopMin: 34, // how high the blast lifts it (world units)
+  hopMax: 58,
+  airSeconds: 0.38,
+  bounceShare: 0.22, // the bounce after landing, as a share of the first height
+  bounceSeconds: 0.16,
+  spin: 0.9, // how far it turns while in the air, up to this much either way (radians)
+  tiltDeg: 7, // it leans over a little while in the air
   overFlamesHeight: 12, // above this height it is drawn in front of the fireball
   playerTimeScale: 0.6, // the player's crash runs in slow motion, so its tumble uses this share of real time
+};
+
+// [TUNE] What fire does to a car's colours (0 = untouched, 1 = all soot). See burntOut in render/carModels.js.
+export const BURNT = {
+  burntMin: 0.7,
+  burntMax: 0.95,
+  shadowAlpha: 0.72,
+  shadowGrow: 1.5, // the soft shadow's size against the car's
+  shadowLift: 14, // how far the sun throws it, as if the car stood this tall
 };
 
 export const EXPLOSION = {
@@ -866,7 +881,7 @@ export const RENDER = {
   // Car drawings made at startup from the 3D model, evenly spaced around the compass.
   directions: 64,
   // Per model: wrecks barely turn, so fewer drawings (less memory) are enough.
-  carDirections: { playerBody: 64, playerWheels: 32, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, wreck: 32, wreckRoof: 16 },
+  carDirections: { playerBody: 64, playerWheels: 32, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, playerWreck: 16, policeWreck: 16, interceptorWreck: 16, bearcatWreck: 16 },
   // 0 = snap to the nearest drawing, 1 = also rotate by the small leftover angle (smoother turning).
   residualRotation: 1,
   // Pixels per world unit in the drawings baked at startup (cars and props).
@@ -993,8 +1008,7 @@ export const PALETTE = {
   lightRed: 0xff3b30,
   lightBlue: 0x3d8bff,
   // Burnt-out wreck
-  wreckBody: 0x3d3833,
-  wreckGlass: 0x16181c,
+  soot: 0x18181b,
   scorch: 0x0b0d10,
   // The lucky die
   crate: 0xb8800f, // dark amber, the game's main colour ...
@@ -1010,7 +1024,6 @@ export const PALETTE = {
   chunkTireWall: 0x33363e,
   chunkHub: 0x5a5e66,
   chunkMetal: 0x2a2826,
-  chunkPanel: 0x3d3833,
   statueRed: 0xd7142f,
   statueNavy: 0x25408f,
   statueCream: 0xf6efdf,
@@ -1073,14 +1086,16 @@ export const EFFECTS = {
   maxFireball: 120, // flame clouds on screen at once
   maxChunks: 24, // big flying pieces (tires, bumpers, panels)
   maxRings: 6, // ground shockwave rings
-  chunksSmall: 3, // pieces thrown out by a police wreck ...
-  chunksBig: 5, // ... and by the player's crash
-  chunkGravity: 900,
-  chunkBounce: 0.38, // bumpers and panels thud and scrape ...
-  chunkScrape: 4.5,
+  chunksSmall: 5, // pieces thrown out by a police wreck ...
+  chunksBig: 7, // ... and by the player's crash
+  chunkGravity: 2600, // they have weight: up and straight back down, not floating
+  chunkLift: [380, 620], // how hard the blast throws them upward (units/s)
+  chunkSpeed: [170, 360], // and outward
+  chunkBounce: 0.38, // bumpers and panels thud and stop nearly where they land ...
+  chunkGrip: 0.3, // friction with the road
   chunkSeconds: 1.8,
   tireBounce: 0.64, // ... tires bounce and roll on
-  tireScrape: 0.9,
+  tireGrip: 0.045,
   tireSeconds: 2.6,
   chunkShadowRadius: 15,
   chunkShadowAlpha: 0.42,

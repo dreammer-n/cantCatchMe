@@ -2,8 +2,8 @@
   --page-bg: #1b1f24;
   --ink: #14171c;
   --cream: #f4efe6;
-  --amber: #e0a526; /* the game's one main colour: buttons, coins, stars, the power-up */
-  --amber-deep: #b8800f;
+  --amber: #ffc914; /* the game's one main colour: buttons, coins, stars, the power-up */
+  --amber-deep: #e09a00;
   --done: #4d8c3a; /* anything finished */
   --ground: #3e444f; /* the current map's road */
   --panel: rgba(14, 15, 18, 0.72);

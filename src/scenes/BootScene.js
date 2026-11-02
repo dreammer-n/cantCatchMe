@@ -14,7 +14,7 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     makeEffectTextures(this);
-    for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'wreck', 'wreckRoof']) ensureCarAtlas(this, name);
+    for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'policeWreck', 'interceptorWreck', 'bearcatWreck']) ensureCarAtlas(this, name);
     this.registry.set('handlingPreset', 'car');
     applyMapPalette(Maps.current());
     this.registry.set('layout', buildLayout(undefined, Maps.current()));

@@ -175,7 +175,7 @@ for (const view of RENDER.views) {
 
 // --- Props ---
 {
-  for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'wreck', 'wreckRoof']) {
+  for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'policeWreck', 'interceptorWreck', 'bearcatWreck']) {
     check(`${name} car model shows faces from the angled camera`, projectMesh(carMesh(name), 0.3, angled).some((p) => p.faces.length > 0));
   }
   const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.luckyDie(0), props.propMesh({ kind: 'civilian', params: { shape: 'compact', color: 'civilianYellow' } }), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];

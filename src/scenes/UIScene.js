@@ -194,7 +194,7 @@ export class UIScene extends Phaser.Scene {
   // A red chevron at the screen edge for each police car arriving from out of sight. It points
   // where the car will come from, and fades as the car comes into view.
   drawThreats(g, width, height) {
-    const size = (WARNING.size + Math.sin(this.time.now / WARNING.pulseMs) * 1.5) * this.uiScale;
+    const size = (WARNING.size + Math.sin(this.time.now / WARNING.pulseMs) * WARNING.pulse) * this.uiScale;
     for (const threat of this.world.radar.threats) {
       this.edgeToward(this.world.pointOnCanvas(threat.x, threat.y, 0, threatPoint), width, height);
       const { x, y, dx, dy } = edge;
@@ -208,7 +208,7 @@ export class UIScene extends Phaser.Scene {
       const bx = backX + dy * wing;
       const by = backY - dx * wing;
       for (const [color, thickness, alpha] of THREAT_STROKES) {
-        g.lineStyle(size * thickness, color, alpha * threat.level);
+        g.lineStyle(size * thickness, color, alpha * threat.level * WARNING.alpha);
         g.lineBetween(ax, ay, tipX, tipY);
         g.lineBetween(bx, by, tipX, tipY);
       }

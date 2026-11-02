@@ -32,7 +32,7 @@ import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { CameraRig } from '../render/CameraRig.js';
 import { ensureCarAtlas, releaseCarSheets } from '../render/carAtlas.js';
-import { BEARCAT_LIGHTS, carShadowPoints } from '../render/carModels.js';
+import { BEARCAT_LIGHTS, carPaint, carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
 import { HelicopterView } from '../render/HelicopterView.js';
 import { createLayers, depthAt } from '../render/layers.js';
@@ -78,7 +78,7 @@ export class GameScene extends Phaser.Scene {
     this.carShadows = this.add.graphics();
     this.layers.shadows.add(this.carShadows);
     this.looks = this.makeLooks();
-    this.playerView = new CarView(this, this.looks.player, this.carShadows);
+    this.playerView = new CarView(this, this.looks.player, this.carShadows, null, this.layers.shadows);
     this.freeViews = [];
     this.skids = new SkidMarks(this, this.layers.ground);
     this.effects = new Effects(this, this.layers);
@@ -93,7 +93,7 @@ export class GameScene extends Phaser.Scene {
     this.pendingPower = false; // a power-up press during a hit-stop waits for the action to restart
     this.radar = new ThreatRadar();
     this.beams = new SirenBeams(this, this.layers.lights);
-    this.helicopterView = new HelicopterView(this, this.layers, this.carShadows);
+    this.helicopterView = new HelicopterView(this, this.layers);
     this.rig = new CameraRig();
     this.rig.reset(this.sim.player.x, this.sim.player.y);
     this.view = { x: 0, y: 0, right: 0, bottom: 0 }; // visible screen rectangle
@@ -135,6 +135,7 @@ export class GameScene extends Phaser.Scene {
     this.oldCarId = this.carId;
     this.carId = Garage.selected;
     this.looks.player = this.playerLook();
+    this.looks.playerWreck = this.wreckLook(this.carId);
   }
 
   // Moves to the map chosen on the map screen. Everything on the map is drawn again in its colours: that
@@ -166,9 +167,23 @@ export class GameScene extends Phaser.Scene {
     return { atlasKey: ensureCarAtlas(this, `${id}Body`), wheelsKey: ensureCarAtlas(this, `${id}Wheels`), shadowPoints: carShadowPoints(id), lights: false };
   }
 
+  // The same car, burnt out: the player's own, or whichever police car it was.
+  wreckLook(name) {
+    return { atlasKey: ensureCarAtlas(this, `${name}Wreck`), shadowPoints: carShadowPoints(name), lights: false, burnt: true };
+  }
+
   makeLooks() {
     const look = (name, lights, lightSpot) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights, lightSpot });
-    return { player: this.playerLook(), police: look('police', true), interceptor: look('interceptor', true), bearcat: look('bearcat', true, BEARCAT_LIGHTS), wreck: look('wreck', false), wreckRoof: look('wreckRoof', false) };
+    return {
+      player: this.playerLook(),
+      playerWreck: this.wreckLook(this.carId),
+      police: look('police', true),
+      interceptor: look('interceptor', true),
+      bearcat: look('bearcat', true, BEARCAT_LIGHTS),
+      policeWreck: this.wreckLook('police'),
+      interceptorWreck: this.wreckLook('interceptor'),
+      bearcatWreck: this.wreckLook('bearcat'),
+    };
   }
 
   // ------------------------------------------------------------------------------------------
@@ -308,8 +323,8 @@ export class GameScene extends Phaser.Scene {
         case 'wreck':
           if (e.cause === 'void') this.crumbleBehind(e.police.model);
           if (e.police.view && e.cause !== 'void') {
-            e.police.view.setLook(this.looks.wreck);
-            e.police.view.startTumble(this.looks.wreckRoof);
+            e.police.view.setLook(this.wreckLookFor(e.police));
+            e.police.view.startTumble();
           }
           break;
         case 'fall':
@@ -319,7 +334,7 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'explosion': {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
-          this.effects.explosion(e.x, e.y, e.player);
+          this.effects.explosion(e.x, e.y, e.player, carPaint(e.player ? this.carId : this.modelOf(e.police)));
           if (!e.player && distance < HITSTOP.wreckRange) this.punch(HITSTOP.wreckMs);
           this.audio.play('explosion', 1 - distance / AUDIO.explosionRange);
           this.audio.play('carCrash', 1 - distance / AUDIO.explosionRange);
@@ -334,8 +349,8 @@ export class GameScene extends Phaser.Scene {
             this.effects.holeDust(e.x, e.y);
             this.rig.addTrauma(TRAUMA.fall);
           } else {
-            this.playerView.setLook(this.looks.wreck);
-            this.playerView.startTumble(this.looks.wreckRoof);
+            this.playerView.setLook(this.looks.playerWreck);
+            this.playerView.startTumble();
             this.hitStop.trigger(HITSTOP.crashMs);
             this.audio.play('carCrash');
             this.rig.addTrauma(TRAUMA.crash);
@@ -385,7 +400,7 @@ export class GameScene extends Phaser.Scene {
           this.onPowerUsed(e);
           break;
         case 'shatter':
-          this.effects.shatter(e.x, e.y);
+          this.effects.shatter(e.x, e.y, carPaint(this.modelOf(e.police)));
           this.toast('SMASHED!', 'combo');
           this.rig.addTrauma(TRAUMA.shatter);
           this.punch(HITSTOP.smashMs);
@@ -500,9 +515,17 @@ export class GameScene extends Phaser.Scene {
     this.game.events.emit('power-ready', POWERUP.names[kind]);
   }
 
+  modelOf(police) {
+    if (police.armored) return 'bearcat';
+    return police.role === 'interceptor' ? 'interceptor' : 'police';
+  }
+
   lookFor(police) {
-    if (police.armored) return this.looks.bearcat;
-    return police.role === 'interceptor' ? this.looks.interceptor : this.looks.police;
+    return this.looks[this.modelOf(police)];
+  }
+
+  wreckLookFor(police) {
+    return this.looks[`${this.modelOf(police)}Wreck`];
   }
 
   // Freezes the action for a moment. Only in play: a crash has its own slow motion.
@@ -766,9 +789,9 @@ export class GameScene extends Phaser.Scene {
     this.layers.applyProjection();
     this.scenery.redraw();
     this.looks = this.makeLooks();
-    this.playerView.setLook(this.sim.state === 'crashed' ? this.looks.wreck : this.looks.player);
+    this.playerView.setLook(this.sim.state === 'crashed' ? this.looks.playerWreck : this.looks.player);
     for (const police of this.sim.police) {
-      if (police.view) police.view.setLook(police.alive ? this.lookFor(police) : this.looks.wreck);
+      if (police.view) police.view.setLook(police.alive ? this.lookFor(police) : this.wreckLookFor(police));
     }
     this.bakeCrate();
     this.helicopterView.redraw();

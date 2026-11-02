@@ -1,9 +1,9 @@
 import { PALETTE } from '../config/tuning.js';
-import { chunkyWheel, ngon, paintMesh, projectMesh, shadeColor, shell } from './lowpoly.js';
+import { chunkyWheel, decal, ngon, paintMesh, projectMesh, shadeColor, shell } from './lowpoly.js';
 import { projection } from './projection.js';
 
-// The wreckage that flies out of a crash, as real solid models: a tire, a door panel, a bent bumper, a piece of
-// hood. Each is drawn at startup in DEBRIS.poses positions through one turn, so as it tumbles the sheet shows its
+// The wreckage that flies out of a crash, as real solid models: a tire, a door, a bent bumper, a hood, a panel. The
+// painted ones are pale here and tinted with the paint of the car they came from (Effects.throwChunks). Each is drawn at startup in DEBRIS.poses positions through one turn, so as it tumbles the sheet shows its
 // thickness and its faces catching the light. Pose 0 is lying flat, as is the pose half a turn on.
 
 export const DEBRIS = {
@@ -13,7 +13,8 @@ export const DEBRIS = {
   shards: 6, // little fragments, each one fixed pose
 };
 
-export const DEBRIS_KINDS = ['tire', 'panel', 'bumper', 'hood'];
+export const DEBRIS_KINDS = ['tire', 'door', 'panel', 'bumper', 'hood'];
+const PALE = 0xf2f2f2;
 const KEY = 'fx-debris';
 
 // A copy of a model, with every point moved. Colours and faces stay as they are.
@@ -46,21 +47,38 @@ function turnedAboutZ([x, y, z], a) {
   return [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a), z];
 }
 
+// A shell has no underside, since a car's body never shows one. A flying piece turns right over, so it needs one,
+// or it looks like an empty rim half the time. Built around z = 0, its top mirrored is its bottom.
+function withUnderside(part) {
+  const top = part.faces.find((f) => f.name === 'top');
+  const start = part.verts.length;
+  part.verts.push(...top.v.map((i) => [part.verts[i][0], part.verts[i][1], -part.verts[i][2]]));
+  part.faces.push({ name: 'under', v: top.v.map((_, i) => start + i), color: shadeColor(top.color, 0.5), decals: [] });
+  return part;
+}
+
 const MODELS = {
   tire: () => {
     const wheel = chunkyWheel({ x0: -3.5, x1: 3.5, y: 0, radius: 8, color: PALETTE.chunkTire, rim: PALETTE.chunkHub, hub: PALETTE.chunkTireWall, side: 1, sides: 10, chamfer: 1 });
     return moved([wheel], ([x, y, z]) => [x, y, z - 8]);
   },
-  panel: () => {
-    const color = PALETTE.chunkPanel;
-    const part = shell({ hw: 11, y0: -8, y1: 8, z0: -1.1, z1: 1.1, color, cut: 2.6, bevel: 0.6 });
-    part.faces.find((f) => f.name === 'top').decals.push({ pts: [[-7.5, 2, 1.1], [7.5, 2, 1.1], [7.5, 2.8, 1.1], [-7.5, 2.8, 1.1]], color: shadeColor(color, 0.6) });
-    return moved([part], ([x, y, z]) => [x, y, z + (y * y) * 0.02 - 0.6]); // creased by the crash
+  door: () => {
+    const part = withUnderside(shell({ hw: 10, y0: -11, y1: 11, z0: -1.4, z1: 1.4, color: PALE, cut: 1.6, bevel: 0.6 }));
+    decal(part, 'top', 0.1, 0.9, 0.54, 0.92, PALETTE.glass);
+    decal(part, 'top', 0.64, 0.8, 0.2, 0.28, shadeColor(PALE, 0.45)); // the handle
+    return moved([part], ([x, y, z]) => [x, y, z + x * x * 0.012 - 0.6]); // bent by the crash
   },
-  bumper: () => moved([shell({ hw: 15, y0: -2.6, y1: 2.6, z0: -1.9, z1: 1.9, color: PALETTE.chunkMetal, cut: 1.2, bevel: 0.8 })], ([x, y, z]) => [x, y + x * x * 0.018 - 2, z]),
+  panel: () => {
+    const part = withUnderside(shell({ hw: 11, y0: -8, y1: 8, z0: -1.3, z1: 1.3, color: PALE, cut: 2.6, bevel: 0.6 }));
+    decal(part, 'top', 0.14, 0.86, 0.6, 0.65, shadeColor(PALE, 0.55));
+    return moved([part], ([x, y, z]) => [x, y, z + y * y * 0.02 - 0.6]);
+  },
+  bumper: () => moved([withUnderside(shell({ hw: 15, y0: -4, y1: 4, z0: -2.6, z1: 2.6, color: PALETTE.chunkMetal, cut: 1.6, bevel: 0.9 }))], ([x, y, z]) => [x, y + x * x * 0.022 - 2.4, z]),
   hood: () => {
-    const part = ngon({ sides: 5, r0: 12, r1: 10.5, z0: -1, z1: 1, color: shadeColor(PALETTE.chunkPanel, 1.45), rotation: 0.4 });
-    return moved([part], ([x, y, z]) => [x * 1.05, y * 0.8, z + x * 0.1]);
+    const part = withUnderside(shell({ hw: 13, y0: -10, y1: 10, z0: -1.3, z1: 1.3, color: PALE, cutB: 1, cutF: 4, bevel: 0.7 }));
+    decal(part, 'top', 0.36, 0.42, 0.04, 0.96, shadeColor(PALE, 0.72));
+    decal(part, 'top', 0.58, 0.64, 0.04, 0.96, shadeColor(PALE, 0.72));
+    return moved([part], ([x, y, z]) => [x, y, z + y * 0.14 + Math.abs(x) * -0.08]); // creased up the middle
   },
 };
 
@@ -82,6 +100,7 @@ function draw(ctx, mesh, x, y) {
   paintMesh(ctx, projectMesh(mesh, 0.5, projection));
 }
 
+export const debrisMesh = (kind) => MODELS[kind]();
 export const frameName = (kind, index) => `${kind}${index}`;
 export const shardFrames = () => Array.from({ length: DEBRIS.shards }, (_, i) => `shard${i}`);
 

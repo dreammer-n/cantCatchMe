@@ -2,13 +2,16 @@ import * as Phaser from 'phaser';
 import { DEPTH, EFFECTS, FLAMER, FREEZE, PALETTE, RENDER } from '../config/tuning.js';
 import { chunkPose, stepChunk, stepChunkTurn } from './Tumble.js';
 import { DEBRIS, DEBRIS_KINDS, frameName, makeDebrisSheet, shardFrames } from './debrisModels.js';
+import { lerp } from '../utils/math.js';
+import { shadeColor } from './lowpoly.js';
 import { projection } from './projection.js';
 import { paintEmber, paintFireCore, paintGlow, paintPool, paintPuff, paintRing, paintScorch } from './softShapes.js';
 
 const screen = { x: 0, y: 0 };
 const CORE_SIZE = 128; // pixels across a fire core drawing
 const shadowShift = { x: 0, y: 0 };
-const CHUNK_KINDS = ['tire', 'panel', 'bumper', 'tire', 'hood'];
+const CHUNK_KINDS = ['tire', 'door', 'hood', 'tire', 'panel', 'bumper', 'door'];
+const PAINTED = new Set(['door', 'hood', 'panel']); // these are drawn pale, then tinted with the car's paint
 const SCORCH_ALPHA = 0.85;
 
 // Code-drawn particle textures (no image files). See softShapes.js.
@@ -128,10 +131,10 @@ export class Effects {
       .particles(0, 0, makeDebrisSheet(scene), {
         ...base,
         frame: shardFrames(),
-        lifespan: { min: 500, max: 900 },
-        speed: { min: 110, max: 280 },
+        lifespan: { min: 350, max: 600 },
+        speed: { min: 130, max: 300 },
         angle: { min: 200, max: 340 },
-        gravityY: 520,
+        gravityY: 1500,
         rotate: { start: 0, end: 540 },
         scale: { start: 0.62, end: 0.42 },
         tint: [0x53585f, 0x7a7f88, PALETTE.policeBody],
@@ -141,11 +144,11 @@ export class Effects {
     this.flames = scene.add
       .particles(0, 0, 'fx-puff', {
         ...base,
-        lifespan: { min: 220, max: 420 },
-        speedX: { min: -8, max: 8 },
-        speedY: { min: -60, max: -30 },
-        scale: { start: 0.42, end: 0.08 },
-        tint: [0xffd21f, 0xff7a18],
+        lifespan: { min: 300, max: 560 },
+        speedX: { min: -12, max: 12 },
+        speedY: { min: -90, max: -45 },
+        scale: { start: 0.5, end: 0.1 },
+        color: [0xffb52e, 0xff7a18, 0xd8380f, 0x5a1608],
         maxAliveParticles: EFFECTS.maxFire,
       })
       .setDepth(DEPTH.effects + 1);
@@ -244,10 +247,11 @@ export class Effects {
 
   flame(x, y) {
     projection.toScreen(x, y, 18, screen);
-    this.flames.emitParticleAt(screen.x + (Math.random() - 0.5) * 16, screen.y, 1);
+    this.flames.emitParticleAt(screen.x + (Math.random() - 0.5) * 26, screen.y, 2);
   }
 
-  explosion(x, y, big = false) {
+  // paint: the colour of the car that went up.
+  explosion(x, y, big = false, paint = 0xffffff) {
     projection.toScreen(x, y, 14, screen);
     // A white flash, then a rolling ball of fire made of several overlapping cores and clouds that burn from
     // white to dark red, embers flying out, thick smoke climbing as the fire dies. The ground lights up, a ring
@@ -266,7 +270,7 @@ export class Effects {
     this.darkSmoke.emitParticleAt(screen.x, screen.y, big ? 18 : 12);
     this.blastGlow(x, y, big ? EFFECTS.ringRadiusBig * 1.5 : EFFECTS.ringRadius * 1.5);
     this.groundRing(x, y, big ? EFFECTS.ringRadiusBig : EFFECTS.ringRadius);
-    this.throwChunks(x, y, big ? EFFECTS.chunksBig : EFFECTS.chunksSmall);
+    this.throwChunks(x, y, big ? EFFECTS.chunksBig : EFFECTS.chunksSmall, paint);
     this.scorch(x, y);
   }
 
@@ -286,19 +290,19 @@ export class Effects {
     this.scene.tweens.add({ targets: ring, scale: radius / 60, alpha: 0, duration: EFFECTS.ringMs, ease: 'Quad.easeOut', onComplete: () => ring.setVisible(false) });
   }
 
-  // Tires, bumpers and panels fly out, bounce and scrape to a stop.
+  // Tires, bumpers and panels fly out and drop; friction stops them where they land, and tires roll on.
   makeChunkShadow(scene, layers) {
     const shadow = scene.add.image(0, 0, 'fx-glow').setTint(RENDER.shadowColor).setVisible(false);
     layers.shadows.add(shadow);
     return shadow;
   }
 
-  throwChunks(x, y, count) {
+  throwChunks(x, y, count, paint) {
     for (let i = 0; i < count; i += 1) {
       const chunk = this.chunks[this.nextChunk];
       this.nextChunk = (this.nextChunk + 1) % this.chunks.length;
       const angle = ((i + Math.random() * 0.8) / count) * Math.PI * 2;
-      const speed = 110 + Math.random() * 200;
+      const speed = lerp(EFFECTS.chunkSpeed[0], EFFECTS.chunkSpeed[1], Math.random());
       const kind = CHUNK_KINDS[i % CHUNK_KINDS.length];
       const tire = kind === 'tire';
       Object.assign(chunk, {
@@ -307,7 +311,7 @@ export class Effects {
         z: 16,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        vz: 300 + Math.random() * 220,
+        vz: lerp(EFFECTS.chunkLift[0], EFFECTS.chunkLift[1], Math.random()),
         spin: (Math.random() - 0.5) * (tire ? 5 : 12), // turning flat on screen; most of its motion is the tumble
         kind,
         tire,
@@ -315,12 +319,13 @@ export class Effects {
         age: 0,
         trail: 0,
         tumble: Math.random() * 6,
-        tumbleSpeed: 7 + Math.random() * 9,
-        squash: 0,
+        tumbleSpeed: 10 + Math.random() * 10,
         bounce: tire ? EFFECTS.tireBounce : EFFECTS.chunkBounce,
-        scrape: tire ? EFFECTS.tireScrape : EFFECTS.chunkScrape,
+        grip: tire ? EFFECTS.tireGrip : EFFECTS.chunkGrip,
         seconds: tire ? EFFECTS.tireSeconds : EFFECTS.chunkSeconds,
       });
+      if (PAINTED.has(kind)) chunk.image.setTint(shadeColor(paint, 0.55 + Math.random() * 0.45));
+      else chunk.image.clearTint();
       chunk.image.setFrame(frameName(kind, 0)).setAlpha(1).setVisible(true);
       chunk.shadow.setVisible(true);
     }
@@ -388,11 +393,11 @@ export class Effects {
   }
 
   // A frozen car smashed to bits: ice and panels, but no fire.
-  shatter(x, y) {
+  shatter(x, y, paint) {
     projection.toScreen(x, y, 14, screen);
     this.flash(screen.x, screen.y, 2.5);
     this.frost.emitParticleAt(screen.x, screen.y, 40);
-    this.throwChunks(x, y, 6);
+    this.throwChunks(x, y, 6, paint);
   }
 
   // The bare rim scraping along the road.
@@ -461,7 +466,7 @@ export class Effects {
     for (const chunk of this.chunks) {
       if (!chunk.image.visible || dt === 0) continue;
       chunk.age += dt;
-      stepChunk(chunk, dt, EFFECTS.chunkGravity, chunk.bounce, chunk.scrape);
+      stepChunk(chunk, dt, EFFECTS.chunkGravity, chunk.bounce, chunk.grip);
       stepChunkTurn(chunk, dt);
       projection.toScreen(chunk.x, chunk.y, chunk.z, screen);
       const left = chunk.seconds - chunk.age;
@@ -476,7 +481,7 @@ export class Effects {
         .setFrame(frameName(chunk.kind, chunkPose(chunk.tumble, DEBRIS.poses)))
         .setPosition(screen.x, screen.y)
         .setRotation(chunk.angle)
-        .setScale(1 / DEBRIS.scale, (1 - chunk.squash) / DEBRIS.scale)
+        .setScale(1 / DEBRIS.scale)
         .setAlpha(alpha)
         .setDepth(chunk.z > 3 ? DEPTH.effects + 2 : DEPTH.objects + projection.depthOf(chunk.x, chunk.y));
       projection.shadowOffset(chunk.z, shadowShift);

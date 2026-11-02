@@ -55,7 +55,7 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
   let widest = 0;
   for (const view of RENDER.views) {
     const pr = new Projection(view);
-    for (const name of ['bearcat', 'helicopter']) {
+    for (const name of ['bearcat', 'helicopter', 'bearcatWreck']) {
       const layout = atlasLayout(measureCar(name, pr));
       widest = Math.max(widest, layout.width, layout.height);
     }

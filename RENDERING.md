@@ -48,13 +48,14 @@ Built in height bands, each its own solid so it catches the light differently:
 | layer 1 | body: sloped hood, middle, sloped boot; head/tail lights and grille as flat paint | 9.5–17 |
 | layer 2 | glass cabin (windscreen, rear window, side windows with a pillar), flat roof, spoiler | 17–30 |
 
-Footprint is exactly the physics size (44 × 84). The same builder makes the **police car** (white, navy
-side stripe, push bar, red/blue light bar), the **interceptor** (the same car in black and white), the
-**wreck** (burnt colours, crumpled roof) and the **wreck on its roof**. Drawn directions per model: player 64,
-police 64, interceptor 64, wreck 32, upside-down wreck 16 (`RENDER.carDirections`; wrecks barely turn).
+Footprint is exactly the physics size (44 × 84). The police car (white, navy side stripe, push bar, red/blue
+light bar), the interceptor (the same car in black and white), the Bearcat and the helicopter have bodies built
+from slices, in `render/policeModels.js`. Any model has a burnt twin, `<name>Wreck`: the same points in scorched
+colours (`burntOut`). Drawn directions per model: player 64, police 64, interceptor 64, wrecks 16
+(`RENDER.carDirections`; wrecks barely turn).
 
-Solids here have no bottom face, because nothing sees under a car on its wheels. The upside-down wreck adds
-an underside plate, or it would look like a hollow shell.
+Solids here have no bottom face, because nothing sees under a car on its wheels. Flying wreckage turns right over,
+so its models add an underside (`withUnderside` in `render/debrisModels.js`).
 Police light bars get two small glows on top (`CarView.updateLights`), alternating red / blue. They use
 normal blending on purpose: an additive blend between cars in the draw order cost one extra draw call per
 police car (39 → 7 draw calls with 24 police on screen).
@@ -84,8 +85,8 @@ Rules:
 ## Wrecks
 
 Wrecks are thrown about on screen only. The physics keeps a car on the flat map; `render/Tumble.js` works out a
-height, a roll and an extra turn, and `CarView` shows them by lifting the sprite, turning it and squashing it
-while it rolls side-on, switching to the upside-down drawing past 90°. While in the air the car is drawn in front
+height, a small lean and an extra turn. `CarView` shows them by lifting the sprite, leaning it and picking another
+drawing of the model for the turn. It is never squashed, so a wreck stays the same solid car. While in the air it is drawn in front
 of the flames. The explosion is layered, back to front: comic star, flame clouds that cool from white through yellow and
 orange to dark red, flying pieces and the car, then a white flash on top. Smoke rises as the flames die, a ring runs
 out along the ground and the road keeps a burn for 45 s.

@@ -144,3 +144,10 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-02 | Sound | `AUDIO`: menu music 0.8, chase music 0.65, siren 0.07 -> 0.5, helicopter 0.6, effect files 0.8-1; engine removed | through `master` 0.55 | First guesses, set without listening: they need the owner's ears. |
 | 2026-11-02 | Sound | `AUDIO.musicDim` 0.65 | pause menu and results | Owner: quieter there, but subtly. |
 | 2026-11-02 | Camera | `RENDER.defaultViewId` angled -> angled-low | turned 35 deg, tilted 40 deg | Owner's choice. |
+| 2026-11-02 | Wrecks | `TUMBLE` hop 70-115 -> 34-58, air 0.6 -> 0.38 s, roll and squash removed | stays the same solid car | Owner: wrecks looked like black paper. |
+| 2026-11-02 | Wrecks | new `BURNT`: burnt share 0.7-0.95 | paint scorched in patches | Same model as the car that crashed. |
+| 2026-11-02 | Wreckage | `chunkGravity` 900 -> 2600, new `chunkLift` 380-620, `chunkSpeed` 170-360 | under 0.5 s in the air | Owner: parts have weight and should fall at once. |
+| 2026-11-02 | Wreckage | `chunkScrape` 4.5 -> `chunkGrip` 0.3, `tireScrape` 0.9 -> `tireGrip` 0.045 | friction follows how hard a piece lands | Owner: parts must not slide much. |
+| 2026-11-02 | Wreckage | `chunksSmall` 3 -> 5, `chunksBig` 5 -> 7 | more to see | Doors and hoods added. |
+| 2026-11-02 | Warning arrow | `WARNING.size` 11 -> 7.5, pulse 1.5 -> 0.6, new alpha 0.55 | smaller and fainter | Owner: make it subtle. |
+| 2026-11-02 | UI | `--amber` #e0a526 -> #ffc914, `--amber-deep` #b8800f -> #e09a00 | brighter yellow | Owner's request. |

@@ -2,11 +2,11 @@
 // tumbling wrecks, flying wreckage and siren beams.
 import { ChaseSimulation, CS, T, fixedMap, projection } from './simkit.mjs';
 import { glyphBars, glyphWidth } from '../src/render/blockFont.js';
-import { carMesh } from '../src/render/carModels.js';
+import { carMesh, carPaint } from '../src/render/carModels.js';
 import { boundsOf, box, projectMesh, projectShadow } from '../src/render/lowpoly.js';
 import * as props from '../src/render/propModels.js';
 import { Tumble, chunkPose, stepChunk, stepChunkTurn, stepHop } from '../src/render/Tumble.js';
-import { DEBRIS } from '../src/render/debrisModels.js';
+import { DEBRIS, DEBRIS_KINDS, debrisMesh } from '../src/render/debrisModels.js';
 import { beamGeometry } from '../src/systems/ThreatRadar.js';
 import { buildChunk, propCatalogue } from '../src/systems/WorldLayout.js';
 
@@ -188,83 +188,98 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
     let i = 0;
     return () => values[i++ % values.length];
   };
-  // Random values, in order: height, roof or not, roll direction, spin.
+  // Random values, in order: height, spin, which way it leans.
   const run = (values, dt) => {
     const t = new Tumble();
     t.start(sequence(values));
     let peak = 0;
     let steps = 0;
     let lowest = Infinity;
-    let wasUpside = false;
-    let minSquash = 1;
+    let tilted = 0;
     while (t.active && steps < 10000) {
       t.update(dt);
       peak = Math.max(peak, t.z);
       lowest = Math.min(lowest, t.z);
-      wasUpside = wasUpside || t.upsideDown;
-      minSquash = Math.min(minSquash, t.squash);
+      tilted = Math.max(tilted, Math.abs(t.tilt));
       steps += 1;
     }
-    return { t, peak, lowest, steps, wasUpside, minSquash };
+    return { t, peak, lowest, steps, tilted };
   };
-  const roof = run([0.5, 0, 0.9, 0.5], 1 / 60);
-  check('a wreck leaves the ground', roof.peak >= TUMBLE.hopMin * 0.95 && roof.peak <= TUMBLE.hopMax, `height ${roof.peak.toFixed(0)}`);
-  check('never below the road', roof.lowest >= 0);
-  check('it lands: back on the road, finished', !roof.t.active && roof.t.z === 0);
-  check('it can land on its roof', roof.t.upsideDown && Math.abs(Math.abs(roof.t.roll) - Math.PI) < 1e-9);
-  const round = run([0.5, 0.99, 0.1, 0.5], 1 / 60);
-  check('or roll all the way round, back on its wheels', !round.t.upsideDown && round.wasUpside && Math.abs(Math.abs(round.t.roll) - Math.PI * 2) < 1e-9);
-  check('it visibly rolls, thinning side-on', roof.minSquash === TUMBLE.minSquash);
-  const seconds = roof.steps / 60;
-  check('the whole thing is quick', seconds > 0.6 && seconds < 1.2, `${seconds.toFixed(2)} s`);
-  const slow = run([0.5, 0, 0.9, 0.5], 1 / 240);
-  const fast = run([0.5, 0, 0.9, 0.5], 1 / 30);
-  check('the same at any frame rate', Math.abs(slow.steps / 240 - fast.steps / 30) < 0.05 && slow.t.roll === fast.t.roll);
+  const hop = run([0.5, 0.9, 0.2], 1 / 60);
+  check('a wreck leaves the ground', hop.peak >= TUMBLE.hopMin * 0.95 && hop.peak <= TUMBLE.hopMax, `height ${hop.peak.toFixed(0)}`);
+  check('never below the road', hop.lowest >= 0);
+  check('it lands: back on the road, finished', !hop.t.active && hop.t.z === 0 && hop.t.tilt === 0);
+  check('it turns while it is up, and stays turned', hop.t.spin === hop.t.targetSpin && hop.t.spin !== 0);
+  check('it leans a little, and no more', hop.tilted > 0 && hop.tilted <= (TUMBLE.tiltDeg * Math.PI) / 180 + 1e-9);
+  check('it is never flattened to fake a roll', !('squash' in hop.t) && !('roll' in hop.t));
+  const seconds = hop.steps / 60;
+  check('the whole thing is quick', seconds > 0.5 && seconds < 1.2, `${seconds.toFixed(2)} s`);
+  const slow = run([0.5, 0.9, 0.2], 1 / 240);
+  const fast = run([0.5, 0.9, 0.2], 1 / 30);
+  check('the same at any frame rate', Math.abs(slow.steps / 240 - fast.steps / 30) < 0.05 && slow.t.spin === fast.t.spin);
   const idle = new Tumble();
   idle.update(1);
-  check('a car that never crashed does nothing', !idle.active && idle.z === 0 && idle.roll === 0 && idle.squash === 1);
+  check('a car that never crashed does nothing', !idle.active && idle.z === 0 && idle.spin === 0 && idle.tilt === 0);
 
-  // The upside-down wreck is really upside down.
-  const up = carMesh('wreck');
-  const down = carMesh('wreckRoof');
-  const wheels = (mesh) => mesh.filter((p) => p.tag === 'wheel').flatMap((p) => p.verts.map((v) => v[2]));
-  const height = Math.max(...up.flatMap((p) => p.verts.map((v) => v[2])));
-  check('on its roof, the wheels are at the top', Math.min(...wheels(down)) > height * 0.45);
-  check('and the roof sits on the road', Math.min(...down.flatMap((p) => p.verts.map((v) => v[2]))) === 0 && Math.max(...down.flatMap((p) => p.verts.map((v) => v[2]))) === height);
-  check('it is drawn with few directions, to save memory', T.RENDER.carDirections.wreckRoof <= 16);
-  // From every direction there must be something solid facing up: it is not a hollow shell.
-  let hollow = 0;
-  for (let i = 0; i < 16; i += 1) {
-    const parts = projectMesh(down, (i * Math.PI * 2) / 16, projection);
-    const under = parts.filter((p) => p.faces.some((f) => f.name === 'top') && p.cam.some((c) => c.z > height - 6) && Math.abs(Math.max(...p.cam.map((c) => c.u)) - Math.min(...p.cam.map((c) => c.u))) > 40);
-    if (under.length === 0) hollow += 1;
+  // A wreck is the car it was: the same shape, whichever car that is, and only the colours change.
+  const lum = (c) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
+  const faces = (mesh) => mesh.flatMap((p) => p.faces);
+  for (const name of ['police', 'interceptor', 'bearcat', 'coupe', 'hypercar', 'tank']) {
+    const car = carMesh(name);
+    const wreck = carMesh(`${name}Wreck`);
+    check(`a burnt ${name} has exactly the same shape`, wreck.length === car.length && wreck.every((p, i) => JSON.stringify(p.verts) === JSON.stringify(car[i].verts)));
+    check(`and is darker all over, with no lamps still lit`, faces(wreck).every((f, i) => !f.unlit && lum(f.color) <= lum(faces(car)[i].color) + 40));
   }
-  check('upside down, it has a solid underside from every direction', hollow === 0, `${hollow} hollow`);
-  check('flipping one wreck leaves the upright one alone', Math.max(...wheels(up)) < height * 0.55);
+  const whiteFaces = new Set(faces(carMesh('policeWreck')).map((f) => f.color));
+  check('the burning is patchy, not one flat colour', whiteFaces.size >= 12, `${whiteFaces.size} colours`);
+  check('some of a white car\'s paint still shows', Math.max(...faces(carMesh('policeWreck')).map((f) => lum(f.color))) > 70);
+  check('burning a wreck leaves the car itself alone', faces(carMesh('police')).some((f) => f.color === T.PALETTE.policeBody));
+  check('a wreck is drawn with few directions, to save memory', T.RENDER.carDirections.playerWreck <= 16);
+  check('flying panels take the colour of the car they came from', carPaint('police') === T.PALETTE.policeBody && carPaint('coupe') === T.PALETTE.playerBody && carPaint('bearcat') === T.PALETTE.swatBody);
 }
 
 // ---- Wreckage -------------------------------------------------------------------------------
 {
-  const chunk = { x: 0, y: 0, z: 16, vx: 200, vy: 0, vz: 300, spin: 10, angle: 0 };
+  const chunk = { x: 0, y: 0, z: 16, vx: 200, vy: 0, vz: EFFECTS.chunkLift[1], spin: 10, angle: 0 };
   let peak = 0;
   let landings = 0;
   let was = chunk.z;
   let dtLeft = 3;
   while (dtLeft > 0) {
-    stepChunk(chunk, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkScrape);
+    stepChunk(chunk, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkGrip);
     peak = Math.max(peak, chunk.z);
     if (chunk.z === 0 && was > 0) landings += 1;
     was = chunk.z;
     dtLeft -= 1 / 60;
   }
+  // It has weight: even thrown its hardest, it is back on the road in under half a second.
+  const thrown = { x: 0, y: 0, z: 16, vx: 0, vy: 0, vz: EFFECTS.chunkLift[1], spin: 0, angle: 0 };
+  let airTime = 0;
+  while (thrown.z > 0 && airTime < 5) {
+    stepChunk(thrown, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkGrip);
+    airTime += 1 / 60;
+  }
+  check('a chunk falls straight back down, it does not float', airTime < 0.5, `${airTime.toFixed(2)} s in the air`);
   check('a chunk flies up', peak > 60, `${peak.toFixed(0)} units`);
   check('and bounces', landings >= 2, `${landings} landings`);
   check('and comes to rest on the road', chunk.z === 0 && chunk.vz === 0);
-  check('having flown outward', chunk.x > 100, `${chunk.x.toFixed(0)} units`);
+  // Friction: a part lands and stays about there.
+  const part = { x: 0, y: 0, z: 16, vx: EFFECTS.chunkSpeed[1], vy: 0, vz: EFFECTS.chunkLift[0], spin: 5, angle: 0 };
+  while (part.z > 0 || part.vz > 0) stepChunk(part, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkGrip);
+  const landedAt = part.x;
+  for (let t = 0; t < 2; t += 1 / 60) stepChunk(part, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkGrip);
+  check('a part barely slides once it has landed', part.x - landedAt < 60, `${(part.x - landedAt).toFixed(0)} units`);
+  check('and stops dead', part.vx === 0 && part.spin === 0);
+  const hard = { x: 0, y: 0, z: 0, vx: 200, vy: 0, vz: -500, spin: 0, angle: 0 };
+  const soft = { x: 0, y: 0, z: 0, vx: 200, vy: 0, vz: -120, spin: 0, angle: 0 };
+  stepChunk(hard, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkGrip);
+  stepChunk(soft, 1 / 60, EFFECTS.chunkGravity, EFFECTS.chunkBounce, EFFECTS.chunkGrip);
+  check('a hard landing takes more speed than a light one', hard.vx < soft.vx, `${hard.vx.toFixed(0)} against ${soft.vx.toFixed(0)}`);
+  check('having flown outward', chunk.x > 60, `${chunk.x.toFixed(0)} units`);
   check('it has stopped, more or less', Math.abs(chunk.vx) < 40, `${chunk.vx.toFixed(0)} units/s`);
   // A tire keeps bouncing where a panel thuds down, and rolls on further.
   const flight = (bounce, scrape) => {
-    const c = { x: 0, y: 0, z: 16, vx: 200, vy: 0, vz: 400, spin: 5, angle: 0 };
+    const c = { x: 0, y: 0, z: 16, vx: 200, vy: 0, vz: EFFECTS.chunkLift[1], spin: 5, angle: 0 };
     let hits = 0;
     let before = c.z;
     let secondPeak = 0;
@@ -276,14 +291,14 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
     }
     return { hits, secondPeak, x: c.x };
   };
-  const tire = flight(EFFECTS.tireBounce, EFFECTS.tireScrape);
-  const panel = flight(EFFECTS.chunkBounce, EFFECTS.chunkScrape);
+  const tire = flight(EFFECTS.tireBounce, EFFECTS.tireGrip);
+  const panel = flight(EFFECTS.chunkBounce, EFFECTS.chunkGrip);
   check('a flying tire bounces again and again', tire.hits >= 4, `${tire.hits} bounces`);
   check('more than a panel, and higher', tire.hits > panel.hits && tire.secondPeak > panel.secondPeak * 1.8, `second bounce ${tire.secondPeak.toFixed(0)} against ${panel.secondPeak.toFixed(0)} high`);
   check('and rolls on further', tire.x > panel.x * 1.5, `${tire.x.toFixed(0)} against ${panel.x.toFixed(0)} units`);
-  const squashed = { x: 0, y: 0, z: 1, vx: 0, vy: 0, vz: -400, spin: 0, angle: 0 };
-  stepChunk(squashed, 1 / 60, EFFECTS.chunkGravity, EFFECTS.tireBounce, EFFECTS.tireScrape);
-  check('it flattens as it lands', squashed.squash > 0.2, `${squashed.squash.toFixed(2)}`);
+  const landing = { x: 0, y: 0, z: 1, vx: 0, vy: 0, vz: -400, spin: 0, angle: 0 };
+  stepChunk(landing, 1 / 60, EFFECTS.chunkGravity, EFFECTS.tireBounce, EFFECTS.tireGrip);
+  check('it keeps its shape as it lands', !('squash' in landing) && landing.vz > 0);
   check('it has a shadow to show its height', EFFECTS.chunkShadowRadius > 0 && EFFECTS.chunkShadowAlpha > 0.3);
 
   // A knock makes the car jump on its wheels and land again.
@@ -315,7 +330,7 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('only the wheels are separate: the lower body and bumpers move with the body', wheelSheet.every((p) => p.tag === 'wheel') && bodySheet.some((p) => Math.min(...p.verts.map((v) => v[2])) <= T.CAR_MODEL.sillBottom));
   check('the body never moves far from its wheels', T.BODY_LEAN.rollShift * (1 - T.BODY_LEAN.wheelsFollow) <= 2.5, `${(T.BODY_LEAN.rollShift * (1 - T.BODY_LEAN.wheelsFollow)).toFixed(1)} units at most`);
 
-  check('3 to 4 pieces per wreck', EFFECTS.chunksSmall >= 3 && EFFECTS.chunksSmall <= 4);
+  check('5 pieces per wreck, more for the player', EFFECTS.chunksSmall === 5 && EFFECTS.chunksBig > EFFECTS.chunksSmall);
   // The flying pieces are solid models, turning over in the air and settling on the road.
   const flying = { tumble: 1, tumbleSpeed: 8, z: 50, vx: 200, vy: 0, tire: true };
   stepChunkTurn(flying, 0.1);
@@ -329,6 +344,8 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   rolling.vx = 0;
   for (let i = 0; i < 120; i += 1) stepChunkTurn(rolling, 1 / 60);
   check('and falls over when it stops', Math.abs(Math.sin(rolling.tumble)) < 0.01, rolling.tumble.toFixed(3));
+  const solid = DEBRIS_KINDS.filter((kind) => kind !== 'tire').every((kind) => debrisMesh(kind).every((part) => part.faces.some((f) => f.name === 'under')));
+  check('a flying piece has an underside, so it is never an empty rim as it turns over', solid);
   check('every point of a turn has a drawing, backwards too', [-20, -0.1, 0, 0.1, 3, 6.28, 40].every((t) => { const p = chunkPose(t, DEBRIS.poses); return Number.isInteger(p) && p >= 0 && p < DEBRIS.poses; }));
   check('a piece flat on the road shows the flat drawing', chunkPose(0, DEBRIS.poses) === 0 && chunkPose(Math.PI, DEBRIS.poses) === DEBRIS.poses / 2 && chunkPose(Math.PI * 2, DEBRIS.poses) === 0);
   check('a capped number of pieces and rings, so pile-ups stay cheap', EFFECTS.maxChunks <= 30 && EFFECTS.maxRings <= 8);

@@ -286,7 +286,7 @@ export class ChaseSimulation {
     const { x, y } = police.model;
     police.wreck('shatter');
     const combo = this.stats.addWreck();
-    this.emit('shatter', { x, y, combo });
+    this.emit('shatter', { x, y, combo, police });
     if (combo >= 2) this.emit('combo', { count: combo, x, y });
     this.removePolice(police, 'wreckGone');
   }
@@ -367,7 +367,7 @@ export class ChaseSimulation {
     // Every car explodes at most once, so this always ends.
     for (let i = 0; i < this.explosions.length; i += 1) {
       const blast = this.explosions[i];
-      this.emit('explosion', { x: blast.x, y: blast.y, player: blast.player });
+      this.emit('explosion', { x: blast.x, y: blast.y, player: blast.player, police: blast.player ? null : blast.source });
       for (const police of this.police) {
         if (!police.active || police === blast.source || police.model.isFalling) continue;
         const car = police.model;
