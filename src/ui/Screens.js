@@ -24,15 +24,18 @@ function textButton(className, text, onPress, label, icon) {
   return node;
 }
 
-function soundButton(onToggle) {
-  const node = button('btn btn-icon btn-sound', ICONS.soundOn, () => onToggle(), 'Sound on / off');
-  node.setSound = (on) => {
-    node.innerHTML = on ? ICONS.soundOn : ICONS.soundOff;
+function toggleButton(onToggle, iconOn, iconOff, label) {
+  const node = button('btn btn-icon btn-sound', iconOn, () => onToggle(), label);
+  node.setOn = (on) => {
+    node.innerHTML = on ? iconOn : iconOff;
     node.setAttribute('aria-pressed', String(on));
     node.classList.toggle('off', !on);
   };
   return node;
 }
+
+const soundButton = (onToggle) => toggleButton(onToggle, ICONS.soundOn, ICONS.soundOff, 'Sound effects on / off');
+const musicButton = (onToggle) => toggleButton(onToggle, ICONS.musicOn, ICONS.musicOff, 'Music on / off');
 
 class Screen {
   constructor(className, children) {
@@ -118,21 +121,23 @@ export function simulateAd() {
 }
 
 export class MenuScreen extends Screen {
-  constructor({ onPlay, onSound, onGarage, onMaps }) {
+  constructor({ onPlay, onSound, onMusic, onGarage, onMaps }) {
     const logo = el('h1', 'logo', [dt('logo-line', "CAN'T"), dt('logo-line', 'CATCH'), dt('logo-line logo-me', 'ME!')]);
     const play = textButton('btn-primary btn-play', 'PLAY', onPlay, 'Play', ICONS.play);
     const mapName = dt('menu-map', '');
     const sound = soundButton(onSound);
+    const music = musicButton(onMusic);
     const hint = dt('menu-hint', '');
     super('menu', [
       el('div', 'menu-top', [logo]),
-      el('div', 'menu-bottom', [mapName, play, el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MAPS', onMaps, 'Maps'), sound]), hint]),
+      el('div', 'menu-bottom', [mapName, play, el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MAPS', onMaps, 'Maps'), sound, music]), hint]),
     ]);
     this.balance = coinBadge();
     this.stars = starBadge();
     this.node.append(this.balance, this.stars);
     this.mapName = mapName;
     this.sound = sound;
+    this.music = music;
     this.hint = hint;
   }
 
@@ -142,28 +147,33 @@ export class MenuScreen extends Screen {
     setDisplay(this.mapName, Maps.current().name);
   }
 
-  show({ soundOn, touch, coins }) {
+  show({ soundOn, musicOn, touch, coins }) {
     this.refresh(coins);
-    this.sound.setSound(soundOn);
+    this.sound.setOn(soundOn);
+    this.music.setOn(musicOn);
     setDisplay(this.hint, touch ? 'HOLD LEFT OR RIGHT TO STEER · DOUBLE TAP: POWER-UP' : 'STEER WITH A D OR ARROWS · SPACE: POWER-UP');
     super.show();
   }
 }
 
 export class PauseScreen extends Screen {
-  constructor({ onResume, onRestart, onMenu, onSound }) {
+  constructor({ onResume, onRestart, onMenu, onSound, onMusic }) {
     const resume = textButton('btn-primary', 'RESUME', onResume, 'Resume', ICONS.play);
     const sound = soundButton(onSound);
+    const music = musicButton(onMusic);
     super('pause', [
       el('h2', 'screen-title', [dt('', 'PAUSED')]),
       resume,
-      el('div', 'menu-row', [textButton('btn-secondary', 'RESTART', onRestart, 'Restart'), sound, textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
+      el('div', 'menu-row', [textButton('btn-secondary', 'RESTART', onRestart, 'Restart'), textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
+      el('div', 'menu-row', [sound, music]),
     ]);
     this.sound = sound;
+    this.music = music;
   }
 
-  show({ soundOn }) {
-    this.sound.setSound(soundOn);
+  show({ soundOn, musicOn }) {
+    this.sound.setOn(soundOn);
+    this.music.setOn(musicOn);
     super.show();
   }
 }

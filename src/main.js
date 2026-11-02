@@ -56,6 +56,7 @@ async function start() {
   const input = new InputManager(container);
   const audio = new AudioSystem();
   audio.setSoundOn(Settings.sound);
+  audio.setMusicOn(Settings.music);
   audio.setPlatformAllowed(PlatformManager.isAudioEnabled());
   PlatformManager.onAudioEnabledChange((enabled) => audio.setPlatformAllowed(enabled));
   // Browsers only allow sound after the player interacts.

@@ -221,7 +221,7 @@ export class GameScene extends Phaser.Scene {
     Garage.award(coins.total);
     PlatformManager.flush();
     this.audio.quiet();
-    this.audio.setMusic('menu', true); // the results: a little quieter
+    this.audio.setMusic(null); // no music on the results
     const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause: this.sim.crash ? this.sim.crash.cause : 'police' };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);

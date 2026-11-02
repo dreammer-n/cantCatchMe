@@ -143,3 +143,4 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-02 | Shadows | `RENDER.shadowSoftness` 2.2 | world units | Soft edges on prop shadows. |
 | 2026-11-02 | Sound | `AUDIO`: menu music 0.8, chase music 0.65, siren 0.07 -> 0.5, helicopter 0.6, effect files 0.8-1; engine removed | through `master` 0.55 | First guesses, set without listening: they need the owner's ears. |
 | 2026-11-02 | Sound | `AUDIO.musicDim` 0.65 | pause menu and results | Owner: quieter there, but subtly. |
+| 2026-11-02 | Camera | `RENDER.defaultViewId` angled -> angled-low | turned 35 deg, tilted 40 deg | Owner's choice. |

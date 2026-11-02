@@ -2,7 +2,9 @@
 import { readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AUDIO, POWERUP } from '../src/config/tuning.js';
+import { AUDIO, POWERUP, STORAGE_KEYS } from '../src/config/tuning.js';
+import { PlatformManager } from '../src/platform/PlatformManager.js';
+import { Settings } from '../src/systems/Settings.js';
 
 let pass = 0;
 let fail = 0;
@@ -36,11 +38,31 @@ check('only KABOOM and TITAN have voices', POWERUP.sounds.shockwave.includes('ka
 check('TITAN is its voice and nothing under it', POWERUP.sounds.giant.length === 1);
 check('the engine sound has gone', AUDIO.engine === undefined);
 check('a combo makes no sound, on the owner\'s word', AUDIO.files.combo === undefined);
-check('the music dips subtly on the pause menu and results: a little, not a lot', AUDIO.musicDim >= 0.5 && AUDIO.musicDim < 0.85);
+check('the music dips subtly on the pause menu: a little, not a lot', AUDIO.musicDim >= 0.5 && AUDIO.musicDim < 0.85);
 check('the police radio can\'t talk over itself', AUDIO.files.police_radio.cooldown >= 5);
 check('the music sits under the effects', AUDIO.chaseMusic < Math.min(...Object.values(POWERUP.sounds).flat().map((s) => AUDIO.files[s].volume)));
 const crashFile = AUDIO.files.carCrash;
 check('the crash varies each time, so it doesn\'t get tiring', crashFile.vary > 0 && crashFile.cooldown > 0);
+
+// Two settings, saved apart.
+Settings.setSound(false);
+Settings.setMusic(true);
+Settings.sound = true;
+Settings.music = false;
+await Settings.load();
+check('effects and music are saved on their own', Settings.sound === false && Settings.music === true);
+Settings.setSound(true);
+Settings.setMusic(false);
+Settings.sound = false;
+Settings.music = true;
+await Settings.load();
+check('either way round', Settings.sound === true && Settings.music === false);
+await PlatformManager.setStoredValue(STORAGE_KEYS.settings, { sound: false });
+await Settings.load();
+check('a save from when one button did both: all off stays all off', Settings.sound === false && Settings.music === false);
+await PlatformManager.setStoredValue(STORAGE_KEYS.settings, { sound: true });
+await Settings.load();
+check('and all on stays all on', Settings.sound === true && Settings.music === true);
 
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);

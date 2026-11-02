@@ -11,19 +11,19 @@ const ASSETS = './assets/'; // relative, like everything else: no outside reques
 //   Continuous: tire squeal (follows sliding), police siren (louder when police are close), helicopter.
 //
 // Browsers only allow sound after the player touches or presses something, so the audio
-// starts in unlock(), called from the first input. Sound plays only when the in-game setting is on AND the platform
-// allows audio AND the platform hasn't paused the game. The pause menu is different: the music carries on, a little
-// quieter, and only the sounds of the road stop.
+// starts in unlock(), called from the first input. The effects and the music each have their own setting, and both
+// need the platform to allow audio and not to have paused the game. The pause menu is different: the music carries
+// on, a little quieter, and only the sounds of the road stop.
 export class AudioSystem {
   constructor() {
     this.ctx = null;
-    this.soundOn = true; // in-game setting
+    this.soundOn = true; // in-game setting: the effects
+    this.musicOn = true; // in-game setting: the music
     this.platformAllowed = true; // platform mute always wins
     this.paused = false; // in-game pause menu: the music dips
     this.platformPaused = false; // tab hidden / platform pause
     this.cooldowns = new Map();
     this.track = null; // the music wanted now: 'menu', 'chase' or null
-    this.dimmed = false; // a little quieter, on the results
     this.buffers = new Map();
     this.menuNextAt = 0;
     this.chase = null;
@@ -37,7 +37,7 @@ export class AudioSystem {
   }
 
   get audible() {
-    return this.soundOn && this.platformAllowed && !this.platformPaused;
+    return (this.soundOn || this.musicOn) && this.platformAllowed && !this.platformPaused;
   }
 
   unlock() {
@@ -63,6 +63,13 @@ export class AudioSystem {
     limiter.threshold.value = -10;
     limiter.ratio.value = 6;
     this.master.connect(limiter).connect(ctx.destination);
+    // The two things a player can turn off on their own.
+    this.effects = ctx.createGain();
+    this.effects.gain.value = this.soundOn ? 1 : 0;
+    this.effects.connect(this.master);
+    this.music = ctx.createGain();
+    this.music.gain.value = this.musicOn ? 1 : 0;
+    this.music.connect(this.master);
 
     // White noise, shared by the squeal, crashes and whooshes.
     this.noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -79,16 +86,16 @@ export class AudioSystem {
     band.Q.value = 1.2;
     this.skidGain = ctx.createGain();
     this.skidGain.gain.value = 0;
-    squeal.connect(band).connect(this.skidGain).connect(this.master);
+    squeal.connect(band).connect(this.skidGain).connect(this.effects);
     squeal.start();
 
     // The looping effects are started when their files are ready. These hold their volumes.
-    this.sirenGain = this.outputGain();
-    this.helicopterGain = this.outputGain();
+    this.sirenGain = this.outputGain(this.effects);
+    this.helicopterGain = this.outputGain(this.effects);
 
     // Music.
-    this.menuGain = this.outputGain();
-    this.chaseGain = this.outputGain();
+    this.menuGain = this.outputGain(this.music);
+    this.chaseGain = this.outputGain(this.music);
     this.chase = new Audio(ASSETS + AUDIO.music.chase);
     this.chase.loop = true;
     this.chase.preload = 'auto';
@@ -109,10 +116,10 @@ export class AudioSystem {
     this.downloads.clear();
   }
 
-  outputGain() {
+  outputGain(bus) {
     const gain = this.ctx.createGain();
     gain.gain.value = 0;
-    gain.connect(this.master);
+    gain.connect(bus);
     return gain;
   }
 
@@ -148,15 +155,14 @@ export class AudioSystem {
   // The chase track plays only while it can be heard, so a pause or mute stops it for real.
   syncChase() {
     if (!this.chase) return;
-    if (this.track === 'chase' && this.audible) this.chase.play().catch(() => {});
+    if (this.track === 'chase' && this.musicOn && this.audible) this.chase.play().catch(() => {});
     else this.chase.pause();
   }
 
   // 'menu', 'chase' or null. The old track fades out as the new one fades in. The chase track carries on from
-  // where it stopped, so that quick retries don't keep hearing its first seconds. dimmed: a little quieter.
-  setMusic(track, dimmed = false) {
+  // where it stopped, so that quick retries don't keep hearing its first seconds.
+  setMusic(track) {
     this.track = track;
-    this.dimmed = dimmed;
     if (!this.ctx) return;
     this.applyMusicLevels();
     clearTimeout(this.chaseStop);
@@ -166,7 +172,7 @@ export class AudioSystem {
 
   applyMusicLevels() {
     const now = this.ctx.currentTime;
-    const dip = this.dimmed || this.paused ? AUDIO.musicDim : 1;
+    const dip = this.paused ? AUDIO.musicDim : 1;
     this.menuGain.gain.setTargetAtTime(this.track === 'menu' ? AUDIO.menuMusic * dip : 0, now, AUDIO.musicFade);
     this.chaseGain.gain.setTargetAtTime(this.track === 'chase' ? AUDIO.chaseMusic * dip : 0, now, AUDIO.musicFade);
   }
@@ -175,7 +181,7 @@ export class AudioSystem {
   // picks up where it left off if an earlier pass is still sounding.
   scheduleMenu(now) {
     const buffer = this.buffers.get('menu');
-    if (!buffer || this.track !== 'menu') return;
+    if (!buffer || this.track !== 'menu' || !this.musicOn) return;
     if (this.menuNextAt < now) this.menuNextAt = now;
     if (this.menuNextAt > now + AUDIO.musicLookAhead) return;
     const at = this.menuNextAt;
@@ -194,6 +200,11 @@ export class AudioSystem {
 
   setSoundOn(on) {
     this.soundOn = on;
+    this.applyMaster();
+  }
+
+  setMusicOn(on) {
+    this.musicOn = on;
     this.applyMaster();
   }
 
@@ -220,6 +231,8 @@ export class AudioSystem {
     const now = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(now);
     this.master.gain.setTargetAtTime(this.audible ? AUDIO.master : 0, now, 0.03);
+    this.effects.gain.setTargetAtTime(this.soundOn ? 1 : 0, now, 0.03);
+    this.music.gain.setTargetAtTime(this.musicOn ? 1 : 0, now, 0.03);
     this.syncChase();
     // Starting the audio takes a moment, so what was asked for may have changed by the time it has happened.
     if (this.audible && this.ctx.state === 'suspended') this.ctx.resume().then(() => this.suspendIfSilent()).catch(() => {});
@@ -316,7 +329,7 @@ export class AudioSystem {
     if (file.vary) source.playbackRate.value = 1 + (Math.random() * 2 - 1) * file.vary;
     const gain = this.ctx.createGain();
     gain.gain.value = file.volume * v;
-    source.connect(gain).connect(this.master);
+    source.connect(gain).connect(this.effects);
     source.start(now);
   }
 
@@ -362,7 +375,7 @@ export class AudioSystem {
     gain.gain.setValueAtTime(0.0001, at);
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), at + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
-    gain.connect(this.master);
+    gain.connect(this.effects);
     return gain;
   }
 }

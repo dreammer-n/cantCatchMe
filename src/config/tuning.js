@@ -862,7 +862,7 @@ export const RENDER = {
     { id: 'angled-low', label: 'Angled low', azimuthDeg: 35, elevationDeg: 40 },
     { id: 'north-up', label: 'North-up', azimuthDeg: 0, elevationDeg: 55 },
   ],
-  defaultViewId: 'angled',
+  defaultViewId: 'angled-low',
   // Car drawings made at startup from the 3D model, evenly spaced around the compass.
   directions: 64,
   // Per model: wrecks barely turn, so fewer drawings (less memory) are enough.

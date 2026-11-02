@@ -18,12 +18,13 @@ export class MenuScene extends Phaser.Scene {
       this.screen = new MenuScreen({
         onPlay: () => this.play(),
         onSound: () => this.toggleSound(),
+        onMusic: () => this.toggleMusic(),
         onGarage: () => this.openOver('GarageScene', { from: 'MenuScene' }),
         onMaps: () => this.openOver('MapScene'),
       });
     }
     const touch = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
-    this.screen.show({ soundOn: Settings.sound, touch, coins: Garage.coins });
+    this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, touch, coins: Garage.coins });
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     const close = () => this.close();
     this.game.events.once('run-started', close);
@@ -69,7 +70,15 @@ export class MenuScene extends Phaser.Scene {
     this.audio.unlock();
     Settings.setSound(!Settings.sound);
     this.audio.setSoundOn(Settings.sound);
-    this.screen.sound.setSound(Settings.sound);
+    this.screen.sound.setOn(Settings.sound);
+    this.audio.play('click');
+  }
+
+  toggleMusic() {
+    this.audio.unlock();
+    Settings.setMusic(!Settings.music);
+    this.audio.setMusicOn(Settings.music);
+    this.screen.music.setOn(Settings.music);
     this.audio.play('click');
   }
 }

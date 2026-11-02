@@ -36,6 +36,7 @@ export class UIScene extends Phaser.Scene {
       onRestart: () => this.restartRun(),
       onMenu: () => this.toMenu(),
       onSound: () => this.toggleSound(),
+      onMusic: () => this.toggleMusic(),
     });
 
     const on = (name, handler) => {
@@ -90,7 +91,7 @@ export class UIScene extends Phaser.Scene {
     if (paused) {
       this.scene.pause('GameScene');
       this.controls.releaseHeld();
-      this.pauseScreen.show({ soundOn: Settings.sound });
+      this.pauseScreen.show({ soundOn: Settings.sound, musicOn: Settings.music });
       this.audio.setPaused(true);
       PlatformManager.runPaused();
     } else {
@@ -125,7 +126,13 @@ export class UIScene extends Phaser.Scene {
   toggleSound() {
     Settings.setSound(!Settings.sound);
     this.audio.setSoundOn(Settings.sound);
-    this.pauseScreen.sound.setSound(Settings.sound);
+    this.pauseScreen.sound.setOn(Settings.sound);
+  }
+
+  toggleMusic() {
+    Settings.setMusic(!Settings.music);
+    this.audio.setMusicOn(Settings.music);
+    this.pauseScreen.music.setOn(Settings.music);
   }
 
   // ------------------------------------------------------------------------------------------
