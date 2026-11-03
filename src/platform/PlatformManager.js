@@ -13,20 +13,28 @@
 //       bridge.platform.isAudioEnabled + EVENT_NAME.AUDIO_STATE_CHANGED (isEnabled)
 //       bridge.platform.isPaused       + EVENT_NAME.PAUSE_STATE_CHANGED (isPaused)
 //       bridge.storage.get(key) -> Promise(value | null), bridge.storage.set(key, value) -> Promise
+//       bridge.platform.language (read once, after initialize)
+//     Checked against wiki.playgama.com/playgama/bridge-sdk/api/advertisement/interstitial, 2026-11-03:
+//       bridge.advertisement.isInterstitialSupported, showInterstitial(placement)
+//       EVENT_NAME.INTERSTITIAL_STATE_CHANGED: loading, opened, closed, failed. Bridge times them
+//       (minimumDelayBetweenInterstitial in the config): the game only calls at each natural pause, with no timer
+//       of its own.
 //     Checked against wiki.playgama.com/playgama/bridge-sdk/api/advertisement/rewarded, 2026-10-31:
 //       bridge.advertisement.isRewardedSupported
 //       bridge.advertisement.showRewarded(placement)
 //       bridge.advertisement.on(EVENT_NAME.REWARDED_STATE_CHANGED, state)
 //         state: loading, opened, closed, rewarded, failed. Reward ONLY on 'rewarded', never on 'closed'.
-//   Local browser (no SDK): LocalStorage, page visibility for pause.
-// The only advert is a rewarded one the player asks for. No analytics or other external requests are made.
+//   Local browser (no SDK): LocalStorage, page visibility for pause. On a platform neither is touched: progress is
+//   saved only through Bridge storage, and the platform's own pause event covers a hidden page.
+// Adverts: a rewarded one the player asks for, and an interstitial when a run ends. No analytics or other external
+// requests are made.
 
-const SDK_FILE = './playgama-bridge.js';
 const SDK_TIMEOUT_MS = 8000;
 const SAVE_KEY = 'cantcatchme_save'; // everything is saved as one small object
 const LOCAL_PREFIX = 'carchase:';
 const SAVE_DELAY_MS = 400;
 const AD_PLACEMENT = 'double_coins';
+const INTERSTITIAL_PLACEMENT = 'game_over';
 const AD_TIMEOUT_MS = 180000; // never leaves the player stuck if an ad doesn't report back
 const AD_REWARD_GRACE_MS = 800; // some platforms may report 'rewarded' just after 'closed'
 
@@ -43,6 +51,8 @@ const state = {
   save: {},
   saveTimer: null,
   adOpen: false,
+  interstitialOpen: false,
+  language: 'en',
   onRewardedState: null,
   pendingAd: null,
 };
@@ -75,9 +85,9 @@ function openLocalStorage() {
   }
 }
 
-// Paused when the platform says so OR the page is hidden (tab switched, phone locked).
+// Paused when the platform says so, while an advert is open, or (in the local browser) while the page is hidden.
 function updatePaused() {
-  const paused = state.platformPaused || state.pageHidden || state.adOpen;
+  const paused = state.platformPaused || state.pageHidden || state.adOpen || state.interstitialOpen;
   if (state.paused === paused) return;
   state.paused = paused;
   emit(paused ? 'pause' : 'resume');
@@ -85,22 +95,6 @@ function updatePaused() {
 
 function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
-}
-
-// Loads the bundled SDK file, if it exists. Resolves to window.bridge or null.
-function loadBridgeScript() {
-  if (window.bridge) return Promise.resolve(window.bridge);
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = SDK_FILE;
-    script.async = true;
-    script.onload = () => resolve(window.bridge || null);
-    script.onerror = () => {
-      script.remove();
-      resolve(null);
-    };
-    document.head.appendChild(script);
-  });
 }
 
 function parseSave(raw) {
@@ -117,7 +111,7 @@ function parseSave(raw) {
 async function connectBridge() {
   let bridge = null;
   try {
-    bridge = await withTimeout(loadBridgeScript(), SDK_TIMEOUT_MS);
+    bridge = window.bridge || null; // index.html loads the SDK before anything else, when it is there
     if (!bridge) return false;
     await withTimeout(bridge.initialize(), SDK_TIMEOUT_MS);
   } catch (error) {
@@ -127,6 +121,12 @@ async function connectBridge() {
   state.bridge = bridge;
   state.platformId = bridge.platform?.id || 'unknown';
   const events = bridge.EVENT_NAME || {};
+  try {
+    // The player's language comes only from the platform. The game is in English, which is also the fallback.
+    state.language = bridge.platform.language || 'en';
+  } catch {
+    state.language = 'en';
+  }
   try {
     state.audioEnabled = bridge.platform.isAudioEnabled !== false;
     state.platformPaused = bridge.platform.isPaused === true;
@@ -151,6 +151,14 @@ async function connectBridge() {
         if (state.onRewardedState) state.onRewardedState(adState);
       });
     }
+    if (bridge.advertisement && events.INTERSTITIAL_STATE_CHANGED) {
+      const onInterstitial = (adState) => {
+        state.interstitialOpen = adState === 'opened';
+        updatePaused();
+      };
+      bridge.advertisement.on(events.INTERSTITIAL_STATE_CHANGED, onInterstitial);
+      onInterstitial(bridge.advertisement.interstitialState); // one may already be showing as the game starts
+    }
   } catch (error) {
     console.warn('[platform] Bridge adverts unavailable:', error?.message || error);
   }
@@ -159,9 +167,21 @@ async function connectBridge() {
     if (saved) state.save = saved;
     state.storageKind = 'bridge';
   } catch (error) {
-    console.warn('[platform] Bridge storage unavailable, using the browser:', error?.message || error);
+    console.warn('[platform] Bridge storage unavailable, keeping progress for this visit only:', error?.message || error);
   }
   return true;
+}
+
+function watchPageVisibility() {
+  state.pageHidden = document.hidden;
+  document.addEventListener('visibilitychange', () => {
+    state.pageHidden = document.hidden;
+    updatePaused();
+    if (document.hidden && state.saveTimer) {
+      clearTimeout(state.saveTimer);
+      writeSave(); // save right away when the player leaves
+    }
+  });
 }
 
 function sendMessage(message) {
@@ -177,7 +197,7 @@ function sendMessage(message) {
 function writeSave() {
   state.saveTimer = null;
   const raw = JSON.stringify(state.save);
-  if (localStore) {
+  if (localStore && !state.bridge) {
     try {
       localStore.setItem(LOCAL_PREFIX + SAVE_KEY, raw);
     } catch {
@@ -189,7 +209,7 @@ function writeSave() {
       const result = state.bridge.storage.set(SAVE_KEY, raw);
       if (result && typeof result.catch === 'function') result.catch(() => {});
     } catch {
-      // Keep playing; the local copy is still there.
+      // Keep playing; the copy in memory lasts for this visit.
     }
   }
 }
@@ -197,29 +217,26 @@ function writeSave() {
 export const PlatformManager = {
   async initialize() {
     if (state.initialized) return;
-    localStore = openLocalStorage();
-    state.storageKind = localStore ? 'localStorage' : 'memory';
-    if (localStore) state.save = parseSave(localStore.getItem(LOCAL_PREFIX + SAVE_KEY)) || {};
-
-    await connectBridge();
-
-    // Page visibility as a safety net on every platform (the platform's own pause event, when
-    // there is one, is followed too).
-    state.pageHidden = document.hidden;
-    document.addEventListener('visibilitychange', () => {
-      state.pageHidden = document.hidden;
-      updatePaused();
-      if (document.hidden && state.saveTimer) {
-        clearTimeout(state.saveTimer);
-        writeSave(); // save right away when the player leaves
-      }
-    });
+    if (!(await connectBridge())) {
+      // The local browser, with no platform: its own storage and page visibility. On a platform neither is used.
+      localStore = openLocalStorage();
+      state.storageKind = localStore ? 'localStorage' : 'memory';
+      if (localStore) state.save = parseSave(localStore.getItem(LOCAL_PREFIX + SAVE_KEY)) || {};
+      watchPageVisibility();
+    } else if (state.platformId === 'mock') {
+      watchPageVisibility(); // the SDK's stand-in outside a real platform: nothing else would pause a hidden page
+    }
     updatePaused();
     state.initialized = true;
   },
 
   get platformId() {
     return state.platformId;
+  },
+
+  // The player's language, as the platform gives it ('en' without one). The game is in English only.
+  get language() {
+    return state.language;
   },
 
   get storageKind() {
@@ -334,6 +351,19 @@ export const PlatformManager = {
       }
     });
     return state.pendingAd;
+  },
+
+  // At a natural pause (a run has ended). Bridge decides whether an advert is due, so there is no timer here, and
+  // while one is open the game is paused and silent (updatePaused). Nothing happens without a platform.
+  showInterstitial() {
+    const ads = state.bridge && state.bridge.advertisement;
+    if (!ads || !ads.isInterstitialSupported) return;
+    try {
+      const result = ads.showInterstitial(INTERSTITIAL_PLACEMENT);
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    } catch {
+      // No advert: carry on.
+    }
   },
 
   // Writes pending changes now (e.g. right after a run ends).

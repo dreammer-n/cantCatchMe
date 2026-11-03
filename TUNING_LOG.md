@@ -151,3 +151,7 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-02 | Wreckage | `chunksSmall` 3 -> 5, `chunksBig` 5 -> 7 | more to see | Doors and hoods added. |
 | 2026-11-02 | Warning arrow | `WARNING.size` 11 -> 7.5, pulse 1.5 -> 0.6, new alpha 0.55 | smaller and fainter | Owner: make it subtle. |
 | 2026-11-02 | UI | `--amber` #e0a526 -> #ffc914, `--amber-deep` #b8800f -> #e09a00 | brighter yellow | Owner's request. |
+| 2026-11-03 | Sound | new `AUDIO.engine` volume 0.32, pitch 0.75-1.45 | quiet under the music | Owner's engine file. |
+| 2026-11-03 | Sound | `AUDIO.skid` 0.12 -> 0.5 | the squeal is now a recording, not filtered noise | Owner's file is quieter than the old noise. |
+| 2026-11-03 | Sound | bump 0.7, cone 0.7, click 0.6 | first settings for the owner's files | Listen-test on a phone. |
+| 2026-11-03 | Streets | new `WORLD.street` (curb 5, pavement 20, corners 46, lot shade 7%, 6 patches at 45%, 12 cracks, 7 manholes per chunk, lawn stripes 8) | blocks look like real streets | Owner: the asphalt looked like a table. |

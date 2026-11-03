@@ -225,10 +225,10 @@ export class GameOverScreen extends Screen {
     const node = this.double;
     node.disabled = state === 'busy' || state === 'done';
     node.classList.toggle('btn-done', state === 'done');
-    if (state === 'ready') node.setText(`DOUBLE COINS (+${formatCoins(this.coinTotal)})`);
+    if (state === 'ready') node.setText(`WATCH AD: DOUBLE COINS (+${formatCoins(this.coinTotal)})`);
     if (state === 'busy') node.setText('LOADING AD...');
     if (state === 'failed') node.setText('NO AD - TRY AGAIN');
-    if (state === 'done') node.setText('✓ DOUBLED!');
+    if (state === 'done') node.setText('COINS DOUBLED!');
   }
 
   // The tally and the balance climb to their new totals.

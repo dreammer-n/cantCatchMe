@@ -316,18 +316,18 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('and it lands and stays down', landings2 >= 2 && hop.z === 0 && hop.v === 0, `${landings2} landings`);
 
   // Round wheels, and a car that holds together.
-  const whole = carMesh('player');
-  const round = whole.filter((p) => p.tag === 'wheel');
+  const whole = carMesh('coupe');
+  const round = whole.filter((p) => p.tag === 'wheel' && p.faces.some((f) => f.name === 'outer'));
   check('wheels are round, not boxes', round.length === 4 && round.every((w) => {
     const ys = w.verts.map((v) => v[1]);
     const zs = w.verts.map((v) => v[2]);
     return w.faces.length >= 10 && Math.abs(Math.max(...ys) - Math.min(...ys) - (Math.max(...zs) - Math.min(...zs))) < 1.5;
   }));
   check('they stand on the road', round.every((w) => Math.min(...w.verts.map((v) => v[2])) === 0));
-  const bodySheet = carMesh('playerBody');
-  const wheelSheet = carMesh('playerWheels');
+  const bodySheet = carMesh('coupeBody');
+  const wheelSheet = carMesh('coupeWheels');
   check('the two drawings add up to the whole car', bodySheet.length + wheelSheet.length === whole.length);
-  check('only the wheels are separate: the lower body and bumpers move with the body', wheelSheet.every((p) => p.tag === 'wheel') && bodySheet.some((p) => Math.min(...p.verts.map((v) => v[2])) <= T.CAR_MODEL.sillBottom));
+  check('only the wheels are separate: the lower body and bumpers move with the body', wheelSheet.every((p) => p.tag === 'wheel') && bodySheet.some((p) => Math.min(...p.verts.map((v) => v[2])) <= 5));
   check('the body never moves far from its wheels', T.BODY_LEAN.rollShift * (1 - T.BODY_LEAN.wheelsFollow) <= 2.5, `${(T.BODY_LEAN.rollShift * (1 - T.BODY_LEAN.wheelsFollow)).toFixed(1)} units at most`);
 
   check('5 pieces per wreck, more for the player', EFFECTS.chunksSmall === 5 && EFFECTS.chunksBig > EFFECTS.chunksSmall);

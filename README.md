@@ -51,9 +51,9 @@ files), so the whole game is well under 1 MB compressed. The city has no edge: i
 
 | Device | Steer | Power-up | Pause | Start / retry |
 |---|---|---|---|---|
-| Keyboard | ← → or A / D | Space (or ↑ / W) | Esc or P | Enter or Space (R = retry) |
-| Phone / tablet | Hold the left or right half of the screen | Double tap | ⏸ button | Buttons |
-| Mouse | Hold the left or right half of the window | ⚡ button | ⏸ button | Buttons |
+| Keyboard | ← → or A / D | Space (or ↑ / W) | P | Enter or Space (R = retry) |
+| Phone / tablet | Hold the left or right half of the screen | Double tap, or it goes off by itself | PAUSE button | Buttons |
+| Mouse | Hold the left or right half of the window | Space, or it goes off by itself | PAUSE button | Buttons |
 | Gamepad | D-pad or left stick | A | Start | A |
 
 ## Running the game on your own computer
@@ -81,20 +81,19 @@ Each time you want to play:
 
 ## Making the upload-ready version
 
-1. **Add the Playgama Bridge SDK file (once).** YouTube Playables does not allow the game to
-   download anything from the internet, so the SDK file must be inside the game. In the terminal
-   type `npm install @playgama/bridge` and press Enter. (Alternative: download
-   `playgama-bridge.js` from Playgama and put it in the `public` folder.)
-2. Type `npm run build` and press Enter. The finished game appears in the `dist` folder:
+1. The Playgama Bridge SDK is already part of the project (`@playgama/bridge` in `package.json`; `npm install`
+   fetches it). YouTube Playables does not allow the game to download anything from the internet, so the SDK file
+   goes inside the game, and the build puts it first on the page, as Playgama requires.
+2. Make the real `playgama-bridge-config.json` with Playgama's config editor
+   (https://playgama.github.io/bridge-config-editor/) and put it in the `public` folder in place of the one there
+   (that one only sets the advert placements, `game_over` and `double_coins`, and 60 seconds between adverts).
+3. Type `npm run build` and press Enter. The finished game appears in the `dist` folder:
    `index.html`, an `assets` folder, `playgama-bridge.js` and `playgama-bridge-config.json`.
-   If the build prints `playgama-bridge.js not found`, step 1 didn't work; the game then runs in
-   plain browser mode (fine for testing, not for submission).
-3. Check the size: the `dist` folder should be around 1.5 MB (limit: 30 MB, target 15 MB).
-4. Optional check: `npm run preview` and open the address it prints.
-5. Before submitting, create the real `playgama-bridge-config.json` with Playgama's config editor
-   (https://playgama.github.io/bridge-config-editor/) and replace the placeholder in `public`.
+   If the build prints `playgama-bridge.js not found`, run `npm install` first.
+4. Check the size: the `dist` folder should be around 7 MB (limit: 30 MB, target 15 MB).
+5. Optional check: `npm run preview` and open the address it prints.
 6. Zip the **contents** of `dist` (not the folder itself) and upload it in the Playgama
-   developer dashboard. Use Playgama's QA tool to check pause, sound and saving.
+   developer dashboard. Use Playgama's QA tool to check pause, sound, adverts and saving.
 
 ## Checking that nothing broke
 
@@ -105,7 +104,9 @@ changing numbers in `src/config/tuning.js`.
 
 ## Debug mode (for tuning, never shown to players)
 
-Add `?debug` to the address (for example `http://localhost:5173/?debug`). A toolbar appears:
+Add `?debug` to the address (for example `http://localhost:5173/?debug`). It works with `npm run dev` and with
+`npm run build:test` (a build in `dist-test`, for testing); `npm run build`, the version players get, leaves it out
+entirely. A toolbar appears:
 **1 / 2 / 3** handling presets (Grippy / Balanced / Drifty), **V** camera views (Angled / Angled
 high / Angled low / North-up), **T** turntable (park the car and turn it to inspect it), and one
 button per power-up, to try any of them without waiting for a die, and **SWAT**, **ROADBLOCK** and

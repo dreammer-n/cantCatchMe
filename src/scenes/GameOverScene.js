@@ -55,7 +55,6 @@ export class GameOverScene extends Phaser.Scene {
     result.doubled = true;
     Garage.award(result.coins.total);
     PlatformManager.flush();
-    this.audio.play('pickup');
     this.screen.showDoubled(result.coins.total, Garage.coins);
   }
 

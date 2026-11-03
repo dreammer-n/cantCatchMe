@@ -1,5 +1,5 @@
 // Checks for the sound files: that every one the game asks for is really there, under exactly that name.
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AUDIO, POWERUP, STORAGE_KEYS } from '../src/config/tuning.js';
@@ -24,7 +24,10 @@ const exists = (path) => {
 };
 const missing = paths.filter((p) => !exists(p));
 check('every sound file is there, spelt exactly', missing.length === 0, missing.join());
-check('file names are all lowercase, apart from the first-word style the owner chose', paths.every((p) => !/^[A-Z]/.test(p.split('/')[1])));
+// Portals want plain names: lowercase letters, numbers and underscores only, for every folder and file in public/assets.
+const allAssets = readdirSync(ASSETS).flatMap((folder) => [folder, ...readdirSync(join(ASSETS, folder))]);
+const badNames = allAssets.filter((name) => !/^[a-z0-9_]+(\.[a-z0-9]+)?$/.test(name));
+check('asset folders and files use only lowercase letters, numbers and underscores', badNames.length === 0, badNames.join());
 
 const listed = new Set(paths);
 const unused = readdirSync(ASSETS).flatMap((folder) => readdirSync(join(ASSETS, folder)).map((name) => `${folder}/${name}`)).filter((p) => !listed.has(p));
@@ -36,13 +39,24 @@ check('all the sound together fits well inside the 15 MB target', bytes < 8e6, `
 check('every power-up has a sound', Object.keys(POWERUP.kinds).every((kind) => POWERUP.sounds[kind]?.length > 0 && POWERUP.sounds[kind].every((s) => AUDIO.files[s])));
 check('only KABOOM and TITAN have voices', POWERUP.sounds.shockwave.includes('kaboom') && POWERUP.sounds.giant.includes('titan') && Object.values(POWERUP.sounds).flat().filter((s) => s === 'kaboom' || s === 'titan').length === 2);
 check('TITAN is its voice and nothing under it', POWERUP.sounds.giant.length === 1);
-check('the engine sound has gone', AUDIO.engine === undefined);
+check('the engine is back, from the owner\'s own file, quiet under the music', AUDIO.files.engine_loop && AUDIO.engine.volume < AUDIO.chaseMusic && AUDIO.engine.pitch[1] > AUDIO.engine.pitch[0]);
 check('a combo makes no sound, on the owner\'s word', AUDIO.files.combo === undefined);
 check('the music dips subtly on the pause menu: a little, not a lot', AUDIO.musicDim >= 0.5 && AUDIO.musicDim < 0.85);
 check('the police radio can\'t talk over itself', AUDIO.files.police_radio.cooldown >= 5);
 check('the music sits under the effects', AUDIO.chaseMusic < Math.min(...Object.values(POWERUP.sounds).flat().map((s) => AUDIO.files[s].volume)));
 const crashFile = AUDIO.files.carCrash;
 check('the crash varies each time, so it doesn\'t get tiring', crashFile.vary > 0 && crashFile.cooldown > 0);
+
+// Playgama turns down sound made in code: every sound is a file, and none falls back to a made-up one.
+const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'systems', 'AudioSystem.js'), 'utf8');
+check('no sound is synthesised', !/createOscillator|createBiquadFilter|getChannelData/.test(source));
+check('no file falls back to a synthesised sound', Object.values(AUDIO.files).every((f) => f.fallback === undefined));
+const played = new Set();
+const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
+const walk = (dir) => readdirSync(dir, { withFileTypes: true }).forEach((d) => (d.isDirectory() ? walk(join(dir, d.name)) : d.name.endsWith('.js') && [...readFileSync(join(dir, d.name), 'utf8').matchAll(/audio\.play\('([a-zA-Z_]+)'/g)].forEach((m) => played.add(m[1]))));
+walk(SRC);
+const unknown = [...played].filter((name) => !AUDIO.files[name]);
+check('every sound the game plays has its file', unknown.length === 0, unknown.join());
 
 // Two settings, saved apart.
 Settings.setSound(false);

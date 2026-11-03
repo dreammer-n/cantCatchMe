@@ -3,12 +3,12 @@ import { clamp } from '../utils/math.js';
 
 const ASSETS = './assets/'; // relative, like everything else: no outside requests
 
-// All game sound. Music and the bigger effects are files in public/assets, listed in AUDIO; the small
-// everyday ones (bumps, clicks, near misses, pickups, tire squeal, explosions) are synthesised with the Web Audio
-// API. A file that fails to load falls back to a synthesised sound, so the game always plays.
+// All game sound, every bit of it from the files in public/assets listed in AUDIO: nothing is made up in code
+// (Playgama turns down a game whose sound is synthesised). A file that fails to load is simply not heard.
 //   Music: the menu track is decoded and overlaps itself where it repeats, so no gap can be heard. The chase track
 //   is three minutes long, about 70 MB once decoded, so it streams from an audio element instead.
-//   Continuous: tire squeal (follows sliding), police siren (louder when police are close), helicopter.
+//   Continuous: engine (pitch follows speed), tire squeal (follows sliding), police siren (louder when police are
+//   close), helicopter.
 //
 // Browsers only allow sound after the player touches or presses something, so the audio
 // starts in unlock(), called from the first input. The effects and the music each have their own setting, and both
@@ -21,7 +21,7 @@ export class AudioSystem {
     this.musicOn = true; // in-game setting: the music
     this.platformAllowed = true; // platform mute always wins
     this.paused = false; // in-game pause menu: the music dips
-    this.platformPaused = false; // tab hidden / platform pause
+    this.platformPaused = false; // tab hidden / platform pause / an advert
     this.cooldowns = new Map();
     this.track = null; // the music wanted now: 'menu', 'chase' or null
     this.buffers = new Map();
@@ -29,6 +29,7 @@ export class AudioSystem {
     this.chase = null;
     this.chasePrimed = false;
     this.chasePriming = false;
+    this.engine = null; // the engine loop, whose speed sets its pitch
     // Fetched now, so the sound is ready at the first touch; decoded once there is a context to do it with.
     this.downloads = new Map();
     const fetchFile = (name, path) => this.downloads.set(name, fetch(ASSETS + path).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null));
@@ -71,27 +72,13 @@ export class AudioSystem {
     this.music.gain.value = this.musicOn ? 1 : 0;
     this.music.connect(this.master);
 
-    // White noise, shared by the squeal, crashes and whooshes.
-    this.noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-    const data = this.noise.getChannelData(0);
-    for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
-
-    // Tire squeal: band-passed noise.
-    const squeal = ctx.createBufferSource();
-    squeal.buffer = this.noise;
-    squeal.loop = true;
-    const band = ctx.createBiquadFilter();
-    band.type = 'bandpass';
-    band.frequency.value = 1700;
-    band.Q.value = 1.2;
-    this.skidGain = ctx.createGain();
-    this.skidGain.gain.value = 0;
-    squeal.connect(band).connect(this.skidGain).connect(this.effects);
-    squeal.start();
-
     // The looping effects are started when their files are ready. These hold their volumes.
-    this.sirenGain = this.outputGain(this.effects);
-    this.helicopterGain = this.outputGain(this.effects);
+    this.loops = {
+      engine_loop: this.outputGain(this.effects),
+      tire_squeal: this.outputGain(this.effects),
+      siren: this.outputGain(this.effects),
+      helicopter_loop: this.outputGain(this.effects),
+    };
 
     // Music.
     this.menuGain = this.outputGain(this.music);
@@ -108,8 +95,9 @@ export class AudioSystem {
         .then((buffer) => {
           if (!buffer) return;
           this.buffers.set(name, buffer);
-          if (name === 'siren') this.startLoop(buffer, this.sirenGain);
-          if (name === 'helicopter_loop') this.startLoop(buffer, this.helicopterGain);
+          if (!this.loops[name]) return;
+          const source = this.startLoop(buffer, this.loops[name]);
+          if (name === 'engine_loop') this.engine = source;
         })
         .catch(() => {});
     }
@@ -132,6 +120,7 @@ export class AudioSystem {
     source.loopEnd = buffer.duration - AUDIO.loopTrim;
     source.connect(gain);
     source.start(0, AUDIO.loopTrim);
+    return source;
   }
 
   // A phone only lets an audio element play if it was first started by the player's own touch, and the chase track
@@ -244,141 +233,48 @@ export class AudioSystem {
     if (!this.audible && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
   }
 
-  // Called every frame. state: { driving, slip (sideways units/s), sirenDistance, helicopter }
+  // Called every frame. state: { driving, speed (share of top speed), slip (sideways units/s), sirenDistance,
+  // helicopter }
   update(dt, state) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
     this.scheduleMenu(now);
 
+    const speed = state.driving ? clamp(state.speed, 0, 1) : 0;
+    this.loops.engine_loop.gain.setTargetAtTime(state.driving ? AUDIO.engine.volume : 0, now, 0.15);
+    if (this.engine) this.engine.playbackRate.setTargetAtTime(AUDIO.engine.pitch[0] + (AUDIO.engine.pitch[1] - AUDIO.engine.pitch[0]) * speed, now, 0.1);
+
     const slip = state.driving ? clamp((state.slip - 70) / 180, 0, 1) : 0;
-    this.skidGain.gain.setTargetAtTime(slip * AUDIO.skid, now, 0.05);
+    this.loops.tire_squeal.gain.setTargetAtTime(slip * AUDIO.skid, now, 0.05);
 
     const near = clamp(1 - state.sirenDistance / AUDIO.sirenRange, 0, 1);
-    this.sirenGain.gain.setTargetAtTime(near * near * AUDIO.siren, now, 0.15);
-    this.helicopterGain.gain.setTargetAtTime(state.helicopter ? AUDIO.helicopter : 0, now, 0.4);
+    this.loops.siren.gain.setTargetAtTime(near * near * AUDIO.siren, now, 0.15);
+    this.loops.helicopter_loop.gain.setTargetAtTime(state.helicopter ? AUDIO.helicopter : 0, now, 0.4);
   }
 
   // Stops the continuous sounds (menus, game over). The music is left to setMusic.
   quiet() {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    for (const gain of [this.skidGain, this.sirenGain, this.helicopterGain]) gain.gain.setTargetAtTime(0, now, 0.1);
+    for (const gain of Object.values(this.loops)) gain.gain.setTargetAtTime(0, now, 0.1);
   }
 
-  // One-shot sound effects. volume 0..1 (e.g. quieter for far-away explosions).
+  // One-shot sound effects, by their name in AUDIO.files. volume 0..1 (e.g. quieter for far-away crashes).
+  // file.vary: changes the pitch a little each time, so a sound heard often doesn't get tiring.
   play(name, volume = 1) {
     if (!this.ctx || this.ctx.state !== 'running' || volume <= 0.01) return;
     const file = AUDIO.files[name];
     const buffer = this.buffers.get(name);
-    if (file && !buffer) {
-      if (file.fallback) this.play(file.fallback, volume); // not loaded, or it failed to
-      return;
-    }
-    const limit = file ? file.cooldown || 0 : SOUND_COOLDOWNS[name] || 0;
+    if (!file || !buffer) return;
     const now = this.ctx.currentTime;
-    if (limit && now - (this.cooldowns.get(name) ?? -Infinity) < limit) return;
+    if (file.cooldown && now - (this.cooldowns.get(name) ?? -Infinity) < file.cooldown) return;
     this.cooldowns.set(name, now);
-    const v = clamp(volume, 0, 1);
-    if (file) {
-      this.playFile(file, buffer, now, v);
-      return;
-    }
-    switch (name) {
-      case 'explosion':
-        this.noiseHit(now, 0.7 * v, 1600, 120, 0.7);
-        this.tone(now, 'sine', 95, 38, 0.45 * v, 0.5);
-        break;
-      case 'crash':
-        this.noiseHit(now, 0.9 * v, 2400, 150, 0.9);
-        this.tone(now, 'sine', 80, 30, 0.6 * v, 0.7);
-        this.tone(now + 0.35, 'triangle', 520, 300, 0.12 * v, 0.6); // descending "busted" tone
-        break;
-      case 'bump':
-        this.noiseHit(now, 0.35 * v, 700, 200, 0.14);
-        break;
-      case 'cone':
-        this.tone(now, 'triangle', 540, 360, 0.18 * v, 0.07);
-        break;
-      case 'nearMiss':
-        this.noiseSweep(now, 0.3 * v, 3200, 700, 0.35);
-        break;
-      case 'pickup':
-        this.tone(now, 'sine', 660, 660, 0.22 * v, 0.09);
-        this.tone(now + 0.08, 'sine', 990, 990, 0.22 * v, 0.14);
-        break;
-      case 'pulse':
-        this.tone(now, 'sine', 900, 110, 0.4 * v, 0.55);
-        this.noiseSweep(now, 0.35 * v, 1800, 200, 0.6);
-        break;
-      case 'start':
-        this.tone(now, 'square', 440, 440, 0.07 * v, 0.1);
-        this.tone(now + 0.12, 'square', 660, 660, 0.07 * v, 0.16);
-        break;
-      case 'click':
-        this.tone(now, 'square', 1100, 900, 0.05 * v, 0.04);
-        break;
-      default:
-        break;
-    }
-  }
-
-  // file.vary: changes the pitch a little each time, so a sound heard often doesn't get tiring.
-  playFile(file, buffer, now, v) {
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     if (file.vary) source.playbackRate.value = 1 + (Math.random() * 2 - 1) * file.vary;
     const gain = this.ctx.createGain();
-    gain.gain.value = file.volume * v;
+    gain.gain.value = file.volume * clamp(volume, 0, 1);
     source.connect(gain).connect(this.effects);
     source.start(now);
   }
-
-  tone(at, type, from, to, volume, seconds) {
-    const osc = this.ctx.createOscillator();
-    osc.type = type;
-    osc.frequency.setValueAtTime(from, at);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(1, to), at + seconds);
-    const gain = this.envelope(at, volume, seconds);
-    osc.connect(gain);
-    osc.start(at);
-    osc.stop(at + seconds + 0.05);
-  }
-
-  noiseHit(at, volume, from, to, seconds) {
-    const source = this.ctx.createBufferSource();
-    source.buffer = this.noise;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(from, at);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(20, to), at + seconds);
-    source.connect(filter).connect(this.envelope(at, volume, seconds));
-    source.start(at, Math.random() * 0.5);
-    source.stop(at + seconds + 0.05);
-  }
-
-  noiseSweep(at, volume, from, to, seconds) {
-    const source = this.ctx.createBufferSource();
-    source.buffer = this.noise;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.Q.value = 2;
-    filter.frequency.setValueAtTime(from, at);
-    filter.frequency.exponentialRampToValueAtTime(Math.max(20, to), at + seconds);
-    source.connect(filter).connect(this.envelope(at, volume, seconds, 0.05));
-    source.start(at, Math.random() * 0.5);
-    source.stop(at + seconds + 0.05);
-  }
-
-  // Quick attack, smooth decay. Returns the gain node (already connected to the output).
-  envelope(at, volume, seconds, attack = 0.005) {
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), at + attack);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
-    gain.connect(this.effects);
-    return gain;
-  }
 }
-
-// Minimum seconds between two of the same sound (stops a pile-up from becoming noise).
-const SOUND_COOLDOWNS = { bump: 0.15, cone: 0.06, explosion: 0.07, nearMiss: 0.3 };

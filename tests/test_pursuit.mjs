@@ -3,7 +3,7 @@
 import { Camera, ChaseSimulation, SCREENS, T, difficultyAt, fixedMap, isOnScreen, newSim, playRun, projection } from './simkit.mjs';
 import { PoliceCar } from '../src/entities/PoliceCar.js';
 import { Car } from '../src/entities/Car.js';
-import { chooseTarget, steerPolice } from '../src/systems/PoliceAI.js';
+import { chooseTarget, steerPolice } from '../src/systems/PolicePursuit.js';
 import { ThreatRadar } from '../src/systems/ThreatRadar.js';
 
 let pass = 0;

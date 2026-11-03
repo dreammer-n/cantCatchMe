@@ -36,6 +36,10 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 27. **Default camera (2026-11-02):** owner's choice: Angled low (map turned 35°, tilted 40°), which replaces the 40° and 48° of decision 10 as the default. The other views stay in the debug toolbar.
 28. **Wrecks, police and helicopter (2026-11-02):** owner's playtest, with a PAKO frame as reference (no assets copied). A wreck stays the same solid car: it is the model of the car that crashed, burnt in patches (`burntOut`, `<name>Wreck`), never a generic wreck and never flattened. This replaces the rolling and upside-down wrecks of decision 15. The blast only lifts it, turns it a little and drops it (`Tumble`), and it has a soft shadow. Tires bounce off; doors, hoods, panels and bumpers flip, are solid on both sides and take the car's paint (`carPaint`). Pieces have weight: under half a second in the air, and friction with the road follows how hard they land, so parts stop about where they land and only tires roll on. Police cars, interceptors, Bearcats and the helicopter are rebuilt with slice bodies in `src/render/policeModels.js`, replacing "keep their older models" in decision 24 for these; the other 14 player cars and the parked cars are unchanged. Helicopter shadows are soft. The red warning arrow is smaller and fainter. The UI yellow is brighter.
 
+29. **Platform rules and clean-up (2026-11-03):** checked against Playgama's game requirements, the Bridge API's required steps and the config page (wiki.playgama.com). (a) Every sound is a file: the owner added bump, cone, UI click, tire squeal and an engine loop, and the code-made sounds the owner left out (explosion, near miss, pickup, start) are gone, with no synthesised fallback. Playgama rejects synthesised sound. The engine is back, from the owner's file, quiet under the music, its pitch rising with speed; this replaces "the engine sound is removed" in decision 26. (b) Esc no longer pauses (the browser uses it); P and the PAUSE button do. (c) On a platform progress is saved only through Bridge storage, and the page-visibility check runs only without a platform or on the SDK's mock (YouTube forbids it; Bridge's pause event covers a hidden page). (d) The SDK (`@playgama/bridge`, installed) is the first script in `<head>`, loaded normally, added by `vite.config.js`; the game reads `platform.language` once and stays English. (e) An interstitial is asked for at the end of every run (`PlatformManager.showInterstitial`, placement `game_over`); Bridge decides whether one is due, the game adds no timer, and it is paused and silent while one shows. This replaces "the only advert" in decision 21. (f) The rewarded button reads WATCH AD: DOUBLE COINS (+n), and COINS DOUBLED! afterwards, without a tick symbol. (g) The debug toolbar and test hooks are left out of `npm run build`; `npm run build:test` keeps them for the browser checks. The old red coupe model and settings nothing read are deleted.
+
+30. **Real streets on Suburbs (2026-11-03):** owner found the asphalt square and table-like. On a map with `streets` (Suburbs), every block has a cream curb and a concrete pavement round it with rounded corners, and its own ground: asphalt in a slightly different shade with one or two driveways through the curb, or a mown lawn for lawn, garden and grove blocks (`blockGround`). The roads have faint repaired patches, cracks and manholes (`addRoadWear`, numbers in `WORLD.street`). Ground paint only, drawn from its own random numbers, so no prop moves and the driving and collisions are unchanged. Woods keeps its plain blocks; Winter and Desert have no roads. Also from the compliance check: sound files and folders are lowercase with underscores (`sound_effects`, `car_crash.mp3`), the built files have plain names (`assets/game.js`, `assets/index.css`), `PoliceAI.js` is now `PolicePursuit.js`, and the canvas is always set to the window's exact size, which fixes a cut-off picture when the screen density changed.
+
 ## Platform facts to respect (checked 2026-10-28, re-verify before Milestone 3)
 
 - YouTube Playables: initial bundle MUST be < 30 MiB and SHOULD be < 15 MiB (measured compressed, until `gameReady`).
@@ -58,7 +62,7 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | One chase as pure logic (no Phaser): steps cars, collisions, rules, events | `src/systems/ChaseSimulation.js` |
 | Shared driving model (player + police), pure maths | `src/entities/Car.js` |
 | Police helicopter, as pure logic (flying, searchlight target, dropped blocks) / its drawing | `src/entities/Helicopter.js`, `src/render/HelicopterView.js` |
-| Police car state (pooled) / pursuit steering (chasers, interceptors, Bearcats) | `src/entities/PoliceCar.js`, `src/systems/PoliceAI.js` |
+| Police car state (pooled) / pursuit steering (chasers, interceptors, Bearcats) | `src/entities/PoliceCar.js`, `src/systems/PolicePursuit.js` |
 | Which police get a warning arrow (drawn by `UIScene.drawThreats`) | `src/systems/ThreatRadar.js` |
 | Collisions (car circles, prop circles/boxes, grid) | `src/systems/CollisionSystem.js` |
 | Spawn director, roadblocks, difficulty curve (numbers in `HEAT`) | `src/systems/SpawnSystem.js` |
@@ -76,7 +80,7 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Low-poly renderer (solids, bodies built from slices, chunky wheels, flat shading, shadows, baking) | `src/render/lowpoly.js` |
 | Which model goes with which name, burnt wrecks / police, interceptor, Bearcat, helicopter / the player's cars / car drawing sheets | `src/render/carModels.js` / `src/render/policeModels.js` / `src/render/playerCars.js` / `src/render/carAtlas.js` |
 | Prop models (blocks, barriers, trees, lamps, cones, islands, crates, containers, monument, roundabout, parked cars, block letters, lucky die, spike strip, gas station, repair shop, guard booth, bench, boulder, billboard) | `src/render/propModels.js` |
-| Drawing the loaded chunks (floor, holes, pooled props), culling, knocked props | `src/render/Scenery.js` |
+| Drawing the loaded chunks (floor, holes, pooled props), culling, knocked props / ground colours and cutting shapes to floor squares | `src/render/Scenery.js` / `src/render/groundPaint.js` |
 | Fire, smoke, embers, burns, rings, flying wreckage / the soft shapes they use, and marks on the ground / solid wreckage models | `src/render/Effects.js` / `src/render/softShapes.js` / `src/render/debrisModels.js` |
 | The map shown on the map screen | `src/render/mapDiorama.js` |
 | Hit-stop (brief freeze on big hits) | `src/systems/HitStop.js` |
@@ -87,9 +91,9 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | HTML interface: HUD, title / pause / results / garage / map screens | `src/ui/Hud.js`, `src/ui/Screens.js`, `src/ui/dom.js`, styles in `src/styles/main.css` |
 | The game's lettering (code-drawn) | `src/ui/displayFont.js` |
 | The list of maps: stars, colours, trees, props | `MAPS` in `src/config/tuning.js`; stars and best times in `Maps`, `src/systems/ScoreSystem.js`; screen in `src/scenes/MapScene.js` |
-| Debug toolbar (`?debug` only) | `src/dev/DevPanel.js` |
-| Debug test hooks (`window.__carChaseDebug`, perf probe; `?debug` only) | `GameScene.installDebugHooks()` |
-| Bundling the Playgama SDK file locally | `vite.config.js` (plugin), `public/playgama-bridge-config.json` (placeholder) |
+| Debug toolbar (`?debug` only, never in `npm run build`) | `src/dev/DevPanel.js`, wired up in `src/dev/devToolbar.js` |
+| Debug test hooks (`window.__carChaseDebug`, perf probe; `?debug` only, never in `npm run build`) | `src/dev/debugHooks.js` |
+| Bundling the Playgama SDK file locally, first in `<head>` | `vite.config.js` (plugin), `public/playgama-bridge-config.json` (advert placements; replace with one from Playgama's config editor) |
 | Math helpers, seeded random | `src/utils/math.js` |
 | Game-logic tests (`npm test`) and bot balance runs (`npm run balance`) | `tests/` |
 | Try any power-up on demand (`?debug` toolbar buttons) | `src/dev/DevPanel.js`, `GameScene.givePower` |
@@ -122,8 +126,8 @@ Phaser is imported as `import * as Phaser from 'phaser'` (Phaser 3.90 has no def
   (the cloud sandbox has no npm registry; an esbuild stand-in build was used), real phones (feel, frame
   rate, sound), the real Playgama SDK file and Playgama's QA tool, YouTube Playables review.
 - **Rewarded ads:** only tested against a stand-in for the SDK, written from Playgama's documentation. Try a real one on Playgama and YouTube before release. On YouTube only some players are shown ads at all, and its ad API is a public preview.
-- **Before submission:** install `@playgama/bridge` (or put `playgama-bridge.js` in `public/`), replace the
-  placeholder `public/playgama-bridge-config.json` with one from Playgama's config editor, run the QA tool.
+- **Before submission:** replace `public/playgama-bridge-config.json` with one from Playgama's config editor
+  (keep the `game_over` and `double_coins` placements), run Playgama's QA tool. `@playgama/bridge` is installed.
 - **Still open (owner):** ART_DIRECTION approval, difficulty after
-  real playtests, whether to add more power-ups, unlockable cars or adverts (none are in the game).
+  real playtests, whether to add more power-ups.
 - **Owner is not a programmer:** explain simply, give exact manual steps.

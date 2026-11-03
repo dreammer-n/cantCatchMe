@@ -3,6 +3,7 @@ import { CHUNKS, CONES, DEPTH, EFFECTS, MAPS, PALETTE, PILLARS, RENDER, ROADBLOC
 import { propCatalogue } from '../systems/WorldLayout.js';
 import { createRng } from '../utils/math.js';
 import { depthAt } from './layers.js';
+import { clipToRect, groundColor } from './groundPaint.js';
 import { bakeMesh, releasePropDrawings } from './lowpoly.js';
 import { projection } from './projection.js';
 import { LAMP_REACH, propBakeScale, propMesh } from './propModels.js';
@@ -360,12 +361,19 @@ export class Scenery {
             if (mark.x >= x0 && mark.x < x1 && mark.y >= y0 && mark.y < y1) drawArrow(g, mark);
             continue;
           }
+          if (mark.poly) {
+            const points = clipToRect(mark.poly, x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+            if (points.length === 0) continue;
+            g.fillStyle(groundColor(mark), mark.alpha);
+            g.fillPoints(points, true);
+            continue;
+          }
           const px0 = Math.max(mark.x, x0 - 1);
           const py0 = Math.max(mark.y, y0 - 1);
           const px1 = Math.min(mark.x + mark.w, x1 + 1);
           const py1 = Math.min(mark.y + mark.h, y1 + 1);
           if (px1 <= px0 || py1 <= py0) continue;
-          g.fillStyle(floorColor(mark.color), mark.alpha);
+          g.fillStyle(groundColor(mark), mark.alpha);
           g.fillRect(px0, py0, px1 - px0, py1 - py0);
         }
         // Tufts of grass on the ground. Soft patches are images: see drawMarks.
@@ -504,12 +512,6 @@ const MARK_TEXTURE = 128;
 function onRoad(x, y, reach) {
   const margin = WORLD.margin + reach;
   return Math.abs(x - Math.round(x / WORLD.cell) * WORLD.cell) < margin || Math.abs(y - Math.round(y / WORLD.cell) * WORLD.cell) < margin;
-}
-
-function floorColor(color) {
-  if (color === 'lot') return PALETTE.lot;
-  if (color === 'plaza') return PALETTE.plaza;
-  return PALETTE.paintWhite;
 }
 
 // A painted road arrow: a shaft and a head, turned to its heading.

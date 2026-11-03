@@ -56,14 +56,14 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
   for (const view of RENDER.views) {
     const pr = new Projection(view);
     for (const name of ['bearcat', 'helicopter', 'bearcatWreck']) {
-      const layout = atlasLayout(measureCar(name, pr));
+      const layout = atlasLayout(measureCar(name.replace(/^player/, 'coupe'), pr));
       widest = Math.max(widest, layout.width, layout.height);
     }
   }
   check('the new drawing sheets fit older phones, in every camera view', widest <= 2048, `largest side ${widest} px`);
   const pr = new Projection(RENDER.views.find((v) => v.id === RENDER.defaultViewId));
   const mb = Object.keys(RENDER.carDirections).reduce((sum, name) => {
-    const layout = atlasLayout(measureCar(name, pr));
+    const layout = atlasLayout(measureCar(name.replace(/^player/, 'coupe'), pr));
     return sum + (layout.width * layout.height * 4) / 1e6;
   }, 0);
   check('all the vehicle sheets stay within budget', mb < 27, `${mb.toFixed(1)} MB graphics memory`);

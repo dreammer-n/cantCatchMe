@@ -1,6 +1,7 @@
 import { CHUNKS, EFFECTS, PALETTE, RENDER, START, WORLD } from '../config/tuning.js';
 import { chunkCoord, buildChunk } from '../systems/WorldLayout.js';
 import { carMesh } from './carModels.js';
+import { groundColor } from './groundPaint.js';
 import { cssColor, paintMesh, paintShadow, projectMesh, projectShadow } from './lowpoly.js';
 import { projection } from './projection.js';
 import { LAMP_REACH, propMesh } from './propModels.js';
@@ -48,11 +49,6 @@ function drawStamp(ctx, image, x, y, rx, ry, angle) {
   ctx.restore();
 }
 
-function floorColor(color) {
-  if (color === 'lot') return PALETTE.lot;
-  if (color === 'plaza') return PALETTE.plaza;
-  return PALETTE.paintWhite;
-}
 
 function drawArrow(ctx, mark) {
   const { arrowLength: length, arrowWidth: width } = WORLD;
@@ -73,11 +69,15 @@ function drawGround(ctx, chunks, map) {
         const p = mark.pts;
         ctx.fillStyle = cssColor(PALETTE.track);
         polygon(ctx, [[p[0], p[1]], [p[2], p[3]], [p[4], p[5]], [p[6], p[7]]]);
+      } else if (mark.poly) {
+        ctx.fillStyle = cssColor(groundColor(mark));
+        const p = mark.poly;
+        polygon(ctx, Array.from({ length: p.length / 2 }, (_, i) => [p[i * 2], p[i * 2 + 1]]));
       } else if (mark.arrow) {
         ctx.fillStyle = cssColor(PALETTE.paintWhite);
         drawArrow(ctx, mark);
       } else if (!mark.ring) {
-        ctx.fillStyle = cssColor(floorColor(mark.color));
+        ctx.fillStyle = cssColor(groundColor(mark));
         ctx.fillRect(mark.x, mark.y, mark.w, mark.h);
       }
     }

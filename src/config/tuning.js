@@ -5,8 +5,6 @@ export const DISPLAY = {
   backgroundColor: '#1b1f24',
   // Very dense phone screens (3x) are rendered at 2x: almost no visible difference, much less GPU work.
   maxPixelRatio: 2,
-  // Placeholder textures are drawn at 2x so they stay sharp when the camera zooms in.
-  textureScale: 2,
   // Longest frame step the game will simulate (ms). Prevents huge jumps after tab switches or hitches.
   maxFrameDeltaMs: 50,
 };
@@ -95,17 +93,12 @@ export const UI = {
   minScale: 0.85,
   maxScale: 1.5,
   margin: 12,
-  titleSize: 15,
-  infoSize: 13,
-  hintSize: 14,
 };
 
 // Interface colors. World colors are in PALETTE below.
 export const COLORS = {
   warning: 0xff3b30,
   warningBack: 0x14080a,
-  uiText: '#e8edf2',
-  uiPanel: 'rgba(10, 12, 15, 0.55)',
 };
 
 export const STORAGE_KEYS = {
@@ -286,6 +279,7 @@ export const MAPS = [
     name: 'SUBURBS',
     stars: 0,
     palette: {},
+    streets: true, // real streets: curbs, pavements, rounded corners and worn asphalt (WORLD.street)
     trees: ['leafy', 'leafyDark'],
     lamp: 'lamp',
     shop: 'shop',
@@ -859,7 +853,6 @@ export const DEV_PANEL = {
   turntableSpinDeg: 30,
   turntableTurnDeg: 90, // while holding left / right
   readoutRefreshMs: 200,
-  hintVisibleMs: 9000,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -928,7 +921,10 @@ export const PALETTE = {
   asphaltPatchDark: 0x373d47,
   asphaltPatchLight: 0x464c58,
   paintWhite: 0xf8f6ef,
-  paintYellow: 0xf0c04a,
+  sidewalk: 0x6c7381, // concrete pavements round the blocks
+  crack: 0x2b3038, // cracks in the road, and the rims of manholes
+  manhole: 0x4c535f,
+  lawn: 0x7ea53b, // block lawns: a little deeper than the lime of the islands, so they don't glare
   curb: 0xece5d8, // warm cream rim of islands and roundabouts ...
   median: 0x98c43d, // ... around fresh lime grass
   medianTuft: 0x7fa932, // darker patches in the grass
@@ -1048,11 +1044,12 @@ export function mapColor(map, key) {
 // [TUNE] Synthesised sound levels (0..1) and siren behaviour.
 export const AUDIO = {
   master: 0.55,
-  skid: 0.12,
+  skid: 0.5,
+  engine: { volume: 0.32, pitch: [0.75, 1.45] }, // quiet under the music; its pitch rises with speed
   siren: 0.5,
   helicopter: 0.6,
   sirenRange: 950, // world units: the siren fades in as the nearest police car gets closer
-  explosionRange: 1500, // explosions further away than this are silent
+  explosionRange: 1500, // crashes further away than this are silent
   menuMusic: 0.8,
   chaseMusic: 0.65, // under the effects
   musicFade: 0.3, // seconds: how quickly one track gives way to the other (a time constant: about 5 x this in all)
@@ -1060,22 +1057,26 @@ export const AUDIO = {
   menuOverlap: 1.2, // seconds the menu track overlaps itself where it repeats
   musicLookAhead: 2, // seconds ahead that its next pass is prepared
   loopTrim: 0.06, // seconds skipped at each end of a looping effect: the silence an MP3 adds
-  // Files in public/assets. The rest of the game's sounds are synthesised.
+  // Files in public/assets: every sound in the game. None is made in code.
   music: { menu: 'bg_audios/bgm_menu.mp3', chase: 'bg_audios/bgm_chase.mp3' },
-  // volume; cooldown: minimum seconds apart; vary: pitch change each time; fallback: the synthesised sound to use if
-  // the file isn't there.
+  // volume; cooldown: minimum seconds apart; vary: pitch change each time.
   files: {
-    carCrash: { path: 'soundEffects/carCrash.mp3', volume: 1, cooldown: 0.25, vary: 0.08, fallback: 'crash' },
-    freeze_shatter: { path: 'soundEffects/freeze_shatter.mp3', volume: 1, cooldown: 0.1, fallback: 'cone' },
-    shockwave: { path: 'soundEffects/shockwave.mp3', volume: 1, fallback: 'pulse' },
-    kaboom: { path: 'soundEffects/kaboom.mp3', volume: 1 },
-    titan: { path: 'soundEffects/titan.mp3', volume: 1, fallback: 'pulse' },
-    cold_snap: { path: 'soundEffects/cold_snap.mp3', volume: 1, fallback: 'pulse' },
-    stone_wall: { path: 'soundEffects/stone_wall.mp3', volume: 1, fallback: 'bump' },
-    scorcher: { path: 'soundEffects/scorcher.mp3', volume: 1, fallback: 'pickup' },
-    police_radio: { path: 'soundEffects/police_radio.mp3', volume: 0.8, cooldown: 30 },
-    siren: { path: 'soundEffects/siren.mp3' }, // these two loop: see AudioSystem
-    helicopter_loop: { path: 'soundEffects/helicopter_loop.mp3' },
+    carCrash: { path: 'sound_effects/car_crash.mp3', volume: 1, cooldown: 0.25, vary: 0.08 },
+    bump: { path: 'sound_effects/bump.mp3', volume: 0.7, cooldown: 0.15, vary: 0.1 },
+    cone: { path: 'sound_effects/cone.mp3', volume: 0.7, cooldown: 0.06, vary: 0.12 },
+    click: { path: 'sound_effects/ui_click.mp3', volume: 0.6 },
+    freeze_shatter: { path: 'sound_effects/freeze_shatter.mp3', volume: 1, cooldown: 0.1 },
+    shockwave: { path: 'sound_effects/shockwave.mp3', volume: 1 },
+    kaboom: { path: 'sound_effects/kaboom.mp3', volume: 1 },
+    titan: { path: 'sound_effects/titan.mp3', volume: 1 },
+    cold_snap: { path: 'sound_effects/cold_snap.mp3', volume: 1 },
+    stone_wall: { path: 'sound_effects/stone_wall.mp3', volume: 1 },
+    scorcher: { path: 'sound_effects/scorcher.mp3', volume: 1 },
+    police_radio: { path: 'sound_effects/police_radio.mp3', volume: 0.8, cooldown: 30 },
+    engine_loop: { path: 'sound_effects/engine_loop.mp3' }, // these four loop: see AudioSystem
+    tire_squeal: { path: 'sound_effects/tire_squeal.mp3' },
+    siren: { path: 'sound_effects/siren.mp3' },
+    helicopter_loop: { path: 'sound_effects/helicopter_loop.mp3' },
   },
 };
 
@@ -1138,32 +1139,6 @@ export const EFFECTS = {
 };
 
 // Player car shape, in world units. Footprint matches the physics size (CAR_SIZE: 44 x 84).
-// Built in height bands so each reads as its own flat-shaded surface: dark lower sills and bumpers,
-// body sides, a sloped hood and boot, a glass cabin and a flat roof. [TUNE]
-export const CAR_MODEL = {
-  wheelHeight: 14, // wheels are round: this is also their length
-  wheelInner: 19, // tires sit outside the lower body (x 19..23.5) so they always show
-  wheelOuter: 23.5,
-  wheelBase: 0.32, // axles sit this share of the length from the centre
-  sillBottom: 4, // lower body (narrower, darker)
-  sillTop: 9.5,
-  sillHalfWidth: 19,
-  sillShade: 0.72,
-  bumperDepth: 2,
-  bodyHalfWidth: 22, // upper body: full width over the wheels
-  shoulderInset: 1.5, // top edge of the body sides leans in by this much
-  beltHeight: 17, // top of the body sides, where the cabin sits
-  noseHeight: 14, // hood slopes down from beltHeight to this at the front
-  tailHeight: 16, // boot slopes down slightly toward the back
-  cabinFront: 0.11, // cabin base runs between these shares of the length
-  cabinBack: -0.3,
-  roofFront: 0.0,
-  roofBack: -0.21,
-  cabinInset: 2.5, // cabin base narrower than the body on each side
-  roofInset: 6, // roof narrower than the body on each side
-  roofHeight: 30,
-};
-
 // Scenery drawing constants. Units are world units; x right, y down the map.
 export const SCENERY = {
   // Trees were a bit small next to the car (crown only 1.4x the car's width); 1.25 makes a pine
@@ -1193,6 +1168,25 @@ export const WORLD = {
   seed: 1029,
   cell: 600, // block size including half the road on each side
   margin: 95, // empty road strip inside each cell edge (roads are 2 x margin wide)
+  // Streets on a map with `streets`: every block has a cream curb and a pavement round it, with rounded corners, and
+  // its own ground (asphalt in a slightly different shade, or a lawn). The roads are worn: repaired patches,
+  // cracks and manholes. All of it is ground paint only: the driving and the collisions are the same. [TUNE]
+  street: {
+    curb: 5,
+    sidewalk: 20,
+    cornerRadius: 46,
+    lotShade: 0.07, // a block's asphalt is up to this much lighter or darker than PALETTE.lot
+    grassBlocks: ['lawn', 'garden', 'grove'], // arrangements whose block is a lawn
+    driveways: [1, 2], // gaps in the curb into an asphalt block
+    drivewayWidth: [70, 110],
+    patches: 6, // per chunk, on the roads
+    patchSize: [[60, 150], [40, 90]], // along and across the road
+    patchAlpha: 0.45, // mended road is only a little darker
+    mowStripes: 8, // a lawn is mown in stripes, every other one a little darker
+    cracks: 12, // per chunk, on the roads; and one in half the asphalt blocks
+    crackWidth: 2.5,
+    manholes: 7,
+  },
   islandLengths: [360, 400, 440],
   // Concrete block shapes (a few shapes and turns, so few drawings are needed).
   blockTypes: [

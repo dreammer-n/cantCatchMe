@@ -1,10 +1,8 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
-import { COLORS, MAPS, DEV_PANEL, HANDLING_PRESETS, HANDLING_PRESET_ORDER, PALETTE, POWERUP, RENDER, STORAGE_KEYS, UI, WARNING } from '../config/tuning.js';
-import { DevPanel } from '../dev/DevPanel.js';
+import { COLORS, PALETTE, UI, WARNING } from '../config/tuning.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
-import { findView, projection } from '../render/projection.js';
-import { Records, Garage, Maps } from '../systems/ScoreSystem.js';
+import { Records, Maps } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
 import { Hud } from '../ui/Hud.js';
 import { PauseScreen } from '../ui/Screens.js';
@@ -52,7 +50,7 @@ export class UIScene extends Phaser.Scene {
       if (this.world.running && !this.paused) this.setPaused(true);
     });
 
-    if (DEBUG) this.createDevPanel();
+    if (import.meta.env.MODE !== 'production' && DEBUG) import('../dev/devToolbar.js').then(({ attachDevToolbar }) => (this.devTools = attachDevToolbar(this)));
     this.layout();
     this.scale.on('resize', this.layout, this);
     this.events.once('shutdown', () => this.scale.off('resize', this.layout, this));
@@ -79,10 +77,7 @@ export class UIScene extends Phaser.Scene {
     const sim = this.world.sim;
     if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.distance, sim.stats.wrecks);
     this.drawOverlay(running && !this.paused);
-    if (this.devPanel && time >= this.nextReadoutAt) {
-      this.nextReadoutAt = time + DEV_PANEL.readoutRefreshMs;
-      this.devPanel.setReadout(this.describeRun());
-    }
+    if (this.devTools) this.devTools.update(time);
   }
 
   setPaused(paused) {
@@ -231,80 +226,6 @@ export class UIScene extends Phaser.Scene {
       y - dy * size * 0.7 - dx * size * 0.8,
     );
   }
-
-  // ------------------------------------------------------------------------------------------
-  // Debug toolbar (?debug only)
-  // ------------------------------------------------------------------------------------------
-
-  createDevPanel() {
-    this.nextReadoutAt = 0;
-    this.devPanel = new DevPanel({
-      presets: [...HANDLING_PRESET_ORDER.map((id) => ({ id, label: HANDLING_PRESETS[id].label })), { id: 'car', label: 'Chosen car' }],
-      onSelectPreset: (id) => this.selectPreset(id),
-      onRestart: () => this.restartRun(),
-      onCycleView: () => this.cycleView(),
-      onTurntable: () => this.toggleTurntable(),
-      powers: Object.entries(POWERUP.names).map(([id, label]) => ({ id, label })),
-      onGivePower: (kind) => this.world.givePower(kind),
-      onSummon: (kind) => this.world.summon(kind),
-      onCoins: () => Garage.award(50000),
-      onResetGarage: () => {
-        Garage.restore(0, [], null);
-        Garage.save();
-      },
-      onAllMaps: () => {
-        for (const map of MAPS) Maps.best[map.id] = Math.max(Maps.bestTime(map.id), 75);
-      },
-    });
-    this.devPanel.setActivePreset(this.registry.get('handlingPreset'));
-    this.devPanel.setViewLabel(projection.viewLabel);
-    this.events.once('shutdown', () => this.devPanel.destroy());
-    PlatformManager.getStoredValue(STORAGE_KEYS.handlingPreset, null).then((saved) => {
-      if (saved && HANDLING_PRESETS[saved]) this.selectPreset(saved, false);
-    });
-    PlatformManager.getStoredValue(STORAGE_KEYS.view, null).then((viewId) => {
-      if (findView(viewId)) this.setView(viewId, false);
-    });
-  }
-
-  cycleView() {
-    const views = RENDER.views;
-    const index = views.findIndex((view) => view.id === projection.viewId);
-    this.setView(views[(index + 1) % views.length].id, true);
-  }
-
-  setView(viewId, save) {
-    const view = findView(viewId);
-    if (projection.viewId !== view.id) projection.setView(view);
-    this.devPanel.setViewLabel(view.label);
-    if (save) PlatformManager.setStoredValue(STORAGE_KEYS.view, view.id);
-  }
-
-  selectPreset(id, save = true) {
-    this.registry.set('handlingPreset', id);
-    this.devPanel.setActivePreset(id);
-    if (save) PlatformManager.setStoredValue(STORAGE_KEYS.handlingPreset, id);
-  }
-
-  toggleTurntable() {
-    this.world.setTurntable(!this.world.turntable);
-    this.devPanel.setTurntable(this.world.turntable);
-  }
-
-  describeRun() {
-    const state = this.world.getDebugState();
-    if (state.turntable) {
-      const deg = Math.round(((state.heading * 180) / Math.PI + 360) % 360);
-      return `Turntable · facing ${deg}° (${compassName(deg)}) · hold ← → to turn · T to drive`;
-    }
-    return [
-      HANDLING_PRESETS[state.preset]?.label ?? state.preset,
-      state.mode,
-      `speed ${Math.round(state.speed)}`,
-      `police ${state.police}`,
-      `${Math.round(this.game.loop.actualFps)} fps`,
-    ].join(' · ');
-  }
 }
 
 // Dark edge first, so the chevron shows up on any background. [colour, thickness x size, opacity]
@@ -312,7 +233,3 @@ const THREAT_STROKES = [
   [COLORS.warningBack, 0.75, 0.7],
   [COLORS.warning, 0.42, 1],
 ];
-
-function compassName(deg) {
-  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
-}

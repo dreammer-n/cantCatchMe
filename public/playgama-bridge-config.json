@@ -1,3 +1,14 @@
 {
+  "loadingScreenType": "none",
+  "disableLoadingLogo": true,
+  "advertisement": {
+    "minimumDelayBetweenInterstitial": 60,
+    "interstitial": {
+      "placements": [{ "id": "game_over" }]
+    },
+    "rewarded": {
+      "placements": [{ "id": "double_coins" }]
+    }
+  },
   "platforms": {}
 }

@@ -18,7 +18,8 @@ import { createRng, lerp } from '../utils/math.js';
 // Breakable items (cones, lamp posts, wooden crates) all get knocked away the same way.
 // Void: { kind: 'void', isVoid: true, x, y, heading, collider, outline: [{x, y}] }: a hole in the
 // ground; the outline is what gets drawn.
-// Paint: rectangles on the floor { x, y, w, h, alpha, color? } (x, y = top-left corner; color 'lot' =
+// Paint: polygons on the floor { poly: [x, y, x, y ...], color, alpha, shade? } (curbs, pavements, block ground, road
+// wear: render/groundPaint.js has their colours), rectangles { x, y, w, h, alpha, color? } (x, y = top-left corner; color 'lot' =
 // the lighter surface of a city block, 'plaza' = a paved square, otherwise white paint), or
 // rings { ring: true, x, y, r, width, alpha } or road arrows { arrow: true, x, y, heading, alpha }
 // (white, drawn with the floor square holding the centre).
@@ -70,6 +71,8 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   const preset = hasStart ? forMap.startPreset : pickWeighted(rng, presets.map(([name, def]) => [name, def.weight]));
   const def = presetsHere[preset];
   const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [] };
+  // The ground has its own random numbers, so it never moves a prop.
+  const groundRng = createRng(hash + 7919);
 
   // At most one word statue per chunk, in a block picked now. Near the start it is skipped.
   const hasLandmark = rng() < WORLD.landmarkChance;
@@ -82,23 +85,31 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   for (let j = 0; j < CELLS_PER_CHUNK; j += 1) {
     for (let i = 0; i < CELLS_PER_CHUNK; i += 1) {
       const cell = makeCell(chunk, i, j);
-      chunk.paint.push({ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' });
-      if (preset === 'plaza' && isPlazaCell(i, j)) continue;
+      const groundAt = chunk.paint.length;
+      let arrangement = 'open';
+      if (preset === 'plaza' && isPlazaCell(i, j)) {
+        chunk.paint.push(...blockGround(cell, groundRng, arrangement));
+        continue;
+      }
       // The chunk where a run starts has the gas station, in the block ahead and to the right of the start.
       const hub = hasStart && cell.x0 > START.x && cell.x0 < START.x + WORLD.cell && cell.y1 < START.y && cell.y1 > START.y - WORLD.cell;
       const statue = !hub && hasLandmark && i === landmarkI && j === landmarkJ && addLandmark(cell, word);
       if (hub) {
+        arrangement = 'station';
         BUILDERS.station(cell, chunk.items, chunk.paint, rng);
       } else if (!statue) {
         // One gas station to a chunk at most: the start chunk's is the one above.
-        let arrangement = pickWeighted(rng, def.cells);
+        arrangement = pickWeighted(rng, def.cells);
         if (arrangement === 'station' && (hasStart || hasStation)) arrangement = 'lawn';
         if (arrangement === 'station') hasStation = true;
         BUILDERS[arrangement](cell, chunk.items, chunk.paint, rng);
       }
+      // The block's ground goes under everything its arrangement painted.
+      chunk.paint.splice(groundAt, 0, ...blockGround(cell, groundRng, arrangement));
       if (rng() < WORLD.crosswalkChance) addCrosswalk(cell, chunk.paint, rng, i, j);
     }
   }
+  if (forMap.streets) addRoadWear(chunk, groundRng);
   if (preset === 'plaza') addPlaza(chunk);
   addLaneLines(chunk);
   addRoadArrows(chunk, rng);
@@ -998,6 +1009,134 @@ function addTracks(chunk, rng) {
 
 // Zebra crossing on the road along one edge of the block. Not on the chunk's own border roads:
 // half of it would belong to the neighbouring chunk.
+// ---- Streets ----
+
+const round1 = (v) => Math.round(v * 10) / 10;
+
+// A rectangle with rounded corners, as a polygon, pulled in from the cell's edge by inset.
+function roundedRect(cell, inset, radius) {
+  const x0 = cell.x0 + inset;
+  const y0 = cell.y0 + inset;
+  const x1 = cell.x1 - inset;
+  const y1 = cell.y1 - inset;
+  const r = Math.max(2, radius);
+  const points = [];
+  const corner = (cx, cy, start) => {
+    for (let s = 0; s <= 4; s += 1) {
+      const a = start + (s / 4) * (Math.PI / 2);
+      points.push(round1(cx + Math.cos(a) * r), round1(cy + Math.sin(a) * r));
+    }
+  };
+  corner(x1 - r, y1 - r, 0);
+  corner(x0 + r, y1 - r, Math.PI / 2);
+  corner(x0 + r, y0 + r, Math.PI);
+  corner(x1 - r, y0 + r, Math.PI * 1.5);
+  return points;
+}
+
+// A rectangle centred on (x, y), along and across, turned by angle (radians), as a polygon.
+function turnedRect(x, y, along, across, angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const points = [];
+  for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const a = (u * along) / 2;
+    const b = (v * across) / 2;
+    points.push(round1(x + a * c - b * s), round1(y + a * s + b * c));
+  }
+  return points;
+}
+
+// A crack: a few short wandering pieces from (x, y).
+function crack(paint, rng, x, y, angle) {
+  const width = WORLD.street.crackWidth;
+  const pieces = 3 + Math.floor(rng() * 3);
+  for (let p = 0; p < pieces; p += 1) {
+    const length = 12 + rng() * 18;
+    angle += (rng() * 2 - 1) * 0.9;
+    const nx = x + Math.cos(angle) * length;
+    const ny = y + Math.sin(angle) * length;
+    paint.push({ poly: turnedRect((x + nx) / 2, (y + ny) / 2, length + width, width, angle), color: 'crack', alpha: 0.75 });
+    x = nx;
+    y = ny;
+  }
+}
+
+// A block's ground: a curb, a pavement inside it and the block itself, all with rounded corners. An asphalt block
+// has driveways through its curb, and sometimes a crack. Maps without streets keep a plain square.
+function blockGround(cell, rng, arrangement) {
+  if (!map.streets) return [{ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' }];
+  const st = WORLD.street;
+  const edge = st.curb + st.sidewalk;
+  const grass = st.grassBlocks.includes(arrangement);
+  const shade = round1(1000 * (1 + (rng() * 2 - 1) * st.lotShade)) / 1000;
+  const marks = [
+    { poly: roundedRect(cell, 0, st.cornerRadius), color: 'curb', alpha: 1 },
+    { poly: roundedRect(cell, st.curb, st.cornerRadius - st.curb), color: 'sidewalk', alpha: 1 },
+    { poly: roundedRect(cell, edge, st.cornerRadius - edge), color: grass ? 'grass' : 'lot', alpha: 1, ...(grass ? {} : { shade }) },
+  ];
+  if (grass) {
+    // Mowing stripes, every other one darker. The first and last are left plain, which keeps them off the corners.
+    const inner = { x0: cell.x0 + edge, y0: cell.y0 + edge, size: cell.size - edge * 2 };
+    const band = inner.size / st.mowStripes;
+    const across = rng() < 0.5;
+    for (let k = 1; k < st.mowStripes - 1; k += 2) {
+      const middle = inner.size / 2;
+      const at = band * (k + 0.5);
+      const poly = across ? turnedRect(inner.x0 + middle, inner.y0 + at, inner.size, band, 0) : turnedRect(inner.x0 + at, inner.y0 + middle, band, inner.size, 0);
+      marks.push({ poly, color: 'grass', alpha: 1, shade: 0.93 });
+    }
+    return marks;
+  }
+  const count = st.driveways[0] + Math.floor(rng() * (st.driveways[1] - st.driveways[0] + 1));
+  const sides = [0, 1, 2, 3].sort(() => rng() - 0.5).slice(0, count);
+  for (const side of sides) {
+    const width = lerp(st.drivewayWidth[0], st.drivewayWidth[1], rng());
+    const from = st.cornerRadius + 40;
+    const along = from + rng() * (cell.size - from * 2 - width) + width / 2;
+    const depth = edge + 2;
+    const x = side === 1 ? cell.x1 - depth / 2 : side === 3 ? cell.x0 + depth / 2 : cell.x0 + along;
+    const y = side === 0 ? cell.y0 + depth / 2 : side === 2 ? cell.y1 - depth / 2 : cell.y0 + along;
+    const poly = side % 2 === 0 ? turnedRect(x, y, width, depth, 0) : turnedRect(x, y, depth, width, 0);
+    marks.push({ poly, color: 'lot', alpha: 1, shade });
+  }
+  if (rng() < 0.5) crack(marks, rng, cell.x0 + edge + 40 + rng() * (cell.size - edge * 2 - 80), cell.y0 + edge + 40 + rng() * (cell.size - edge * 2 - 80), rng() * Math.PI * 2);
+  return marks;
+}
+
+// Wear on the chunk's roads: patches where the road was mended, cracks, and manholes in the lanes.
+function addRoadWear(chunk, rng) {
+  const st = WORLD.street;
+  const { cell, margin } = WORLD;
+  // A point on one of the chunk's roads (its north and west edges, and the roads between its blocks).
+  const onRoad = (across) => {
+    const vertical = rng() < 0.5;
+    const line = Math.floor(rng() * CELLS_PER_CHUNK) * cell;
+    const along = rng() * CHUNKS.size;
+    const offset = (rng() * 2 - 1) * across;
+    return vertical ? { x: chunk.x0 + line + offset, y: chunk.y0 + along, vertical } : { x: chunk.x0 + along, y: chunk.y0 + line + offset, vertical };
+  };
+  for (let i = 0; i < st.patches; i += 1) {
+    const along = lerp(st.patchSize[0][0], st.patchSize[0][1], rng());
+    const across = lerp(st.patchSize[1][0], st.patchSize[1][1], rng());
+    const at = onRoad(margin - across / 2 - 8);
+    const angle = (at.vertical ? Math.PI / 2 : 0) + (rng() * 2 - 1) * 0.06;
+    chunk.paint.push({ poly: turnedRect(at.x, at.y, along, across, angle), color: 'patch', alpha: st.patchAlpha });
+  }
+  for (let i = 0; i < st.cracks; i += 1) {
+    const at = onRoad(margin - 40);
+    crack(chunk.paint, rng, at.x, at.y, rng() * Math.PI * 2);
+  }
+  for (let i = 0; i < st.manholes; i += 1) {
+    const at = onRoad(0);
+    const side = (rng() < 0.5 ? -1 : 1) * margin * 0.5; // in a lane, not on the centre line
+    const x = at.vertical ? at.x + side : at.x;
+    const y = at.vertical ? at.y : at.y + side;
+    const disc = (r) => Array.from({ length: 10 }, (_, k) => [round1(x + Math.cos((k / 10) * Math.PI * 2) * r), round1(y + Math.sin((k / 10) * Math.PI * 2) * r)]).flat();
+    chunk.paint.push({ poly: disc(14), color: 'crack', alpha: 0.9 }, { poly: disc(10.5), color: 'manhole', alpha: 1 });
+  }
+}
+
 function addCrosswalk(cell, paint, rng, i, j) {
   const horizontal = rng() < 0.5;
   const width = 150;

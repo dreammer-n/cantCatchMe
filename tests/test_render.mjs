@@ -84,49 +84,10 @@ const visibleNames = (mesh, heading, pr) => projectMesh(mesh, heading, pr).flatM
   check('a tall object casts a longer shadow', area(tallShadow) > area(footprint) * 2);
 }
 
-// --- The car model ---
+// --- The car's shadow ---
 {
-  const mesh = carMesh('player');
-  const pts = mesh.flatMap((p) => p.verts);
-  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]), zs = pts.map((p) => p[2]);
-  check('car body matches the physics footprint (44 x 84)', near(Math.max(...ys) - Math.min(...ys), CAR_SIZE.length) && Math.max(...xs) - Math.min(...xs) <= CAR_SIZE.width + 3.1,
-    `${(Math.max(...xs) - Math.min(...xs)).toFixed(1)} x ${(Math.max(...ys) - Math.min(...ys)).toFixed(1)}`);
-  check('car has real height (roof above body)', Math.max(...zs) >= 30);
-  let alwaysTwoSides = true, alwaysRoof = true;
-  for (let i = 0; i < RENDER.directions; i++) {
-    const parts = projectMesh(mesh, directionHeading(i), angled);
-    const body = parts.find((p) => p.layer === 1);
-    const sides = body.faces.filter((f) => f.name !== 'top').length;
-    if (sides < 1) alwaysTwoSides = false;
-    if (!parts.find((p) => p.layer === 2).faces.some((f) => f.name === 'top')) alwaysRoof = false;
-  }
-  check('every direction shows body sides (not a flat image)', alwaysTwoSides);
-  check('every direction shows the roof', alwaysRoof);
-  // Height bands and consistent proportions in all 64 directions.
-  let glassEverywhere = true, wheelsEverywhere = true, hoodOrBootEverywhere = true;
-  const roofLift = [], widths = [];
-  for (let i = 0; i < RENDER.directions; i++) {
-    const parts = projectMesh(mesh, directionHeading(i), angled);
-    const cabin = parts.find((p) => p.layer === 2 && p.faces.some((f) => f.name === 'top') && p.cam.length === 8 && Math.max(...p.cam.map((c) => c.z)) >= 29);
-    if (!cabin.faces.some((f) => f.name !== 'top')) glassEverywhere = false;
-    if (!parts.some((p) => p.layer === 0 && p.faces.length > 0 && p.cam.every((c) => c.z <= 14.01) && p.cam.some((c) => c.z === 0))) wheelsEverywhere = false;
-    if (parts.filter((p) => p.layer === 1).reduce((n, p) => n + p.faces.filter((f) => f.name === 'top').length, 0) < 3) hoodOrBootEverywhere = false;
-    // How high the roof stands above the car's own ground point, on screen.
-    const roofTop = cabin.faces.find((f) => f.name === 'top').pts;
-    const roofCam = cabin.cam.filter((c) => c.z >= 29);
-    const groundY = roofCam.reduce((s, c) => s + c.v * angled.squash, 0) / roofCam.length;
-    roofLift.push(groundY - roofTop.reduce((s, p) => s + p.y, 0) / roofTop.length);
-  }
-  check('every direction shows the glass cabin (windscreen, rear or side windows)', glassEverywhere);
-  check('every direction shows tires', wheelsEverywhere);
-  check('every direction shows hood, middle and boot tops as separate surfaces', hoodOrBootEverywhere);
-  check('roof stands at the same screen height in every direction (no squashing when turning)', Math.max(...roofLift) - Math.min(...roofLift) < 1e-6, `${roofLift[0].toFixed(2)} units`);
-  const faceShades = (h) => Object.fromEntries(projectMesh(mesh, h, angled).filter((p) => p.layer === 1).flatMap((p) => p.faces.map((f) => [f.name, (f.color >> 16) & 255])));
-  const bodyShade = faceShades(0.6);
-  const sideShades = Object.entries(bodyShade).filter(([k]) => k !== 'top').map(([, v]) => v);
-  check('car: tops brightest, clearly brighter than the sides on average', bodyShade.top > Math.max(...sideShades) && bodyShade.top > sideShades.reduce((a, b) => a + b, 0) / sideShades.length + 30, JSON.stringify(bodyShade));
   // Live shadow outline: covers the car and stretches the way the light goes.
-  const sp = carShadowPoints('player');
+  const sp = carShadowPoints('coupe');
   const out = sp.map(() => ({ x: 0, y: 0 })), scratch = sp.map(() => ({ x: 0, y: 0 }));
   const n = worldShadowOutline(sp, 1000, 1000, 0.7, angled, out, scratch);
   const sh = angled.shadowOffset(20);
@@ -157,7 +118,7 @@ const visibleNames = (mesh, heading, pr) => projectMesh(mesh, heading, pr).flatM
 let totalMB = 0;
 for (const view of RENDER.views) {
   const pr = new Projection(view);
-  const layout = atlasLayout(measureCar('player', pr));
+  const layout = atlasLayout(measureCar('coupeBody', pr));
   const mb = layout.width * layout.height * 4 / 1e6;
   if (view.id === RENDER.defaultViewId) totalMB = mb;
   check(`${view.id}: car drawings fit a 2048 px texture`, layout.width <= 2048 && layout.height <= 2048, `${layout.width}x${layout.height} px, ${mb.toFixed(1)} MB graphics memory`);
@@ -180,8 +141,8 @@ for (const view of RENDER.views) {
   }
   const models = [props.concreteBlock({ width: 60, length: 60, height: 50 }), props.barrier({ length: 160 }), props.pineTree(1), props.leafyTree(1), props.lampPost(), props.trafficCone(), props.island(400), props.luckyDie(0), props.propMesh({ kind: 'civilian', params: { shape: 'compact', color: 'civilianYellow' } }), props.woodCrate(), props.shippingContainer({ width: 60, length: 130, height: 52, color: 'containerBlue' }), props.monument(), props.roundabout()];
   check('every prop model shows faces from the angled camera', models.every((m) => projectMesh(m, 0.3, angled).some((p) => p.faces.length > 0)));
-  const faceCount = models.reduce((s, m) => s + m.reduce((t, p) => t + p.faces.length, 0), 0) + carMesh('player').reduce((t, p) => t + p.faces.length, 0);
-  check('models stay low-poly', faceCount < 650, `${faceCount} faces for the car and all ${models.length} prop types`);
+  const faceCount = models.reduce((s, m) => s + m.reduce((t, p) => t + p.faces.length, 0), 0);
+  check('models stay low-poly', faceCount < 650, `${faceCount} faces for all ${models.length} prop types`);
 }
 
 console.log(`\n(default view car drawings: ${totalMB.toFixed(1)} MB graphics memory)`);

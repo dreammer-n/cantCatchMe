@@ -27,10 +27,14 @@ function measureCanvas() {
   };
 }
 
+// Phaser (scale mode NONE) only writes the canvas's on-screen size when its zoom changes, so after any change the
+// canvas is set to exactly the window's size here: it always fills the screen, with no bars and no stretching.
 function fitCanvasToWindow(game) {
   const { ratio, width, height } = measureCanvas();
-  if (game.scale.zoom !== 1 / ratio) game.scale.setZoom(1 / ratio);
   if (width !== game.scale.width || height !== game.scale.height) game.scale.resize(width, height);
+  if (game.scale.zoom !== 1 / ratio) game.scale.setZoom(1 / ratio);
+  game.canvas.style.width = `${container.clientWidth}px`;
+  game.canvas.style.height = `${container.clientHeight}px`;
 }
 
 function watchWindowSize(game) {

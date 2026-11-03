@@ -492,10 +492,6 @@ export function worldShadowOutline(points, x, y, heading, proj, out, scratch, sc
   return convexHullInto(scratch, points.length, out);
 }
 
-export function meshPoints(mesh) {
-  return mesh.flatMap((part) => part.verts);
-}
-
 // ---------------------------------------------------------------------------------------------
 // Painting into a canvas (the 2D context is already moved to the model's ground point and scaled)
 // ---------------------------------------------------------------------------------------------

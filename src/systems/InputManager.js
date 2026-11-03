@@ -9,7 +9,7 @@ import { INPUT } from '../config/tuning.js';
 
 const LEFT_KEYS = new Set(['ArrowLeft', 'KeyA']);
 const RIGHT_KEYS = new Set(['ArrowRight', 'KeyD']);
-const PAUSE_KEYS = new Set(['Escape', 'KeyP']);
+const PAUSE_KEYS = new Set(['KeyP']); // never Escape: the browser uses it to leave full screen
 const POWER_KEYS = new Set(['Space', 'KeyW', 'ArrowUp']);
 const CONFIRM_KEYS = new Set(['Enter', 'NumpadEnter', 'Space']);
 const RESTART_KEYS = new Set(['KeyR']);

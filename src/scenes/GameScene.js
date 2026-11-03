@@ -116,7 +116,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.enterAttract();
-    if (DEBUG) this.installDebugHooks();
+    if (import.meta.env.MODE !== 'production' && DEBUG) import('../dev/debugHooks.js').then(({ installDebugHooks }) => installDebugHooks(this));
   }
 
   currentHandling() {
@@ -215,7 +215,6 @@ export class GameScene extends Phaser.Scene {
     this.finished = false;
     this.resetVisuals();
     this.snapCamera();
-    this.audio.play('start');
     this.audio.setMusic('chase');
     PlatformManager.runStarted();
     this.game.events.emit('run-started');
@@ -237,6 +236,7 @@ export class GameScene extends Phaser.Scene {
     PlatformManager.flush();
     this.audio.quiet();
     this.audio.setMusic(null); // no music on the results
+    PlatformManager.showInterstitial(); // a natural pause: the platform decides whether an advert is due
     const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause: this.sim.crash ? this.sim.crash.cause : 'police' };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
@@ -336,7 +336,6 @@ export class GameScene extends Phaser.Scene {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
           this.effects.explosion(e.x, e.y, e.player, carPaint(e.player ? this.carId : this.modelOf(e.police)));
           if (!e.player && distance < HITSTOP.wreckRange) this.punch(HITSTOP.wreckMs);
-          this.audio.play('explosion', 1 - distance / AUDIO.explosionRange);
           this.audio.play('carCrash', 1 - distance / AUDIO.explosionRange);
           if (!e.player && distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.explosion * (1 - distance / EXPLOSION.shakeDistance));
           break;
@@ -369,7 +368,6 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'nearMiss':
           this.toast('CLOSE CALL!', 'near');
-          this.audio.play('nearMiss');
           this.rig.addTrauma(TRAUMA.nearMiss);
           break;
         case 'flat':
@@ -394,7 +392,6 @@ export class GameScene extends Phaser.Scene {
         case 'pickup':
           this.startAbsorb(e);
           this.game.events.emit('power-ready', POWERUP.names[e.kind]);
-          this.audio.play('pickup');
           break;
         case 'power':
           this.onPowerUsed(e);
@@ -814,6 +811,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.audio.update(dt, {
       driving: this.mode === 'playing' && !this.turntable,
+      speed: player.speed / player.handling.topSpeed,
       slip: Math.abs(player.lateralSpeed),
       sirenDistance: this.mode === 'playing' ? nearest : Infinity,
       helicopter: this.mode === 'playing' && this.sim.helicopter.active,
@@ -907,79 +905,10 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  installDebugHooks() {
-    const hook = () => this.getDebugState();
-    hook.scenery = () => this.scenery.describe();
-    hook.sim = () => this.sim;
-    hook.scene = () => this;
-    hook.startRun = (seed) => this.startRun(seed);
-    hook.garage = Garage;
-    hook.maps = Maps;
-    hook.spawnPolice = (x, y, heading, options) => {
-      const police = this.sim.spawnPolice(x, y, heading, { role: 'chaser', speedFactor: 1.1, turnDeg: 125, aimSide: 0, ...options });
-      this.acquireView(police, this.lookFor(police));
-      return police.id;
-    };
-    hook.teleport = (x, y, heading = 0, freeze = false) => {
-      const car = this.sim.player;
-      car.reset(x, y, heading);
-      car.launch(car.handling.topSpeed);
-      this.snapCamera();
-      this.playerView.update(car, this.view, 0);
-      if (freeze) this.scene.pause();
-    };
-    hook.unfreeze = () => this.scene.resume();
-    hook.crash = (cause = 'obstacle') => {
-      this.sim.crashPlayer(cause);
-      this.sim.runExplosions();
-      this.handleEvents(this.sim.events.splice(0));
-    };
-    hook.scenes = () => this.game.scene.getScenes(true).map((scene) => scene.scene.key);
-    hook.sceneInfo = (key) => {
-      const scene = this.scene.get(key);
-      return { now: scene.time.now, readyAt: scene.readyAt, active: scene.scene.isActive() };
-    };
-    hook.perf = installPerfProbe(this.game);
-    window.__carChaseDebug = hook;
-  }
 }
 
 function comboText(count) {
   if (count === 2) return 'DOUBLE WRECK!';
   if (count === 3) return 'TRIPLE WRECK!';
   return `${count}× PILE-UP!`;
-}
-
-// Debug probe: average time the game spends per frame (update + draw submission) and the
-// number of draw calls sent to the graphics card. Draw calls are the main cost on phones.
-function installPerfProbe(game) {
-  if (game.perfProbe) return game.perfProbe;
-  const samples = [];
-  let start = 0;
-  let calls = 0;
-  let lastCalls = 0;
-  const gl = game.renderer.gl;
-  if (gl) {
-    for (const name of ['drawArrays', 'drawElements']) {
-      const original = gl[name].bind(gl);
-      gl[name] = (...args) => {
-        calls += 1;
-        return original(...args);
-      };
-    }
-  }
-  game.events.on('prestep', () => {
-    start = performance.now();
-    calls = 0;
-  });
-  game.events.on('postrender', () => {
-    samples.push(performance.now() - start);
-    if (samples.length > 120) samples.shift();
-    lastCalls = calls;
-  });
-  game.perfProbe = () => ({
-    frameMs: samples.reduce((a, b) => a + b, 0) / Math.max(1, samples.length),
-    drawCalls: lastCalls,
-  });
-  return game.perfProbe;
 }

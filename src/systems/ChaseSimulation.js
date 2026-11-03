@@ -5,7 +5,7 @@ import { handlingFor, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FR
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
-import { steerPolice } from './PoliceAI.js';
+import { steerPolice } from './PolicePursuit.js';
 import { PowerUps } from './PowerUpSystem.js';
 import { RunStats } from './ScoreSystem.js';
 import { SpawnDirector, isOnScreen } from './SpawnSystem.js';

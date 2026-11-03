@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // Playgama Bridge SDK, bundled LOCALLY next to index.html (YouTube Playables allows no external
-// requests). The game loads ./playgama-bridge.js at start; when the file is missing it simply
-// runs in local browser mode.
+// requests). Playgama requires it to be the first script in <head>, loaded normally (not async, not from code), so
+// this adds that tag when the file is there; without it the game simply runs in local browser mode.
 // Where the file comes from (first one found):
 //   1. public/playgama-bridge.js      (a copy you put there yourself; Vite copies public/ as is)
 //   2. node_modules/@playgama/bridge  (after `npm install @playgama/bridge`)
@@ -34,6 +34,11 @@ function playgamaBridgeLocal() {
         res.end(readFileSync(source));
       });
     },
+    transformIndexHtml(html, context) {
+      const root = context.server ? context.server.config.root : process.cwd();
+      if (!source && !existsSync(resolve(root, 'public', BRIDGE_FILE))) return html;
+      return html.replace('<head>', `<head>\n    <script src="./${BRIDGE_FILE}"></script>`);
+    },
     generateBundle() {
       if (source) this.emitFile({ type: 'asset', fileName: BRIDGE_FILE, source: readFileSync(source) });
     },
@@ -55,5 +60,13 @@ export default defineConfig({
     sourcemap: false,
     // Phaser alone is ~1.2 MB minified; don't warn about it.
     chunkSizeWarningLimit: 1600,
+    // Plain lowercase names (assets/game.js, assets/index.css), as portals ask: no hashes with capitals in them.
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/game.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
+      },
+    },
   },
 });
