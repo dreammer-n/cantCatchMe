@@ -50,6 +50,7 @@ export class CarView {
     this.alpha = 1;
     this.wasFalling = false;
     this.frozen = false;
+    this.dark = false;
     this.shownScale = 1;
     this.setLook(look);
   }
@@ -59,6 +60,15 @@ export class CarView {
     if (frozen === this.frozen) return;
     this.frozen = frozen;
     if (frozen) this.sprite.setTint(PALETTE.ice);
+    else this.sprite.clearTint();
+  }
+
+  // A dead engine (BLACKOUT): lights out and a little greyer.
+  setDark(dark) {
+    if (dark === this.dark) return;
+    this.dark = dark;
+    if (this.frozen) return;
+    if (dark) this.sprite.setTint(PALETTE.stalled);
     else this.sprite.clearTint();
   }
 
@@ -211,7 +221,8 @@ export class CarView {
     if (this.currentLook.burnt) this.drawSoftShadow(model, heading);
     else this.drawShadow(model);
     if (this.frozen) this.drawFrozenGlow(model);
-    else if (this.hasLights) this.updateLights(model, time, depth);
+    else if (this.hasLights && !this.dark) this.updateLights(model, time, depth);
+    else this.hideLights();
     return true;
   }
 

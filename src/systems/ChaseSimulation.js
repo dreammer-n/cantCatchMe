@@ -1,7 +1,7 @@
 import { Car } from '../entities/Car.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, ARMOR, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, ARMOR, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -24,6 +24,8 @@ export class ChaseSimulation {
     this.chunks = new ChunkManager(layout, this.world);
     this.player = new Car(handling);
     this.playerBody = { model: this.player, isPlayer: true };
+    // DECOY: a copy of the player's car that drives off on its own. Not a body: nothing touches it.
+    this.decoy = { active: false, time: 0, car: new Car(handling) };
     this.police = [];
     this.bodies = []; // player + police on the map, kept sorted by x for the collision sweep
     this.spawner = new SpawnDirector();
@@ -45,6 +47,7 @@ export class ChaseSimulation {
   setCar(car) {
     this.car = car;
     this.player.setHandling(handlingFor(car));
+    this.decoy.car.setHandling(handlingFor(car));
   }
 
   // Shields the car starts a run with.
@@ -207,10 +210,18 @@ export class ChaseSimulation {
       if (police.frozen <= 0) police.thaw();
     } else if (police.parked) {
       car.slide(dt, WRECK.friction, WRECK.spinFriction);
+    } else if (police.stalled > 0) {
+      car.slide(dt, BLACKOUT.coastFriction, WRECK.spinFriction);
+      police.stalled -= dt;
     } else if (burning) {
       car.stepFor(police.burnSteer, dt, PHYSICS.maxStepSeconds);
+    } else if (police.spinning > 0) {
+      car.grip = Math.min(car.grip, SLICK.grip);
+      car.stepFor(police.spinSteer, dt, PHYSICS.maxStepSeconds);
+      police.spinning -= dt;
     } else {
-      steerPolice(police, this.player, dt, this.rng, this.world);
+      const target = police.lured && this.decoy.active ? this.decoy.car : this.player;
+      steerPolice(police, target, dt, this.rng, this.world);
       car.stepFor(police.steer, dt, PHYSICS.maxStepSeconds);
     }
     police.age += dt;
@@ -261,6 +272,7 @@ export class ChaseSimulation {
       for (let j = i + 1; j < bodies.length; j += 1) {
         const b = bodies[j];
         if (b.model.x - a.model.x > reach) break;
+        if (player.ghost && (a.isPlayer || b.isPlayer)) continue;
         if (b.model.isFalling || Math.abs(b.model.y - a.model.y) > reach) continue;
         const ice = this.frozenAgainstPlayer(a, b);
         const { vx, vy, heading, angularVelocity } = player;
@@ -527,6 +539,14 @@ export class ChaseSimulation {
   }
 
   // The Freeze power-up: every police car close around the player stops dead.
+  // BLACKOUT: engines and lights die close by.
+  stallPolice(x, y, radius, seconds) {
+    for (const police of this.police) {
+      if (!police.alive || police.model.isFalling || police.parked) continue;
+      if (Math.hypot(police.model.x - x, police.model.y - y) <= radius) police.stall(seconds);
+    }
+  }
+
   freezePolice(x, y, radius, seconds) {
     for (const police of this.police) {
       if (!police.alive || police.model.isFalling) continue;

@@ -736,9 +736,11 @@ export const CURB = {
 // [TUNE] The lucky die: it bounces after the car from the moment it appears, and gives a random item.
 export const POWERUP = {
   // How often each item comes up, compared with the others.
-  kinds: { shockwave: 1, giant: 1, freeze: 1, pillars: 1, flamer: 1 },
-  names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER' }, // what the player sees
-  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'] }, // see AUDIO.files
+  kinds: { shockwave: 1, giant: 1, freeze: 1, pillars: 1, flamer: 1, turbo: 1, slick: 1, decoy: 1, blackout: 1, phantom: 1 },
+  // What the player sees.
+  names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER', turbo: 'TURBO', slick: 'SLICK', decoy: 'DECOY', blackout: 'BLACKOUT', phantom: 'PHANTOM' },
+  // See AUDIO.files. The five newer items are silent until their files arrive: nothing is made up in code.
+  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'], turbo: [], slick: [], decoy: [], blackout: [], phantom: [] },
   autoSeconds: 2.5, // a held item fires by itself after this long, unless double tapped first
   homingSpeed: 150, // it goes this much faster than the car, so it always catches up
   hopMs: 400, // each bounce (drawing only)
@@ -800,8 +802,51 @@ export const FLAMER = {
   patchRadius: 26,
   tireReach: 16, // added to the patch radius: how near a car's centre must come for its tires to touch
   burnSeconds: 1, // from catching fire to exploding
-  flamesPerSecond: 6, // flame clouds from each patch (drawing only)
+  flamesPerSecond: 9, // flame clouds from each patch (drawing only)
   maxPatches: 45, // enough for all the fire burning at once: see tests/test_power.mjs
+};
+
+// [TUNE] TURBO: a burst of speed, far past the car's own top speed, with flames from the exhaust.
+export const TURBO = {
+  seconds: 3,
+  speedShare: 1.45, // of the car's own top speed
+  accelShare: 2.6, // of its acceleration: it surges, it doesn't creep
+};
+
+// [TUNE] SLICK: oil spilled behind the car. A police car that drives into it spins out.
+export const SLICK = {
+  puddles: 4, // laid one after another behind the car
+  spacing: 70, // units driven between them
+  behind: 60, // how far behind the car's centre
+  radius: 46,
+  seconds: 7, // how long a puddle stays
+  spinSeconds: 1.4, // a police car spins this long, out of control
+  spinRate: 7, // radians per second, the kick it gets
+  grip: 0.6, // its grip while spinning (normal is about 5)
+  maxPuddles: 12,
+};
+
+// [TUNE] DECOY: a copy of the car drives off, and police close by chase it instead.
+export const DECOY = {
+  seconds: 5,
+  lureRadius: 1100, // police this close follow the decoy
+  turnAway: 0.55, // radians: it peels off this much from the car's way
+  minSpeed: 240,
+};
+
+// [TUNE] BLACKOUT: a pulse that kills police engines and lights close by. They coast to a stop.
+export const BLACKOUT = {
+  radius: 700,
+  seconds: 3,
+  coastFriction: 2.4, // how fast a dead car slows (per second)
+  ringSeconds: 0.5, // drawing only
+};
+
+// [TUNE] PHANTOM: the car turns ghostly and passes through cars and walls. Holes still swallow it.
+export const PHANTOM = {
+  seconds: 3.5,
+  extraSeconds: 2, // it stays a ghost a little longer if it would come back inside something solid
+  alpha: 0.42, // drawing only
 };
 
 // [TUNE] Camera.
@@ -1048,6 +1093,11 @@ export const PALETTE = {
   statueNavy: 0x25408f,
   statueCream: 0xf6efdf,
   pulse: 0xffc64a,
+  oil: 0x121318, // SLICK puddles ...
+  oilShine: 0x34405a, // ... and the sheen on them
+  emp: 0x6fc6ff, // BLACKOUT's ring and sparks
+  stalled: 0x8a90a0, // a police car with a dead engine
+  decoy: 0x9fe8ff, // the DECOY's hologram tint
   smoke: 0xf4efe0,
   fire: 0xffb02e,
 };
@@ -1130,6 +1180,10 @@ export const EFFECTS = {
   scorchRadius: 62, // world units
   sirenGlowOverAlpha: 0.15, // the faint colour cast over nearby props and cars
   maxFrost: 60, // frost sparkles at once
+  maxSparks: 70, // BLACKOUT's electric sparks at once
+  maxRocks: 40, // STONEWALL's flying rocks at once
+  maxIce: 14, // COLD SNAP's ice on the road
+  exhaustEveryMs: 30, // TURBO's flames: one puff this often
   maxTrailFire: 150, // flames on the Flamer's trail at once
   frozenGlowAlpha: 0.5, // the pool of cold light under a frozen car
   firePatchAlpha: 0.75,

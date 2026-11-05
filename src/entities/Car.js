@@ -45,6 +45,9 @@ export class Car {
     this.flatSeconds = 0; // how long it lasts in all
     this.flatSide = 1; // the corner that has gone: -1 left, 1 right
     this.isFalling = false; // over a hole: no steering, no engine (see fall)
+    this.boost = 1; // TURBO: top speed ...
+    this.boostAccel = 1; // ... and acceleration, as shares of the car's own
+    this.ghost = false; // PHANTOM: passes through cars and solid props (not holes)
     this.fallProgress = 0; // 0 at the edge .. 1 fully fallen
     this.fallShape = null; // the hole it went into
   }
@@ -101,8 +104,8 @@ export class Car {
     forward -= (h.slideScrub * Math.abs(lateral) + h.deepSlideScrub * deepSlide) * dt;
 
     // Engine always drives toward top speed (no brake, no reverse). Tires on a curb find little traction.
-    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * (1 - (1 - FLAT_TIRE.accelShare) * flat) * (1 - h.slideEngineLoss * slide);
-    let topSpeed = h.topSpeed * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
+    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * this.boostAccel * (1 - (1 - FLAT_TIRE.accelShare) * flat) * (1 - h.slideEngineLoss * slide);
+    let topSpeed = h.topSpeed * this.boost * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
     // Top speed covers the whole car, forward and sideways together: a turn can't add speed.
     if (h.slideCountsAsSpeed) topSpeed = Math.sqrt(Math.max(0, topSpeed * topSpeed - lateral * lateral));
     if (forward < topSpeed) forward = Math.min(topSpeed, forward + drive * dt);

@@ -36,7 +36,8 @@ check('no sound file sits unused, adding to the download', unused.length === 0, 
 const bytes = paths.reduce((sum, p) => sum + statSync(join(ASSETS, p)).size, 0);
 check('all the sound together fits well inside the 15 MB target', bytes < 8e6, `${(bytes / 1e6).toFixed(2)} MB`);
 
-check('every power-up has a sound', Object.keys(POWERUP.kinds).every((kind) => POWERUP.sounds[kind]?.length > 0 && POWERUP.sounds[kind].every((s) => AUDIO.files[s])));
+check('every sound a power-up asks for is a real file', Object.keys(POWERUP.kinds).every((kind) => Array.isArray(POWERUP.sounds[kind]) && POWERUP.sounds[kind].every((s) => AUDIO.files[s])));
+check('the first five power-ups have their sounds (the newer five wait for the owner\'s files)', ['shockwave', 'giant', 'freeze', 'pillars', 'flamer'].every((kind) => POWERUP.sounds[kind].length > 0));
 check('only KABOOM and TITAN have voices', POWERUP.sounds.shockwave.includes('kaboom') && POWERUP.sounds.giant.includes('titan') && Object.values(POWERUP.sounds).flat().filter((s) => s === 'kaboom' || s === 'titan').length === 2);
 check('TITAN is its voice and nothing under it', POWERUP.sounds.giant.length === 1);
 check('the engine is back, from the owner\'s own file, quiet under the music', AUDIO.files.engine_loop && AUDIO.engine.volume < AUDIO.chaseMusic && AUDIO.engine.pitch[1] > AUDIO.engine.pitch[0]);

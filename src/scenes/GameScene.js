@@ -24,6 +24,8 @@ import {
   RENDER,
   REVIVE,
   HAPTICS,
+  BLACKOUT,
+  PHANTOM,
   TRAUMA,
   TUMBLE,
   VIEW,
@@ -82,6 +84,15 @@ export class GameScene extends Phaser.Scene {
     this.layers.shadows.add(this.carShadows);
     this.looks = this.makeLooks();
     this.playerView = new CarView(this, this.looks.player, this.carShadows, null, this.layers.shadows);
+    // DECOY: a hologram of the player's car.
+    this.decoyView = new CarView(this, this.looks.player, this.carShadows, null, this.layers.shadows);
+    this.decoyView.hide();
+    // Drawn as light: a glowing blue hologram over the road, not a second solid car.
+    this.decoyView.sprite.setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.decoy);
+    if (this.decoyView.wheels) this.decoyView.wheels.setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.decoy);
+    this.exhaustClock = 0;
+    this.trailClock = 0;
+    this.ghostShown = false;
     this.freeViews = [];
     this.skids = new SkidMarks(this, this.layers.ground);
     this.effects = new Effects(this, this.layers);
@@ -284,6 +295,9 @@ export class GameScene extends Phaser.Scene {
     for (const view of this.freeViews) view.hide();
     this.playerView.setLook(this.looks.player);
     this.playerView.setAlpha(1);
+    this.ghostShown = false;
+    this.decoyView.setLook(this.looks.player);
+    this.decoyView.hide();
     if (this.oldCarId) {
       releaseCarSheets(this, this.oldCarId);
       this.oldCarId = null;
@@ -344,6 +358,8 @@ export class GameScene extends Phaser.Scene {
     this.scenery.syncSpikes(this.sim.spikeStrips);
     this.helicopterView.update(this.sim.helicopter, time);
     this.effects.syncPatches(this.sim.powerUps.patches, gameDt);
+    this.effects.syncPuddles(this.sim.powerUps.puddles);
+    this.drawPowerExtras(time, dt);
     if (this.sim.player.crushing) this.rig.trauma = Math.max(this.rig.trauma, TRAUMA.giantRumble);
     this.scenery.cull(this.view);
     this.effects.update(gameDt);
@@ -403,6 +419,12 @@ export class GameScene extends Phaser.Scene {
           this.audio.play('bump');
           vibrate(HAPTICS.shield);
           this.game.events.emit('shields', e.left, this.sim.maxArmor);
+          break;
+        case 'decoyGone':
+          this.effects.shimmer(e.x, e.y, 12);
+          break;
+        case 'spinOut':
+          this.effects.smokePuff(e.x, e.y, 6);
           break;
         case 'revive':
           this.mode = 'playing';
@@ -473,7 +495,7 @@ export class GameScene extends Phaser.Scene {
           this.effects.pillarDust(e.x, e.y);
           break;
         case 'pulse':
-          this.effects.shockwave(e.x, e.y, e.radius, POWERUP.pulseSeconds);
+          this.effects.kaboom(e.x, e.y, e.radius, POWERUP.pulseSeconds);
           this.rig.addTrauma(TRAUMA.pulse);
           break;
         case 'bump':
@@ -526,15 +548,66 @@ export class GameScene extends Phaser.Scene {
     if (e.kind !== 'shockwave') this.toast(`${POWERUP.names[e.kind]}!`, 'power');
     for (const sound of POWERUP.sounds[e.kind]) this.audio.play(sound);
     if (e.kind === 'giant') {
+      this.effects.titanStomp(e.x, e.y);
       this.rig.addTrauma(TRAUMA.giant);
     } else if (e.kind === 'freeze') {
       this.effects.freezeBlast(e.x, e.y);
+      this.effects.iceField(e.x, e.y, FREEZE.radius, FREEZE.seconds);
       this.rig.addTrauma(TRAUMA.freeze);
     } else if (e.kind === 'pillars') {
       for (const pillar of this.sim.powerUps.pillars) {
-        if (pillar.active && pillar.state === 'up' && pillar.time === 0) this.effects.pillarDust(pillar.x, pillar.y);
+        if (pillar.active && pillar.state === 'up' && pillar.time === 0) this.effects.pillarBurst(pillar.x, pillar.y);
       }
       this.rig.addTrauma(TRAUMA.pillars);
+    } else if (e.kind === 'turbo') {
+      this.effects.shimmer(e.x, e.y, 6);
+      this.rig.addTrauma(TRAUMA.pulse * 0.6);
+    } else if (e.kind === 'decoy' || e.kind === 'phantom') {
+      this.effects.shimmer(e.x, e.y);
+    } else if (e.kind === 'blackout') {
+      this.effects.empBlast(e.x, e.y, BLACKOUT.radius);
+      this.rig.addTrauma(TRAUMA.pulse);
+    }
+  }
+
+  // Every frame: TURBO's flames, PHANTOM's see-through car and sparkle trail, BLACKOUT's sparks on dead police,
+  // and the DECOY's hologram.
+  drawPowerExtras(time, dt) {
+    const player = this.sim.player;
+    const live = this.mode === 'playing';
+    if (live && player.boost > 1) {
+      this.exhaustClock -= dt * 1000;
+      if (this.exhaustClock <= 0) {
+        this.exhaustClock = EFFECTS.exhaustEveryMs;
+        const back = CAR_SIZE.length * 0.55 * player.scale;
+        this.effects.exhaust(player.x - Math.sin(player.heading) * back, player.y + Math.cos(player.heading) * back);
+      }
+    }
+    if (player.ghost) {
+      this.ghostShown = true;
+      this.playerView.setAlpha(PHANTOM.alpha + 0.12 * Math.sin(time / 70));
+      this.trailClock -= dt * 1000;
+      if (this.trailClock <= 0) {
+        this.trailClock = 90;
+        this.effects.ghostTrail(player.x, player.y);
+      }
+    } else if (this.ghostShown) {
+      this.ghostShown = false;
+      this.playerView.setAlpha(1);
+    }
+    for (const police of this.sim.police) {
+      if (!police.view) continue;
+      const dark = police.alive && police.stalled > 0;
+      police.view.setDark(dark);
+      if (dark && police.view.sprite.visible && Math.random() < 0.18) this.effects.sparksAt(police.model.x, police.model.y, 2);
+    }
+    const decoy = this.sim.decoy;
+    if (decoy.active) {
+      this.decoyView.update(decoy.car, this.view, time, dt);
+      this.decoyView.setAlpha(0.75 + 0.2 * Math.sin(time / 45));
+      if (Math.random() < 0.3) this.effects.ghostTrail(decoy.car.x, decoy.car.y);
+    } else if (this.decoyView.sprite.visible) {
+      this.decoyView.hide();
     }
   }
 

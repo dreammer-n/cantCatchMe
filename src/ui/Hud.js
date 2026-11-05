@@ -15,8 +15,14 @@ export class Hud {
     this.pauseButton = button('btn hud-pause', dt('', 'PAUSE'), onPause, 'Pause');
     this.toasts = el('div', 'hud-toasts');
     this.shields = el('div', 'hud-shields');
+    // The item working now: a ring that runs down, and its name.
+    this.powerRing = el('span', 'hud-power-ring');
+    this.powerName = dt('hud-power-name', '');
+    this.power = el('div', 'hud-power', [this.powerRing, this.powerName]);
+    this.power.hidden = true;
+    this.shownPower = null;
     this.node = el('div', 'hud', [
-      el('div', 'hud-tele', [this.time, this.distance, this.wrecks, this.shields]),
+      el('div', 'hud-tele', [this.time, this.distance, this.wrecks, this.shields, this.power]),
       el('div', 'hud-right', [this.pauseButton, this.record]),
       this.toasts,
     ]);
@@ -41,6 +47,20 @@ export class Hud {
       }));
     }
     [...this.shields.children].forEach((icon, i) => icon.classList.toggle('lost', i >= left));
+  }
+
+  // name: the item working now (null: none). share: how much of its time is left, 1 to 0.
+  setPower(name, share) {
+    this.power.hidden = !name;
+    if (!name) {
+      this.shownPower = null;
+      return;
+    }
+    if (name !== this.shownPower) {
+      this.shownPower = name;
+      setDisplay(this.powerName, name);
+    }
+    this.powerRing.style.setProperty('--p', share.toFixed(3));
   }
 
   setRecord(seconds) {

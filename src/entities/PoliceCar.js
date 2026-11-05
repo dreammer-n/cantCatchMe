@@ -61,6 +61,10 @@ export class PoliceCar {
     this.frozen = 0; // seconds of being frozen solid left
     this.burning = 0; // seconds until it explodes, once on fire
     this.burnSteer = 0; // on fire, it locks over one way and spins out
+    this.spinning = 0; // seconds of spinning out on oil left
+    this.spinSteer = 0;
+    this.stalled = 0; // seconds with a dead engine left (BLACKOUT)
+    this.lured = false; // chasing the decoy instead of the player
     this.aimSide = aimSide; // -1..1: which side of the player this car aims for
     this.retarget = 0;
     this.targetX = x;
@@ -86,6 +90,18 @@ export class PoliceCar {
     this.model.mass = this.baseMass;
   }
 
+  // On oil: locked over one way, its tires barely holding.
+  spinOut(seconds, steer, kick, grip) {
+    this.spinning = seconds;
+    this.spinSteer = steer;
+    this.model.angularVelocity += steer * kick;
+    this.model.grip = grip;
+  }
+
+  stall(seconds) {
+    this.stalled = seconds;
+  }
+
   ignite(seconds, steer) {
     this.burning = seconds;
     this.burnSteer = steer;
@@ -94,6 +110,9 @@ export class PoliceCar {
   wreck(cause) {
     this.frozen = 0;
     this.burning = 0;
+    this.spinning = 0;
+    this.stalled = 0;
+    this.lured = false;
     this.model.plowing = false;
     this.state = 'wreck';
     this.cause = cause;

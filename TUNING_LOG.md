@@ -162,3 +162,5 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-05 | Cars | topSpeed: Highway 350 -> 375, Muscle 345 -> 370, Tailfin 335 -> 355, Hearse 340 -> 360, Rally 340 -> 375, Hypercar 380 -> 420; their turn rates and grip a little lower | upgrades feel worth it, speed costs steering | Owner: fast cars must be faster. |
 | 2026-11-05 | Armour | new `armor` in `CARS` (Tank 3, Bulldozer 2, Monster 2), `ARMOR.hitSafeSeconds` 1 | heavy cars shrug off crashes | Owner: the tank should be hard to destroy. |
 | 2026-11-05 | Feel | new `HAPTICS` crash [70, 40, 140] ms, shield 45 ms | a buzz on phones | Owner kept vibration only. |
+| 2026-11-05 | Power-ups | new `TURBO`, `SLICK`, `DECOY`, `BLACKOUT`, `PHANTOM`; `POWERUP.kinds` now ten, all weight 1 | more variety | Owner's Step B. |
+| 2026-11-05 | Power-ups | `FLAMER.flamesPerSecond` 6 -> 9 | a hotter-looking trail | Owner: more engaging effects. |

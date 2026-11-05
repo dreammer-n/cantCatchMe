@@ -1,16 +1,19 @@
-import { COLLISION, FLAMER, FREEZE, GIANT, PILLARS, POWERUP } from '../config/tuning.js';
+import { BLACKOUT, DECOY, FLAMER, FREEZE, GIANT, PHANTOM, PILLARS, POWERUP, SLICK, TURBO } from '../config/tuning.js';
 import { degToRad, headingOf, lerp } from '../utils/math.js';
+import { CAR_REACH } from './CollisionSystem.js';
 
 // The lucky die and what it gives. States:
 //   no die -> a die chasing the player from the moment it appears -> an item is held (at most one, and
 //   it fires by itself after a few seconds) -> used -> no die ...
 // A new die only appears while the player isn't holding an item, ahead of the player. The bouncing is
 // only drawn (GameScene.updateCrate); here it just follows the car.
-// Effects that outlast the moment of use (Giant, Flamer, the pillars) run in tick().
+// Effects that outlast the moment of use (Giant, Flamer, the pillars, Turbo, the oil, the decoy, the ghost) run in
+// tick(). effect: the item now working and how long it has left, for the timer ring on screen.
 export class PowerUps {
   constructor() {
     this.pillars = Array.from({ length: PILLARS.pool }, () => ({ active: false, state: 'idle', x: 0, y: 0, time: 0, shape: null }));
     this.patches = Array.from({ length: FLAMER.maxPatches }, () => ({ active: false, x: 0, y: 0, age: 0 }));
+    this.puddles = Array.from({ length: SLICK.maxPuddles }, () => ({ active: false, x: 0, y: 0, age: 0 }));
   }
 
   reset(sim) {
@@ -24,8 +27,20 @@ export class PowerUps {
     this.flamerTime = 0;
     this.flamerGap = 0;
     this.nextPatch = 0;
+    this.turboTime = 0;
+    this.slickLeft = 0;
+    this.slickGap = 0;
+    this.nextPuddle = 0;
+    this.decoyTime = 0;
+    this.phantomTime = 0;
+    this.effect = null;
     for (const pillar of this.pillars) this.clearPillar(sim, pillar);
     for (const patch of this.patches) patch.active = false;
+    for (const puddle of this.puddles) puddle.active = false;
+    sim.decoy.active = false;
+    sim.player.boost = 1;
+    sim.player.boostAccel = 1;
+    sim.player.ghost = false;
   }
 
   // Puts an item straight into the player's hands.
@@ -126,7 +141,23 @@ export class PowerUps {
     } else if (kind === 'flamer') {
       this.flamerTime = FLAMER.seconds;
       this.flamerGap = FLAMER.spacing;
+    } else if (kind === 'turbo') {
+      this.turboTime = TURBO.seconds;
+      player.boost = TURBO.speedShare;
+      player.boostAccel = TURBO.accelShare;
+    } else if (kind === 'slick') {
+      this.slickLeft = SLICK.puddles;
+      this.slickGap = SLICK.spacing;
+    } else if (kind === 'decoy') {
+      this.launchDecoy(sim);
+    } else if (kind === 'blackout') {
+      sim.stallPolice(player.x, player.y, BLACKOUT.radius, BLACKOUT.seconds);
+    } else if (kind === 'phantom') {
+      this.phantomTime = PHANTOM.seconds;
+      player.ghost = true;
     }
+    const lasts = { giant: GIANT.seconds, freeze: FREEZE.seconds, pillars: PILLARS.seconds, flamer: FLAMER.seconds, turbo: TURBO.seconds, slick: SLICK.seconds, decoy: DECOY.seconds, blackout: BLACKOUT.seconds, phantom: PHANTOM.seconds };
+    this.effect = lasts[kind] ? { kind, left: lasts[kind], total: lasts[kind] } : null;
     sim.emit('power', { kind, x: player.x, y: player.y });
     return true;
   }
@@ -150,6 +181,116 @@ export class PowerUps {
     }
     this.tickPillars(sim, dt);
     this.tickFlamer(sim, dt, running);
+    this.tickTurbo(sim, dt, running);
+    this.tickSlick(sim, dt, running);
+    this.tickDecoy(sim, dt);
+    this.tickPhantom(sim, dt, running);
+    if (this.effect) {
+      this.effect.left -= dt;
+      if (this.effect.left <= 0) this.effect = null;
+    }
+  }
+
+  // The item working now, with the share of its time left (1 = just used), or null.
+  activeEffect() {
+    return this.effect ? { kind: this.effect.kind, share: Math.max(0, this.effect.left / this.effect.total) } : null;
+  }
+
+  // ---- Turbo --------------------------------------------------------------------------------
+
+  tickTurbo(sim, dt, running) {
+    if (this.turboTime <= 0) return;
+    this.turboTime = running ? this.turboTime - dt : 0;
+    if (this.turboTime <= 0) {
+      this.turboTime = 0;
+      sim.player.boost = 1;
+      sim.player.boostAccel = 1;
+    }
+  }
+
+  // ---- Oil ----------------------------------------------------------------------------------
+
+  tickSlick(sim, dt, running) {
+    const player = sim.player;
+    let anyPuddle = false;
+    for (const puddle of this.puddles) {
+      if (!puddle.active) continue;
+      puddle.age += dt;
+      if (puddle.age >= SLICK.seconds) puddle.active = false;
+      else anyPuddle = true;
+    }
+    if (this.slickLeft > 0 && running) {
+      this.slickGap += player.speed * dt;
+      if (this.slickGap >= SLICK.spacing) {
+        this.slickGap = 0;
+        this.slickLeft -= 1;
+        const puddle = this.puddles[this.nextPuddle];
+        this.nextPuddle = (this.nextPuddle + 1) % this.puddles.length;
+        const back = SLICK.behind * player.scale;
+        Object.assign(puddle, { active: true, age: 0, x: player.x - Math.sin(player.heading) * back, y: player.y + Math.cos(player.heading) * back });
+        sim.emit('puddle', { x: puddle.x, y: puddle.y });
+        anyPuddle = true;
+      }
+    } else if (!running) this.slickLeft = 0;
+    if (!anyPuddle) return;
+    const reach = SLICK.radius + CAR_REACH / 2;
+    for (const police of sim.police) {
+      if (!police.alive || police.parked || police.spinning > 0 || police.frozen > 0) continue;
+      const car = police.model;
+      for (const puddle of this.puddles) {
+        if (!puddle.active) continue;
+        if ((car.x - puddle.x) ** 2 + (car.y - puddle.y) ** 2 < reach * reach) {
+          police.spinOut(SLICK.spinSeconds, sim.rng() < 0.5 ? -1 : 1, SLICK.spinRate, SLICK.grip);
+          sim.emit('spinOut', { police, x: car.x, y: car.y });
+          break;
+        }
+      }
+    }
+  }
+
+  // ---- Decoy --------------------------------------------------------------------------------
+
+  // The copy peels off to one side and drives straight on; police close by go after it.
+  launchDecoy(sim) {
+    const player = sim.player;
+    const decoy = sim.decoy;
+    const side = sim.rng() < 0.5 ? -1 : 1;
+    decoy.car.baseScale = player.baseScale;
+    decoy.car.reset(player.x, player.y, player.heading + side * DECOY.turnAway);
+    decoy.car.launch(Math.max(DECOY.minSpeed, player.speed));
+    decoy.active = true;
+    decoy.time = 0;
+    this.decoyTime = DECOY.seconds;
+    for (const police of sim.police) {
+      if (police.alive && Math.hypot(police.model.x - player.x, police.model.y - player.y) <= DECOY.lureRadius) police.lured = true;
+    }
+  }
+
+  tickDecoy(sim, dt) {
+    const decoy = sim.decoy;
+    if (!decoy.active) return;
+    decoy.time += dt;
+    decoy.car.stepFor(0, dt, 1 / 60);
+    this.decoyTime -= dt;
+    if (this.decoyTime > 0) return;
+    decoy.active = false;
+    for (const police of sim.police) police.lured = false;
+    sim.emit('decoyGone', { x: decoy.car.x, y: decoy.car.y });
+  }
+
+  // ---- Phantom ------------------------------------------------------------------------------
+
+  // It only turns solid again somewhere it fits, so it never comes back inside a wall.
+  tickPhantom(sim, dt, running) {
+    const player = sim.player;
+    if (!player.ghost) return;
+    this.phantomTime = running ? this.phantomTime - dt : -PHANTOM.extraSeconds;
+    if (this.phantomTime > 0) return;
+    const fits = sim.world.isClear(player.x, player.y, CAR_REACH * player.scale);
+    if (fits || this.phantomTime <= -PHANTOM.extraSeconds) {
+      this.phantomTime = 0;
+      player.ghost = false;
+    }
   }
 
   // ---- Pillars ------------------------------------------------------------------------------

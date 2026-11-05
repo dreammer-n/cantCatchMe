@@ -857,6 +857,28 @@ body {
   transform: scale(0.85);
 }
 
+.hud-power {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* A ring that runs down: --p is the share of the item's time left. */
+.hud-power-ring {
+  display: block;
+  width: clamp(16px, 3.8vmin, 22px);
+  height: clamp(16px, 3.8vmin, 22px);
+  border-radius: 50%;
+  background: conic-gradient(var(--amber) calc(var(--p, 1) * 360deg), rgba(255, 255, 255, 0.18) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent 55%, #000 58%);
+  mask: radial-gradient(farthest-side, transparent 55%, #000 58%);
+}
+
+.hud-power-name {
+  font-size: clamp(11px, 2.7vmin, 15px);
+  color: var(--amber);
+}
+
 .hud-right {
   position: absolute;
   top: calc(var(--safe-top) + 10px);

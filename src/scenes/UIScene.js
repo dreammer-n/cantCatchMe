@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
-import { COLORS, PALETTE, REVIVE, UI, WARNING } from '../config/tuning.js';
+import { COLORS, PALETTE, POWERUP, REVIVE, UI, WARNING } from '../config/tuning.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { Garage, Maps } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
@@ -83,6 +83,8 @@ export class UIScene extends Phaser.Scene {
     }
     const sim = this.world.sim;
     if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.distance, sim.stats.wrecks);
+    const effect = running ? sim.powerUps.activeEffect() : null;
+    this.hud.setPower(effect ? POWERUP.names[effect.kind] : null, effect ? effect.share : 0);
     this.drawOverlay(running && !this.paused);
     if (this.devTools) this.devTools.update(time);
   }

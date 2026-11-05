@@ -298,6 +298,8 @@ export function collideWithWorld(car, world, result, onTouch) {
     const c = circles[i];
     world.forEachNear(c.x, c.y, r, (shape) => {
       if (!circleVsShape(c.x, c.y, r, shape, hit)) return;
+      // A ghost passes through everything but holes.
+      if (car.ghost && !shape.isVoid) return;
       // Giant: holes and curbs mean nothing, and anything solid gets knocked away like a cone.
       if (car.crushing) {
         if (!shape.isVoid && !shape.curb && !shape.isSpikes && onTouch) onTouch(shape);

@@ -539,12 +539,105 @@ const lock = (p) => {
     });
     causes[r.cause] = (causes[r.cause] || 0) + 1;
   }
-  check('items used all through real runs', items > 30 && Object.keys(kinds).length === 5, JSON.stringify(kinds));
+  check('items used all through real runs', items > 30 && Object.keys(kinds).length === Object.keys(POWERUP.kinds).length, JSON.stringify(kinds));
   check('numbers stay sound', badNumbers === 0);
   check('collision shapes stay bounded', mostShapes < 1200, `most ${mostShapes}`);
   check('knocked props stay bounded', mostCones < 500, `most ${mostCones}; endings ${JSON.stringify(causes)}`);
   void CS;
   void SCREENS;
+}
+
+// ---- The five newer items ---------------------------------------------------------------------
+{
+  const { TURBO, SLICK, DECOY, BLACKOUT, PHANTOM } = T;
+  check('ten items, each with a name of its own', Object.keys(POWERUP.kinds).length === 10 && new Set(Object.values(POWERUP.names)).size === 10 && POWERUP.names.turbo === 'TURBO' && POWERUP.names.slick === 'SLICK' && POWERUP.names.decoy === 'DECOY' && POWERUP.names.blackout === 'BLACKOUT' && POWERUP.names.phantom === 'PHANTOM');
+
+  // TURBO: far past the car's own top speed, then back to normal.
+  const t = quiet();
+  drive(t, 3000, 3000);
+  run(t, 1);
+  const before = t.player.speed;
+  useItem(t, 'turbo');
+  run(t, TURBO.seconds - 0.3);
+  check('TURBO: well past the car\'s own top speed', t.player.speed > before * 1.3, `${before.toFixed(0)} -> ${t.player.speed.toFixed(0)}`);
+  run(t, 2.5);
+  check('and back to normal afterwards', t.player.boost === 1 && t.player.speed < before * 1.05, `${t.player.speed.toFixed(0)}`);
+
+  // SLICK: puddles behind the car; a police car driving into one spins out.
+  const o = quiet();
+  drive(o, 3000, 3000, 0);
+  useItem(o, 'slick');
+  run(o, 1.2);
+  const puddles = o.powerUps.puddles.filter((p) => p.active);
+  check('SLICK: puddles laid behind the car', puddles.length === SLICK.puddles && puddles.every((p) => p.y > o.player.y), `${puddles.length}`);
+  const first = puddles[0];
+  const chaser = cop(o, first.x, first.y + 160, 0, { launchShare: 1, turnDeg: 0 });
+  run(o, 0.8);
+  check('a police car that drives into it spins out', chaser.spinning > 0 || chaser.state === 'wreck' || Math.abs(chaser.model.angularVelocity) > 2, `spin ${chaser.spinning.toFixed(2)}, turn ${chaser.model.angularVelocity.toFixed(1)}`);
+  run(o, SLICK.seconds);
+  check('the oil dries up', o.powerUps.puddles.every((p) => !p.active));
+
+  // DECOY: police close by chase the copy; far ones don't; afterwards they chase the player again.
+  const d = quiet();
+  drive(d, 3000, 3000, 0);
+  const near = cop(d, 3000, 3500, 0);
+  const far = cop(d, 3000, 3000 + DECOY.lureRadius + 400, 0);
+  useItem(d, 'decoy');
+  check('DECOY: a copy drives off, peeling away from the car', d.decoy.active && Math.abs(Math.sin(d.decoy.car.heading - d.player.heading)) > 0.3);
+  check('police close by chase it, those far off don\'t', near.lured && !far.lured);
+  run(d, DECOY.seconds + 0.1);
+  check('then it vanishes, and they chase the player again', !d.decoy.active && !near.lured);
+
+  // BLACKOUT: engines die close by, and the cars coast to a stop.
+  const b = quiet();
+  drive(b, 3000, 3000, 0);
+  const dead = cop(b, 3000, 3300, 0, { launchShare: 1 });
+  const alive = cop(b, 3000 + BLACKOUT.radius + 300, 3000, 0, { launchShare: 1 });
+  run(b, 0.2);
+  const speedBefore = dead.model.speed;
+  useItem(b, 'blackout');
+  run(b, BLACKOUT.seconds - 0.4);
+  check('BLACKOUT: police close by lose their engines and coast to a crawl', dead.stalled > 0 && dead.model.speed < speedBefore * 0.3, `${speedBefore.toFixed(0)} -> ${dead.model.speed.toFixed(0)}, ${dead.state}, stalled ${dead.stalled.toFixed(2)}`);
+  check('those far off carry on', alive.stalled === 0);
+  run(b, 0.6);
+  check('then the engines start again', dead.stalled <= 0);
+
+  // PHANTOM: through a wall and through a police car, unharmed; holes still swallow it.
+  const wall = { kind: 'block', x: 3000, y: 2700, heading: 0, model: 'b', params: {}, collider: { type: 'box', hw: 80, hl: 30 }, breakable: false };
+  const g = quiet([wall]);
+  drive(g, 3000, 3000, 0);
+  useItem(g, 'phantom');
+  cop(g, 3000, 2850, Math.PI, { launchShare: 1 });
+  run(g, 1.6);
+  check('PHANTOM: straight through a wall and a police car, unharmed', g.state === 'running' && g.player.y < 2600, `y ${g.player.y.toFixed(0)}, ${g.state}`);
+  run(g, PHANTOM.seconds);
+  check('and solid again afterwards', !g.player.ghost);
+  const stuck = quiet([{ ...wall, y: 3000, collider: { type: 'box', hw: 1600, hl: 1600 } }]);
+  drive(stuck, 3000, 3000, 0, 0);
+  stuck.player.halt();
+  useItem(stuck, 'phantom');
+  run(stuck, PHANTOM.seconds + 0.2);
+  check('it stays a ghost while it is still inside something', stuck.player.ghost);
+  run(stuck, PHANTOM.extraSeconds);
+  check('but never for ever', !stuck.player.ghost);
+  const hole = { kind: 'void', isVoid: true, x: 3000, y: 2800, heading: 0, collider: { type: 'circle', r: 90 }, breakable: false, outline: [] };
+  const h = quiet([hole]);
+  drive(h, 3000, 3000, 0);
+  useItem(h, 'phantom');
+  run(h, 2);
+  check('a hole still swallows a ghost', h.player.isFalling || h.state === 'crashed');
+
+  // The timer ring.
+  const r = quiet();
+  drive(r, 3000, 3000);
+  useItem(r, 'turbo');
+  const full = r.powerUps.activeEffect();
+  run(r, TURBO.seconds / 2);
+  const half = r.powerUps.activeEffect();
+  run(r, TURBO.seconds);
+  check('the timer ring shows the item and runs down', full.kind === 'turbo' && full.share > 0.95 && Math.abs(half.share - 0.5) < 0.05 && r.powerUps.activeEffect() === null);
+  r.reset(3);
+  check('a new run starts with nothing working', r.powerUps.activeEffect() === null && r.player.boost === 1 && !r.player.ghost && !r.decoy.active);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);
