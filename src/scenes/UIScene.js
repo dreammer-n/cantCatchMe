@@ -52,6 +52,7 @@ export class UIScene extends Phaser.Scene {
     on('power-ready', (name) => this.hud.toast(`${name}! ${this.touch ? 'DOUBLE TAP' : 'SPACE'}`, 'ready', 2600));
     on('run-started', () => this.onRunStarted());
     on('revive-offer', (offer) => this.openOffer(offer));
+    on('shields', (left, max) => this.hud.setShields(left, max));
     on('run-over', () => this.hud.show(false));
     on('platform-pause', () => {
       if (this.world.running && !this.paused) this.setPaused(true);

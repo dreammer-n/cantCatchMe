@@ -219,9 +219,9 @@ export const CARS = [
   { id: 'pickup', name: 'Pickup', price: 2000, scale: 1.02, mass: 1.25, plows: false,
     handling: { topSpeed: 325, maxTurnRateDeg: 185, gripTurning: 3.8 } },
   { id: 'highway', name: 'Highway Interceptor', price: 3000, scale: 1, mass: 1, plows: false,
-    handling: { topSpeed: 350, maxTurnRateDeg: 190, gripTurning: 4 } },
+    handling: { topSpeed: 375, maxTurnRateDeg: 180, gripTurning: 3.8 } },
   { id: 'muscle', name: 'Muscle Car', price: 4000, scale: 1.02, mass: 1.15, plows: false,
-    handling: { topSpeed: 345, maxTurnRateDeg: 175, gripTurning: 3.6, acceleration: 460 } },
+    handling: { topSpeed: 370, maxTurnRateDeg: 168, gripTurning: 3.4, acceleration: 460 } },
   { id: 'ram', name: 'Battering Ram', price: 5000, scale: 1.12, mass: 2.2, plows: true,
     handling: { topSpeed: 295, maxTurnRateDeg: 160, gripTurning: 4.4, acceleration: 340 } },
   { id: 'bus', name: 'Flower Bus', price: 6500, scale: 1.06, mass: 1.4, plows: false,
@@ -229,22 +229,22 @@ export const CARS = [
   { id: 'suv', name: 'Trail SUV', price: 8000, scale: 1.06, mass: 1.5, plows: false,
     handling: { topSpeed: 315, maxTurnRateDeg: 185, gripTurning: 4.6 } },
   { id: 'tailfin', name: 'Tailfin Cruiser', price: 10000, scale: 1.04, mass: 1.3, plows: false,
-    handling: { topSpeed: 335, maxTurnRateDeg: 180, gripTurning: 3.5 } },
+    handling: { topSpeed: 355, maxTurnRateDeg: 175, gripTurning: 3.4 } },
   { id: 'hearse', name: 'Night Hearse', price: 12500, scale: 1.02, mass: 1.3, plows: false,
-    handling: { topSpeed: 340, maxTurnRateDeg: 170, gripTurning: 3.4 } },
+    handling: { topSpeed: 360, maxTurnRateDeg: 165, gripTurning: 3.3 } },
   { id: 'rally', name: 'Rally Wing', price: 15000, scale: 0.98, mass: 0.9, plows: false,
-    handling: { topSpeed: 340, maxTurnRateDeg: 225, gripTurning: 4.8, acceleration: 480 } },
+    handling: { topSpeed: 375, maxTurnRateDeg: 218, gripTurning: 4.6, acceleration: 480 } },
   { id: 'camper', name: 'Camper', price: 18000, scale: 1.12, mass: 1.6, plows: true,
     handling: { topSpeed: 300, maxTurnRateDeg: 160, gripTurning: 3, acceleration: 340 } },
   { id: 'hypercar', name: 'Hypercar', price: 25000, scale: 0.98, mass: 0.9, plows: false,
-    handling: { topSpeed: 380, maxTurnRateDeg: 205, gripTurning: 4.6, acceleration: 520 } },
+    handling: { topSpeed: 420, maxTurnRateDeg: 192, gripTurning: 4.2, acceleration: 520 } },
   { id: 'firetruck', name: 'Fire Engine', price: 35000, scale: 1.16, mass: 2.4, plows: true,
     handling: { topSpeed: 315, maxTurnRateDeg: 165, gripTurning: 3.8, acceleration: 350 } },
-  { id: 'bulldozer', name: 'Bulldozer', price: 50000, scale: 1.2, mass: 3.2, plows: true,
+  { id: 'bulldozer', name: 'Bulldozer', price: 50000, scale: 1.2, mass: 3.2, plows: true, armor: 2,
     handling: { topSpeed: 280, maxTurnRateDeg: 155, gripTurning: 5, acceleration: 300 } },
-  { id: 'monster', name: 'Monster Truck', price: 75000, scale: 1.2, mass: 2.8, plows: true,
+  { id: 'monster', name: 'Monster Truck', price: 75000, scale: 1.2, mass: 2.8, plows: true, armor: 2,
     handling: { topSpeed: 325, maxTurnRateDeg: 175, gripTurning: 4.2, acceleration: 400 } },
-  { id: 'tank', name: 'Tank', price: 100000, scale: 1.2, mass: 4.5, plows: true,
+  { id: 'tank', name: 'Tank', price: 100000, scale: 1.2, mass: 4.5, plows: true, armor: 3,
     handling: { topSpeed: 265, maxTurnRateDeg: 150, gripTurning: 6, acceleration: 260 } },
 ];
 
@@ -620,6 +620,18 @@ export const CRASH = {
   pinnedGrace: 2, // not during the first seconds of a run (the car starts from a standstill)
   slowMotion: 0.3, // game speed right after the crash
   gameOverDelay: 1.4, // real seconds between the crash and the results screen
+};
+
+// [TUNE] Phone vibration (milliseconds, or a pattern of on / off). Phones that can't vibrate, and iPhones, ignore it.
+export const HAPTICS = {
+  crash: [70, 40, 140],
+  shield: 45,
+};
+
+// [TUNE] Armour: the heaviest cars (armor in CARS) shrug off a crash at the cost of a shield. A fall into a hole
+// still ends the run.
+export const ARMOR = {
+  hitSafeSeconds: 1, // after losing a shield, a moment in which the same pile-up can't take another
 };
 
 // [TUNE] A second chance, once a run: after a crash the player can pay coins, or watch an ad, to carry on.

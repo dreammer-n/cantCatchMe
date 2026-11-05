@@ -23,6 +23,7 @@ import {
   POWERUP,
   RENDER,
   REVIVE,
+  HAPTICS,
   TRAUMA,
   TUMBLE,
   VIEW,
@@ -31,6 +32,7 @@ import {
 } from '../config/tuning.js';
 import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
+import { vibrate } from '../utils/haptics.js';
 import { CameraRig } from '../render/CameraRig.js';
 import { ensureCarAtlas, releaseCarSheets } from '../render/carAtlas.js';
 import { BEARCAT_LIGHTS, carPaint, carShadowPoints } from '../render/carModels.js';
@@ -219,6 +221,7 @@ export class GameScene extends Phaser.Scene {
     this.audio.setMusic('chase');
     PlatformManager.runStarted();
     this.game.events.emit('run-started');
+    this.game.events.emit('shields', this.sim.player.armor, this.sim.maxArmor);
   }
 
   get running() {
@@ -385,11 +388,21 @@ export class GameScene extends Phaser.Scene {
             this.playerView.setLook(this.looks.playerWreck);
             this.playerView.startTumble();
             this.hitStop.trigger(HITSTOP.crashMs);
+            vibrate(HAPTICS.crash);
             this.audio.play('carCrash');
             this.rig.addTrauma(TRAUMA.crash);
           }
           this.controls.releaseHeld();
           this.game.events.emit('run-crashed', e.cause);
+          break;
+        case 'shield':
+          this.toast(e.left > 0 ? `ARMOR HIT! ${e.left} LEFT` : 'LAST SHIELD GONE!', 'combo');
+          this.effects.impact(e.x, e.y, EFFECTS.burstScrape);
+          this.rig.addTrauma(TRAUMA.flat);
+          this.punch(HITSTOP.bumpMs);
+          this.audio.play('bump');
+          vibrate(HAPTICS.shield);
+          this.game.events.emit('shields', e.left, this.sim.maxArmor);
           break;
         case 'revive':
           this.mode = 'playing';
@@ -400,6 +413,7 @@ export class GameScene extends Phaser.Scene {
           this.audio.play('shockwave');
           this.audio.setMusic('chase');
           this.game.events.emit('run-resumed');
+          this.game.events.emit('shields', this.sim.player.armor, this.sim.maxArmor);
           break;
         case 'despawn':
         case 'wreckGone':

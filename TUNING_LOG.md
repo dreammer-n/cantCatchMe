@@ -159,3 +159,6 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-04 | Pacing | `ROADBLOCK.firstAt` 35 -> 40, Bearcats from 30 -> 45 s, `HELICOPTER.firstAt` 45 -> 70 | a gentler first minute | Owner: SWAT and helicopter came too soon. |
 | 2026-11-04 | Pacing | `HEAT.police` 8/12/18/23 at 30/45/75/110 s -> 7/10/16/22; speed and reaction steps moved from 45 to 70 s | eased to match | So the first minute isn't just the same pressure later. |
 | 2026-11-04 | Revive | new `REVIVE`: 150 coins or an ad, once a run, 5 s offer, clears 520 units, 2 s safe, restarts at 60% speed | a second chance | Owner's idea; price and the ad option are defaults to tune. |
+| 2026-11-05 | Cars | topSpeed: Highway 350 -> 375, Muscle 345 -> 370, Tailfin 335 -> 355, Hearse 340 -> 360, Rally 340 -> 375, Hypercar 380 -> 420; their turn rates and grip a little lower | upgrades feel worth it, speed costs steering | Owner: fast cars must be faster. |
+| 2026-11-05 | Armour | new `armor` in `CARS` (Tank 3, Bulldozer 2, Monster 2), `ARMOR.hitSafeSeconds` 1 | heavy cars shrug off crashes | Owner: the tank should be hard to destroy. |
+| 2026-11-05 | Feel | new `HAPTICS` crash [70, 40, 140] ms, shield 45 ms | a buzz on phones | Owner kept vibration only. |

@@ -1,4 +1,4 @@
-import { button, el, uiRoot } from './dom.js';
+import { ICONS, button, el, uiRoot } from './dom.js';
 import { dt, setDisplay } from './displayFont.js';
 import { formatClock, formatDistance } from '../systems/ScoreSystem.js';
 
@@ -14,8 +14,9 @@ export class Hud {
     this.record = dt('hud-record', 'RECORD: 00:00.00');
     this.pauseButton = button('btn hud-pause', dt('', 'PAUSE'), onPause, 'Pause');
     this.toasts = el('div', 'hud-toasts');
+    this.shields = el('div', 'hud-shields');
     this.node = el('div', 'hud', [
-      el('div', 'hud-tele', [this.time, this.distance, this.wrecks]),
+      el('div', 'hud-tele', [this.time, this.distance, this.wrecks, this.shields]),
       el('div', 'hud-right', [this.pauseButton, this.record]),
       this.toasts,
     ]);
@@ -27,6 +28,19 @@ export class Hud {
 
   show(visible) {
     this.node.hidden = !visible;
+  }
+
+  // The armour left, as shield icons: lost ones stay, faded. None at all for a car without armour.
+  setShields(left, max) {
+    this.shields.hidden = max <= 0;
+    if (this.shields.childElementCount !== max) {
+      this.shields.replaceChildren(...Array.from({ length: max }, () => {
+        const icon = el('span', 'hud-shield');
+        icon.innerHTML = ICONS.shield;
+        return icon;
+      }));
+    }
+    [...this.shields.children].forEach((icon, i) => icon.classList.toggle('lost', i >= left));
   }
 
   setRecord(seconds) {

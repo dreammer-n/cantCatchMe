@@ -726,5 +726,42 @@ function roadblockSim() {
   check('the price is within reach of a few runs\' coins', REVIVE.cost <= 300 && REVIVE.cost >= 50);
 }
 
+// ---- Armour ------------------------------------------------------------------------------------
+{
+  const { CARS } = T;
+  const tankCar = CARS.find((c) => c.id === 'tank');
+  const s = quiet();
+  s.setCar(tankCar);
+  s.reset(9);
+  drive(s, 3000, 3200);
+  check('the tank starts with 3 shields, the bulldozer and monster truck 2, others none', s.player.armor === 3 && CARS.find((c) => c.id === 'bulldozer').armor === 2 && CARS.find((c) => c.id === 'monster').armor === 2 && !CARS.find((c) => c.id === 'coupe').armor);
+  const hits = [];
+  for (let i = 0; i < 3; i += 1) {
+    s.crashPlayer('bearcat');
+    hits.push(s.state);
+    run(s, T.ARMOR.hitSafeSeconds + 0.1);
+  }
+  check('two SWAT hits cost two shields, and the tank drives on', hits[0] === 'running' && hits[1] === 'running');
+  check('the third leaves it with none, and still driving', hits[2] === 'running' && s.player.armor === 0);
+  s.crashPlayer('bearcat');
+  check('one more hit and it is wrecked', s.state === 'crashed');
+  const t2 = quiet();
+  t2.setCar(tankCar);
+  t2.reset(9);
+  drive(t2, 3000, 3200);
+  t2.crashPlayer('police');
+  t2.crashPlayer('police');
+  check('one pile-up costs one shield, not all of them', t2.player.armor === 2 && t2.state === 'running');
+  t2.crashPlayer('void');
+  check('a fall into a hole ends it, shields or not', t2.state === 'crashed');
+  check('a revive gives the shields back', t2.revivePlayer() && t2.player.armor === 3);
+  const coupe = quiet();
+  coupe.setCar(CARS[0]);
+  coupe.reset(9);
+  drive(coupe, 3000, 3200);
+  coupe.crashPlayer('police');
+  check('a car without armour is wrecked at once, as before', coupe.state === 'crashed');
+}
+
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

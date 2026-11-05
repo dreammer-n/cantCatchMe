@@ -837,6 +837,26 @@ body {
   justify-content: flex-start;
 }
 
+.hud-shields {
+  display: flex;
+  gap: 4px;
+}
+
+/* Sized here: #ui svg makes every icon fill the box it sits in. */
+.hud-shield {
+  display: block;
+  width: clamp(14px, 3.4vmin, 20px);
+  height: clamp(14px, 3.4vmin, 20px);
+  color: var(--amber);
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+.hud-shield.lost {
+  color: #fff;
+  opacity: 0.25;
+  transform: scale(0.85);
+}
+
 .hud-right {
   position: absolute;
   top: calc(var(--safe-top) + 10px);

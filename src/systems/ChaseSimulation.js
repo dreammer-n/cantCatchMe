@@ -1,7 +1,7 @@
 import { Car } from '../entities/Car.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, ARMOR, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -47,6 +47,11 @@ export class ChaseSimulation {
     this.player.setHandling(handlingFor(car));
   }
 
+  // Shields the car starts a run with.
+  get maxArmor() {
+    return this.car ? this.car.armor || 0 : 0;
+  }
+
   get playerMass() {
     return COLLISION.playerMass * (this.car ? this.car.mass : 1);
   }
@@ -68,6 +73,7 @@ export class ChaseSimulation {
     this.player.reset(START.x, START.y, 0);
     this.player.mass = this.playerMass;
     this.player.plowing = this.car ? this.car.plows : false;
+    this.player.armor = this.maxArmor;
     for (const police of this.police) police.release();
     this.bodies.length = 0;
     this.bodies.push(this.playerBody);
@@ -336,6 +342,14 @@ export class ChaseSimulation {
     if (this.state !== 'running') return;
     if (this.safeTime > 0 && cause !== 'void') return;
     const player = this.player;
+    if (cause !== 'void' && player.armor > 0) {
+      // Armour takes the blow: a shield is gone, and the car drives on.
+      player.armor -= 1;
+      this.safeTime = ARMOR.hitSafeSeconds;
+      this.pinnedTime = 0;
+      this.emit('shield', { x: player.x, y: player.y, left: player.armor, cause });
+      return;
+    }
     this.state = 'crashed';
     player.crushing = false;
     player.plowing = false;
@@ -364,6 +378,7 @@ export class ChaseSimulation {
     player.reset(spot.x, spot.y, spot.heading);
     player.mass = this.playerMass;
     player.plowing = this.car ? this.car.plows : false;
+    player.armor = this.maxArmor;
     player.launch(player.handling.topSpeed * REVIVE.speedShare);
     this.chunks.update(spot.x, spot.y);
     this.state = 'running';

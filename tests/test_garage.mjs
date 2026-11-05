@@ -112,7 +112,7 @@ const mapColorOf = T.mapColor;
   check('Classic Coupe has the asked-for numbers', spec('coupe', 320, 195, 4.2));
   check('Pocket Hatchback too, and it is light', spec('hatchback', 310, 230, 5.5) && carById('hatchback').mass < 1);
   check('Drift Van too', spec('van', 330, 180, 3.2));
-  check('Highway Interceptor too', spec('highway', 350, 190, 4));
+  check('Highway Interceptor too: made faster on the owner\'s word (2026-11-05), and harder to steer', spec('highway', 375, 180, 3.8));
   const ram = carById('ram');
   check('Battering Ram too, at 2.2 x the mass, and it plows', handlingFor(ram).topSpeed === 295 && handlingFor(ram).maxTurnRateDeg === 160 && ram.mass === 2.2 && ram.plows);
   check('no car has a survival unlock any more: coins buy them', CARS.every((c) => c.surviveSeconds === undefined));
