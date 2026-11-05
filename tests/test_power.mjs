@@ -640,5 +640,64 @@ const lock = (p) => {
   check('a new run starts with nothing working', r.powerUps.activeEffect() === null && r.player.boost === 1 && !r.player.ghost && !r.decoy.active);
 }
 
+// ---- The airstrike -----------------------------------------------------------------------------
+{
+  const { AIRSTRIKE } = T;
+  const s = quiet();
+  drive(s, 3000, 3000);
+  s.time = AIRSTRIKE.firstAt - 0.5;
+  const early = run(s, 0.3);
+  check('no airstrike before 3 minutes', !s.airstrike.active && !early.some((e) => e.type === 'airstrike'));
+  const on = run(s, 0.4);
+  check('at 3 minutes the jet comes, with a warning', s.airstrike.active && on.filter((e) => e.type === 'airstrike').length === 1);
+  const bombs = s.airstrike.bombs;
+  check('every bomb lands at least 2.5 s after its circle appears', bombs.every((b) => b.landAt >= 2.5));
+  // Driving straight on, the car is never where a bomb lands: the line runs beside its way.
+  const p = s.player;
+  const nearest = Math.min(...bombs.map((b) => Math.hypot(p.x + p.vx * b.landAt - b.x, p.y + p.vy * b.landAt - b.y)));
+  check('a car that drives straight on is never under a bomb', nearest > AIRSTRIKE.blastRadius, `${nearest.toFixed(0)} units at the closest, speed ${p.speed.toFixed(0)}`);
+  let worst = Infinity;
+  for (const speed of [160, 250, 320, 420, 600]) {
+    for (let seed = 1; seed < 120; seed += 1) {
+      const w = quiet();
+      w.reset(seed);
+      drive(w, 3000, 3000, seed * 0.37, speed);
+      w.airstrike.start(w);
+      const q = w.player;
+      for (const b of w.airstrike.bombs) worst = Math.min(worst, Math.hypot(q.x + q.vx * b.landAt - b.x, q.y + q.vy * b.landAt - b.y));
+    }
+  }
+  check('at any speed, from the slowest car to TURBO on the Hypercar', worst > AIRSTRIKE.blastRadius, `${worst.toFixed(0)} units at the closest`);
+  // Police inside a blast are wrecked; the player is wrecked if caught.
+  const t = quiet();
+  drive(t, 3000, 3000, 0, 0);
+  t.player.halt();
+  t.airstrike.start(t);
+  const target = t.airstrike.bombs[2];
+  const caught = cop(t, target.x + 20, target.y, 0);
+  caught.handling.acceleration = 0;
+  const safe = cop(t, target.x + 900, target.y + 900, 0);
+  t.player.reset(target.x - 30, target.y, 0);
+  t.player.halt();
+  t.player.handling.acceleration = 0;
+  run(t, AIRSTRIKE.warningSeconds + 1);
+  check('police caught in a blast are wrecked, others aren\'t', caught.state !== 'chasing' && safe.alive, `${caught.state} / ${safe.state}`);
+  check('the player caught in one is wrecked', t.state === 'crashed' && t.crash.cause === 'airstrike');
+  const g = quiet();
+  drive(g, 3000, 3000, 0, 0);
+  g.airstrike.start(g);
+  const spot = g.airstrike.bombs[2];
+  g.player.reset(spot.x, spot.y, 0);
+  g.player.halt();
+  g.player.handling.acceleration = 0;
+  useItem(g, 'giant');
+  run(g, AIRSTRIKE.warningSeconds + 1);
+  check('a TITAN shrugs it off', g.state === 'running');
+  run(g, 0.1);
+  check('and the strike comes round again later', !g.airstrike.active || g.airstrike.nextAt > g.time);
+  g.reset(4);
+  check('a new run starts with no strike', !g.airstrike.active && g.airstrike.nextAt === AIRSTRIKE.firstAt);
+}
+
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

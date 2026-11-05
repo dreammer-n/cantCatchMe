@@ -231,6 +231,7 @@ const CAUSES = {
   void: 'FELL INTO THE VOID',
   roadblock: 'YOU HIT A ROADBLOCK',
   bearcat: 'FLATTENED BY A SWAT TRUCK',
+  airstrike: 'CAUGHT IN THE AIRSTRIKE',
 };
 
 export class GameOverScreen extends Screen {

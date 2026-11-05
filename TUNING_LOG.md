@@ -164,3 +164,4 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-05 | Feel | new `HAPTICS` crash [70, 40, 140] ms, shield 45 ms | a buzz on phones | Owner kept vibration only. |
 | 2026-11-05 | Power-ups | new `TURBO`, `SLICK`, `DECOY`, `BLACKOUT`, `PHANTOM`; `POWERUP.kinds` now ten, all weight 1 | more variety | Owner's Step B. |
 | 2026-11-05 | Power-ups | `FLAMER.flamesPerSecond` 6 -> 9 | a hotter-looking trail | Owner: more engaging effects. |
+| 2026-11-05 | Airstrike | new `AIRSTRIKE`: from 180 s, every 22-32 s, 5 bombs 150 apart, 2.6 s warning, blast 115, line 170-250 beside the path at 0.5 rad | a late-run boss | Owner's Step C; side and slant chosen so driving straight is always safe. |

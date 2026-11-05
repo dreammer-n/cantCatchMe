@@ -2,7 +2,7 @@ import { PALETTE, BURNT } from '../config/tuning.js';
 import { buildPlayerCar } from './playerCars.js';
 import { POLICE_BUILDERS } from './policeModels.js';
 
-export { BEARCAT_LIGHTS, LIGHT_BAR, ROTOR } from './policeModels.js';
+export { BEARCAT_LIGHTS, JET, LIGHT_BAR, ROTOR } from './policeModels.js';
 
 // Which model goes with which name:
 //   <car id>  any of the cars the player can drive (render/playerCars.js)

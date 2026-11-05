@@ -40,6 +40,7 @@ import { ensureCarAtlas, releaseCarSheets } from '../render/carAtlas.js';
 import { BEARCAT_LIGHTS, carPaint, carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
 import { HelicopterView } from '../render/HelicopterView.js';
+import { JetView } from '../render/JetView.js';
 import { createLayers, depthAt } from '../render/layers.js';
 import { bakeMesh, cssColor, releaseOtherViews } from '../render/lowpoly.js';
 import { buildLayout } from '../systems/WorldLayout.js';
@@ -108,6 +109,7 @@ export class GameScene extends Phaser.Scene {
     this.radar = new ThreatRadar();
     this.beams = new SirenBeams(this, this.layers.lights);
     this.helicopterView = new HelicopterView(this, this.layers);
+    this.jetView = new JetView(this, this.layers);
     this.rig = new CameraRig();
     this.rig.reset(this.sim.player.x, this.sim.player.y);
     this.view = { x: 0, y: 0, right: 0, bottom: 0 }; // visible screen rectangle
@@ -164,6 +166,7 @@ export class GameScene extends Phaser.Scene {
     this.scenery.reload(map);
     this.bakeCrate();
     this.helicopterView.redraw();
+    this.jetView.redraw();
   }
 
   // The garage shows its car on plain road of the map's colour.
@@ -357,6 +360,7 @@ export class GameScene extends Phaser.Scene {
     this.scenery.syncPillars(this.sim.powerUps.pillars);
     this.scenery.syncSpikes(this.sim.spikeStrips);
     this.helicopterView.update(this.sim.helicopter, time);
+    this.jetView.update(this.sim.airstrike, time);
     this.effects.syncPatches(this.sim.powerUps.patches, gameDt);
     this.effects.syncPuddles(this.sim.powerUps.puddles);
     this.drawPowerExtras(time, dt);
@@ -420,6 +424,16 @@ export class GameScene extends Phaser.Scene {
           vibrate(HAPTICS.shield);
           this.game.events.emit('shields', e.left, this.sim.maxArmor);
           break;
+        case 'airstrike':
+          this.toast('AIRSTRIKE!', 'near');
+          break;
+        case 'bomb': {
+          const distance = Math.hypot(e.x - player.x, e.y - player.y);
+          this.effects.explosion(e.x, e.y, true, PALETTE.bomb);
+          this.audio.play('carCrash', 1 - distance / AUDIO.explosionRange);
+          if (distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.explosion * (1 - distance / EXPLOSION.shakeDistance));
+          break;
+        }
         case 'decoyGone':
           this.effects.shimmer(e.x, e.y, 12);
           break;
@@ -922,6 +936,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.bakeCrate();
     this.helicopterView.redraw();
+    this.jetView.redraw();
     releaseOtherViews(this, projection.key);
     this.centerCamera();
   }

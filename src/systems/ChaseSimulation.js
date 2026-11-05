@@ -1,7 +1,8 @@
 import { Car } from '../entities/Car.js';
+import { Airstrike } from '../entities/Airstrike.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, ARMOR, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, AIRSTRIKE, ARMOR, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -31,6 +32,7 @@ export class ChaseSimulation {
     this.spawner = new SpawnDirector();
     this.powerUps = new PowerUps();
     this.helicopter = new Helicopter();
+    this.airstrike = new Airstrike();
     this.shattering = [];
     this.spikeStrips = Array.from({ length: ROADBLOCK.maxSpikes }, () => ({ active: false, x: 0, y: 0, northSouth: true, time: 0, shape: null }));
     this.stats = new RunStats();
@@ -85,6 +87,7 @@ export class ChaseSimulation {
     this.spawner.reset();
     this.powerUps.reset(this);
     this.helicopter.reset(this);
+    this.airstrike.reset();
     for (const strip of this.spikeStrips) this.removeSpikeStrip(strip);
     this.stats.reset();
     this.events.length = 0;
@@ -148,6 +151,7 @@ export class ChaseSimulation {
     this.chunks.update(player.x, player.y);
     this.powerUps.tick(this, dt);
     this.helicopter.update(this, dt);
+    this.airstrike.update(this, dt);
     for (const police of this.police) {
       if (police.alive) {
         this.drivePolice(police, dt);
@@ -539,6 +543,28 @@ export class ChaseSimulation {
   }
 
   // The Freeze power-up: every police car close around the player stops dead.
+  // A bomb from the airstrike: police inside the blast are wrecked (Bearcats too), others are thrown back, and the
+  // player is wrecked unless Giant or a ghost (armour takes the blow first, as for any crash).
+  bombLands(x, y) {
+    this.emit('bomb', { x, y });
+    for (const police of this.police) {
+      if (!police.active || police.model.isFalling) continue;
+      const car = police.model;
+      const distance = Math.hypot(car.x - x, car.y - y);
+      if (distance > AIRSTRIKE.pushRadius) continue;
+      if (police.alive && distance < AIRSTRIKE.blastRadius) this.wreckPolice(police, 'airstrike');
+      const push = (AIRSTRIKE.push * (1 - distance / AIRSTRIKE.pushRadius)) / car.mass;
+      car.vx += ((car.x - x) / Math.max(1, distance)) * push;
+      car.vy += ((car.y - y) / Math.max(1, distance)) * push;
+    }
+    const player = this.player;
+    if (this.state === 'running' && !player.isFalling && !player.crushing && !player.ghost) {
+      const distance = Math.hypot(player.x - x, player.y - y);
+      if (distance < AIRSTRIKE.blastRadius * player.scale) this.crashPlayer('airstrike');
+    }
+    this.runExplosions();
+  }
+
   // BLACKOUT: engines and lights die close by.
   stallPolice(x, y, radius, seconds) {
     for (const police of this.police) {

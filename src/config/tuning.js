@@ -530,6 +530,32 @@ export const FLAT_TIRE = {
 };
 
 // [TUNE] The police helicopter. It can't be stopped; it arrives at 45 s.
+// [TUNE] The jet airstrike: from 3 minutes in, a jet bombs a line across the road ahead of the car. Red circles
+// mark every spot first; the line runs at a slant, beside the car's path, so there is always a way out.
+export const AIRSTRIKE = {
+  firstAt: 180, // seconds into the run
+  everyMin: 22, // then again every 22 to 32 seconds
+  everyMax: 32,
+  bombs: 5,
+  spacing: 150, // between bombs along the line
+  warningSeconds: 2.6, // the circles show this long before the first bomb lands
+  bombGap: 0.14, // seconds between one bomb landing and the next
+  aheadSeconds: 0.2, // the line crosses where the car would be this long after the first bomb
+  sideMin: 170, // ... and this far to one side of it (with the slant below, a car driving straight on is never under a
+  // bomb, at any speed: tests/test_power.mjs)
+  sideMax: 250,
+  slant: 0.5, // radians between the car's way and the line
+  minTargetSpeed: 150,
+  blastRadius: 115, // police and the player inside it are wrecked
+  pushRadius: 260, // and pushed further out
+  push: 420,
+  leaveSeconds: 1.2, // the jet's last moments on screen after the last bomb
+  // Drawing only.
+  fallSeconds: 0.45, // a bomb in view, falling
+  jetHeight: 520,
+  fallHeight: 380,
+};
+
 export const HELICOPTER = {
   bladeWidth: 4.5, // half a rotor blade's width at the hub
   rotorBlurAlpha: 0.42,
@@ -943,7 +969,7 @@ export const RENDER = {
   // Car drawings made at startup from the 3D model, evenly spaced around the compass.
   directions: 64,
   // Per model: wrecks barely turn, so fewer drawings (less memory) are enough.
-  carDirections: { playerBody: 64, playerWheels: 32, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, playerWreck: 16, policeWreck: 16, interceptorWreck: 16, bearcatWreck: 16 },
+  carDirections: { playerBody: 64, playerWheels: 32, police: 64, interceptor: 64, bearcat: 32, helicopter: 16, jet: 16, playerWreck: 16, policeWreck: 16, interceptorWreck: 16, bearcatWreck: 16 },
   // 0 = snap to the nearest drawing, 1 = also rotate by the small leftover angle (smoother turning).
   residualRotation: 1,
   // Pixels per world unit in the drawings baked at startup (cars and props).
@@ -1062,6 +1088,10 @@ export const PALETTE = {
   swatDark: 0x272b32,
   swatStripe: 0xe8b93c,
   heliBody: 0x2f62d6,
+  jetBody: 0x8d96a3, // the airstrike jet: plain grey, no markings ...
+  jetDark: 0x4b525c, // ... with a darker nose and tail
+  bomb: 0x2a2d33,
+  target: 0xff3b30, // the circles that mark where the bombs will land
   heliBand: 0xf0f2f5,
   rotorBlade: 0x14171c,
   rotorBlur: 0xdfe6ee,

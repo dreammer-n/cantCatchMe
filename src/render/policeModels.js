@@ -175,4 +175,32 @@ function buildHelicopter() {
 // The helicopter's rotors, shared with HelicopterView, which draws them.
 export const ROTOR = { radius: 92, height: MAST_TOP * HELI_SCALE, tailReach: -TAIL_Y * HELI_SCALE, tailHeight: TAIL_ROTOR_Z * HELI_SCALE, modelScale: HELI_SCALE };
 
-export const POLICE_BUILDERS = { police: buildPolice, interceptor: buildInterceptor, bearcat: buildBearcat, helicopter: buildHelicopter };
+// The airstrike's jet: a plain grey, cartoonish fighter, no markings of any country. Modelled at car size and drawn
+// larger (JET.modelScale), like the helicopter. Local y = forward.
+const JET_SCALE = 1.8;
+function buildJet() {
+  const c = PALETTE.jetBody;
+  const dark = PALETTE.jetDark;
+  const fuselage = loft({
+    stations: [slice(-44, 4.5, 8, 15), slice(-30, 6.5, 6, 17), slice(0, 7.5, 5, 18), slice(26, 6, 6, 16), slice(40, 3.5, 8, 13), slice(48, 1.5, 10, 11.5)],
+    paint: (b, y) => (y > 36 ? dark : c),
+    layer: 2,
+  });
+  const canopy = loft({
+    stations: [slice(8, 3.2, 16, 18), slice(18, 3.8, 15.5, 22.5), slice(30, 2.6, 15, 19)],
+    paint: () => PALETTE.glass,
+    layer: 3,
+  });
+  decal(canopy, 'top:0', 0.2, 0.45, 0.2, 0.9, PALETTE.glassShine);
+  const flat = (points, z, thick, color, layer) => hexa(points.map(([x, y]) => [x, y, z]), points.map(([x, y]) => [x, y, z + thick]), color, layer);
+  const wings = flat([[-46, -24], [46, -24], [8, 16], [-8, 16]], 9, 2, c, 1);
+  const tailWings = flat([[-17, -46], [17, -46], [4, -32], [-4, -32]], 11, 1.6, c, 1);
+  const fin = hexa([[-1, -46, 15], [1, -46, 15], [1, -30, 15], [-1, -30, 15]], [[-1, -48, 34], [1, -48, 34], [1, -40, 34], [-1, -40, 34]], dark, 4);
+  const intakes = [-1, 1].map((sd) => detail(box(sd * 8.5 - 2, sd * 8.5 + 2, -8, 10, 7, 13, dark, 1)));
+  const nozzle = detail(box(-3.5, 3.5, -49, -44, 9.5, 15, PALETTE.trim, 2));
+  return [wings, tailWings, ...intakes, nozzle, fuselage, canopy, fin];
+}
+
+export const JET = { modelScale: JET_SCALE };
+
+export const POLICE_BUILDERS = { police: buildPolice, interceptor: buildInterceptor, bearcat: buildBearcat, helicopter: buildHelicopter, jet: buildJet };
