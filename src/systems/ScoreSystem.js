@@ -212,6 +212,14 @@ export const Garage = {
     return true;
   },
 
+  // Returns whether the coins were there to spend.
+  spend(coins) {
+    if (this.coins < coins) return false;
+    this.coins -= coins;
+    this.save();
+    return true;
+  },
+
   award(coins) {
     this.coins += Math.max(0, Math.floor(coins));
     this.save();

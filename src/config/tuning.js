@@ -440,7 +440,7 @@ export const INTERCEPTOR = {
 // [TUNE] Roadblocks: parked cruisers across a crossing ahead. They don't chase and don't count
 // toward HEAT.police. Hit one hard and the run is over; lure police into one and they pile up.
 export const ROADBLOCK = {
-  firstAt: 35, // seconds into the run
+  firstAt: 40, // seconds into the run
   everyMin: 12, // seconds between roadblocks, random in this range
   everyMax: 18,
   retrySeconds: 1, // no suitable crossing right now: look again this soon
@@ -485,12 +485,12 @@ export const WARNING = {
 //   45 s +   full tactical pursuit: the helicopter (HELICOPTER), more cars, more of them interceptors
 //            and Bearcats, and interceptors react faster
 export const HEAT = {
-  police: [[0, 2], [15, 4], [30, 8], [45, 12], [75, 18], [110, 23], [160, 26]],
+  police: [[0, 2], [15, 4], [30, 7], [45, 10], [75, 16], [110, 22], [160, 26]],
   interceptorShare: [[14.99, 0], [15, 0.3], [30, 0.35], [45, 0.5], [90, 0.6]],
-  bearcatShare: [[29.99, 0], [30, 0.14], [45, 0.2], [90, 0.26]], // share of new cars that are Bearcats
-  speedFactor: [[0, 1.04], [30, 1.05], [45, 1.1], [150, 1.14]], // x the player's top speed of 300
+  bearcatShare: [[44.99, 0], [45, 0.14], [70, 0.2], [110, 0.26]], // share of new cars that are Bearcats
+  speedFactor: [[0, 1.04], [30, 1.05], [70, 1.1], [150, 1.14]], // x the player's top speed of 300
   turnDeg: [[0, 118], [150, 136]],
-  reaction: [[45, 1], [90, 0.65]], // interceptors' reaction time, x normal
+  reaction: [[70, 1], [110, 0.65]], // interceptors' reaction time, x normal
 };
 
 // [TUNE] SWAT Bearcat: a heavy armoured truck. Slow to turn, hard to stop.
@@ -536,7 +536,7 @@ export const HELICOPTER = {
   shadowWidth: 78, // its soft shadow on the road
   shadowLength: 190,
   shadowAlpha: 0.55,
-  firstAt: 45,
+  firstAt: 70,
   arriveDistance: 1500,
   height: 250,
   swoopHeight: 120,
@@ -620,6 +620,18 @@ export const CRASH = {
   pinnedGrace: 2, // not during the first seconds of a run (the car starts from a standstill)
   slowMotion: 0.3, // game speed right after the crash
   gameOverDelay: 1.4, // real seconds between the crash and the results screen
+};
+
+// [TUNE] A second chance, once a run: after a crash the player can pay coins, or watch an ad, to carry on.
+export const REVIVE = {
+  cost: 150, // coins
+  offerSeconds: 5, // how long the offer waits before the results
+  clearRadius: 520, // police this close are blown away
+  safeSeconds: 2, // nothing can wreck the car straight after
+  speedShare: 0.6, // it starts again at this share of its top speed, along the road
+  ringSeconds: 0.6, // the ring that blows the police away (drawing only)
+  searchStep: 90, // how far along the road it looks for a clear spot ...
+  searchSteps: 14, // ... and how many times each way
 };
 
 export const WRECK = {

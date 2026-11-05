@@ -36,8 +36,8 @@ function policeAt(x, y, headingDeg, role, options = {}) {
   check('0-15 s: 2 to 4 police', at(0).targetPolice === 2 && at(14.9).targetPolice <= 4 && at(14.9).targetPolice >= 3, `${at(0).targetPolice} rising to ${at(14.9).targetPolice}`);
   check('0-15 s: chasers only', at(0).interceptorShare === 0 && at(14.9).interceptorShare === 0);
   check('from 15 s: interceptors appear', at(15).interceptorShare > 0.2, `${at(15).interceptorShare}`);
-  check('30-45 s: top speed climbs', at(45).speedFactor > at(30).speedFactor + 0.03 && at(30).speedFactor - at(0).speedFactor < 0.02, `${at(0).speedFactor} / ${at(30).speedFactor} / ${at(45).speedFactor}`);
-  check('45 s on: a swarm, with more interceptors reacting faster', at(90).targetPolice > at(45).targetPolice && at(90).interceptorShare > at(30).interceptorShare && at(90).reaction < at(45).reaction, `${at(45).targetPolice} -> ${at(90).targetPolice} police`);
+  check('30-70 s: top speed climbs', at(70).speedFactor > at(30).speedFactor + 0.03 && at(30).speedFactor - at(0).speedFactor < 0.02, `${at(0).speedFactor} / ${at(30).speedFactor} / ${at(70).speedFactor}`);
+  check('70 s on: a swarm, with more interceptors reacting faster', at(110).targetPolice > at(70).targetPolice && at(110).interceptorShare > at(30).interceptorShare && at(110).reaction < at(70).reaction, `${at(70).targetPolice} -> ${at(110).targetPolice} police`);
   let rising = true;
   for (let t = 1; t < 200; t += 1) if (at(t).targetPolice < at(t - 1).targetPolice) rising = false;
   check('pressure never drops as the run goes on', rising);
@@ -158,7 +158,7 @@ function policeAt(x, y, headingDeg, role, options = {}) {
   check('nothing spawns on an unloaded chunk', unloaded === 0, `${unloaded}`);
   check('no interceptors before 15 s', early === 0);
   check('interceptors do appear in normal runs', seen.some((s) => s.role === 'interceptor'), `${seen.filter((s) => s.role === 'interceptor').length} of ${seen.length}`);
-  check('roadblocks appear, and only from 30 s', parked.length > 0 && parked.every((b) => b.time >= T.ROADBLOCK.firstAt), `${parked.length} parked cars`);
+  check('roadblocks appear, and only from 40 s', parked.length > 0 && parked.every((b) => b.time >= T.ROADBLOCK.firstAt), `${parked.length} parked cars`);
 }
 {
   // A spawn really is driving along the road toward the player.

@@ -1,7 +1,7 @@
 import { Car } from '../entities/Car.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, BEARCAT, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -9,6 +9,7 @@ import { steerPolice } from './PolicePursuit.js';
 import { PowerUps } from './PowerUpSystem.js';
 import { RunStats } from './ScoreSystem.js';
 import { SpawnDirector, isOnScreen } from './SpawnSystem.js';
+import { nearestRoadPoint } from './WorldLayout.js';
 
 // One chase, as pure game logic (no Phaser, no drawing, no sound), so it can be tested and
 // tuned in plain JavaScript. The game scene calls step() every frame and turns the returned
@@ -60,6 +61,8 @@ export class ChaseSimulation {
     this.time = 0;
     this.state = 'running';
     this.crash = null;
+    this.revived = false; // a run has one second chance
+    this.safeTime = 0; // seconds left in which nothing can wreck the player (after a revive)
     this.pinnedTime = 0;
     this.player.baseScale = this.car ? this.car.scale : 1;
     this.player.reset(START.x, START.y, 0);
@@ -175,6 +178,7 @@ export class ChaseSimulation {
     // 4. Rules that look at the whole run. A falling player's clock has stopped.
     if (this.state === 'running' && !player.isFalling) {
       this.time += dt;
+      this.safeTime = Math.max(0, this.safeTime - dt);
       this.stats.time = this.time;
       this.stats.distance += player.speed * dt;
       this.checkPinned(dt);
@@ -330,6 +334,7 @@ export class ChaseSimulation {
 
   crashPlayer(cause) {
     if (this.state !== 'running') return;
+    if (this.safeTime > 0 && cause !== 'void') return;
     const player = this.player;
     this.state = 'crashed';
     player.crushing = false;
@@ -340,6 +345,57 @@ export class ChaseSimulation {
     if (cause !== 'void') this.throwWreck(player);
     this.emit('crash', { cause, x: player.x, y: player.y });
     if (cause !== 'void') this.explosions.push({ x: player.x, y: player.y, source: this.playerBody, player: true });
+  }
+
+  // The second chance: the crash is undone. The car is put back on the nearest clear stretch of road, heading
+  // along it, and police close by are blown away. Once a run. Returns whether it happened.
+  revivePlayer() {
+    if (this.state !== 'crashed' || this.revived) return false;
+    const player = this.player;
+    const spot = this.clearRoadSpot(player.x, player.y, player.heading);
+    for (const police of this.police) {
+      if (!police.active || Math.hypot(police.model.x - spot.x, police.model.y - spot.y) > REVIVE.clearRadius) continue;
+      if (police.alive) this.wreckPolice(police, 'pulse'); // still 'crashed' here: no combo or coins for these
+      else this.removePolice(police, 'wreckGone');
+    }
+    for (const strip of this.spikeStrips) {
+      if (strip.active && Math.hypot(strip.x - spot.x, strip.y - spot.y) < REVIVE.clearRadius) this.removeSpikeStrip(strip);
+    }
+    player.reset(spot.x, spot.y, spot.heading);
+    player.mass = this.playerMass;
+    player.plowing = this.car ? this.car.plows : false;
+    player.launch(player.handling.topSpeed * REVIVE.speedShare);
+    this.chunks.update(spot.x, spot.y);
+    this.state = 'running';
+    this.crash = null;
+    this.revived = true;
+    this.safeTime = REVIVE.safeSeconds;
+    this.pinnedTime = 0;
+    this.emit('revive', { x: spot.x, y: spot.y, radius: REVIVE.clearRadius });
+    return true;
+  }
+
+  // The nearest point on a road centre line with room for the car, looking along the road both ways, and the
+  // heading along that road closest to the one given.
+  clearRoadSpot(x, y, heading) {
+    const road = nearestRoadPoint(x, y, { x: 0, y: 0, northSouth: true });
+    const room = CAR_REACH * (this.car ? this.car.scale : 1);
+    const along = road.northSouth ? [0, 1] : [1, 0];
+    let spot = { x: road.x, y: road.y };
+    for (let i = 0; i <= REVIVE.searchSteps * 2; i += 1) {
+      const offset = (i % 2 === 0 ? 1 : -1) * Math.ceil(i / 2) * REVIVE.searchStep;
+      const sx = road.x + along[0] * offset;
+      const sy = road.y + along[1] * offset;
+      if (this.world.isClear(sx, sy, room)) {
+        spot = { x: sx, y: sy };
+        break;
+      }
+    }
+    // Headings: 0 = north, clockwise. Pick the direction of travel along this road nearest the old one.
+    const choices = road.northSouth ? [0, Math.PI] : [Math.PI / 2, -Math.PI / 2];
+    const turn = (a) => Math.abs(Math.atan2(Math.sin(a - heading), Math.cos(a - heading)));
+    spot.heading = turn(choices[0]) <= turn(choices[1]) ? choices[0] : choices[1];
+    return spot;
   }
 
   // A police car is destroyed: it becomes a burning wreck, and it explodes (which can take

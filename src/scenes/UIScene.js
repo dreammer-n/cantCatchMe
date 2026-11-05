@@ -1,11 +1,11 @@
 import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
-import { COLORS, PALETTE, UI, WARNING } from '../config/tuning.js';
+import { COLORS, PALETTE, REVIVE, UI, WARNING } from '../config/tuning.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
-import { Records, Maps } from '../systems/ScoreSystem.js';
+import { Garage, Maps } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
 import { Hud } from '../ui/Hud.js';
-import { PauseScreen } from '../ui/Screens.js';
+import { PauseScreen, ReviveScreen, simulateAd } from '../ui/Screens.js';
 import { getPixelRatio, getSafeAreaInsets } from '../utils/screen.js';
 
 const cratePoint = { x: 0, y: 0 };
@@ -37,6 +37,13 @@ export class UIScene extends Phaser.Scene {
       onMusic: () => this.toggleMusic(),
     });
 
+    this.reviveScreen = new ReviveScreen({
+      onPay: () => this.revive(true),
+      onAd: () => this.reviveWithAd(),
+      onDecline: () => this.closeOffer(false),
+    });
+    this.offer = null;
+
     const on = (name, handler) => {
       this.game.events.on(name, handler, this);
       this.events.once('shutdown', () => this.game.events.off(name, handler, this));
@@ -44,7 +51,7 @@ export class UIScene extends Phaser.Scene {
     on('toast', (text, kind) => this.hud.toast(text, kind));
     on('power-ready', (name) => this.hud.toast(`${name}! ${this.touch ? 'DOUBLE TAP' : 'SPACE'}`, 'ready', 2600));
     on('run-started', () => this.onRunStarted());
-    on('run-crashed', () => this.hud.hideHint());
+    on('revive-offer', (offer) => this.openOffer(offer));
     on('run-over', () => this.hud.show(false));
     on('platform-pause', () => {
       if (this.world.running && !this.paused) this.setPaused(true);
@@ -58,16 +65,15 @@ export class UIScene extends Phaser.Scene {
 
   onRunStarted() {
     this.setPaused(false);
+    this.closeOffer(null);
     this.hud.clearToasts();
     this.hud.setRecord(Maps.bestTime(Maps.selected));
     this.hud.show(true);
-    if (Records.totals.runs < 3) {
-      this.hud.hint(this.touch ? 'Hold the left or right side to steer' : 'Steer with A D or the arrow keys', 4500);
-    }
   }
 
   update(time) {
     const command = this.controls.getCommand();
+    if (this.offer) this.updateOffer(time, command);
     const running = this.world.running;
     if (running || this.paused) {
       if (command.pausePressed) this.setPaused(!this.paused);
@@ -94,6 +100,61 @@ export class UIScene extends Phaser.Scene {
       this.pauseScreen.hide();
       this.audio.setPaused(false);
       PlatformManager.runResumed();
+    }
+  }
+
+  // ---- The second chance ----
+
+  openOffer(offer) {
+    this.offer = { ...offer, endsAt: this.time.now + REVIVE.offerSeconds * 1000, busy: false };
+    this.controls.releaseHeld();
+    this.reviveScreen.show({ ...offer, coins: Garage.coins });
+  }
+
+  // Counts down while nothing is loading; at zero, or on a key, it moves on.
+  updateOffer(time, command) {
+    const offer = this.offer;
+    if (offer.busy) {
+      offer.endsAt = time + REVIVE.offerSeconds * 1000;
+      return;
+    }
+    const left = (offer.endsAt - time) / 1000;
+    this.reviveScreen.setCount(left);
+    if (left <= 0) this.closeOffer(false);
+    else if (command.confirmPressed) {
+      if (offer.canPay) this.revive(true);
+      else this.reviveWithAd();
+    }
+  }
+
+  revive(paid) {
+    if (!this.offer || this.offer.busy) return;
+    this.audio.play('click');
+    this.closeOffer(true, paid);
+  }
+
+  async reviveWithAd() {
+    const offer = this.offer;
+    if (!offer || offer.busy) return;
+    this.audio.play('click');
+    offer.busy = true;
+    this.reviveScreen.setAdState('busy');
+    const earned = offer.adMode === 'simulated' ? await simulateAd() : await PlatformManager.showRewardedAd('revive');
+    if (this.offer !== offer) return;
+    offer.busy = false;
+    if (earned) this.closeOffer(true, false);
+    else this.reviveScreen.setAdState('failed');
+  }
+
+  // revive: true = carry on, false = the results, null = just close it (a new run has begun).
+  closeOffer(revive, paid = false) {
+    if (!this.offer) return;
+    this.offer = null;
+    this.reviveScreen.hide();
+    if (revive === true) this.world.acceptRevive(paid);
+    else if (revive === false) {
+      this.audio.play('click');
+      this.world.declineRevive();
     }
   }
 

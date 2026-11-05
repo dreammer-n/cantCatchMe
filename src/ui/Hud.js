@@ -14,12 +14,10 @@ export class Hud {
     this.record = dt('hud-record', 'RECORD: 00:00.00');
     this.pauseButton = button('btn hud-pause', dt('', 'PAUSE'), onPause, 'Pause');
     this.toasts = el('div', 'hud-toasts');
-    this.hintBox = el('div', 'hud-hint', [dt('', '')]);
     this.node = el('div', 'hud', [
       el('div', 'hud-tele', [this.time, this.distance, this.wrecks]),
       el('div', 'hud-right', [this.pauseButton, this.record]),
       this.toasts,
-      this.hintBox,
     ]);
     this.node.hidden = true;
     uiRoot().append(this.node);
@@ -55,18 +53,6 @@ export class Hud {
     this.toasts.append(node);
     while (this.toasts.childElementCount > 3) this.toasts.firstChild.remove();
     setTimeout(() => node.remove(), ms);
-  }
-
-  hint(text, ms) {
-    setDisplay(this.hintBox.firstChild, text);
-    this.hintBox.classList.add('visible');
-    clearTimeout(this.hintTimer);
-    this.hintTimer = setTimeout(() => this.hintBox.classList.remove('visible'), ms);
-  }
-
-  hideHint() {
-    clearTimeout(this.hintTimer);
-    this.hintBox.classList.remove('visible');
   }
 
   clearToasts() {

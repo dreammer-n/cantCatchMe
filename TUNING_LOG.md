@@ -155,3 +155,7 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-03 | Sound | `AUDIO.skid` 0.12 -> 0.5 | the squeal is now a recording, not filtered noise | Owner's file is quieter than the old noise. |
 | 2026-11-03 | Sound | bump 0.7, cone 0.7, click 0.6 | first settings for the owner's files | Listen-test on a phone. |
 | 2026-11-03 | Streets | new `WORLD.street` (curb 5, pavement 20, corners 46, lot shade 7%, 6 patches at 45%, 12 cracks, 7 manholes per chunk, lawn stripes 8) | blocks look like real streets | Owner: the asphalt looked like a table. |
+| 2026-11-04 | Ads | Bridge `minimumDelayBetweenInterstitial` 60 -> 120, new `initialInterstitialDelay` 120 | about half as many ads, none in the first 2 minutes | Owner: the gap between ads must be longer. |
+| 2026-11-04 | Pacing | `ROADBLOCK.firstAt` 35 -> 40, Bearcats from 30 -> 45 s, `HELICOPTER.firstAt` 45 -> 70 | a gentler first minute | Owner: SWAT and helicopter came too soon. |
+| 2026-11-04 | Pacing | `HEAT.police` 8/12/18/23 at 30/45/75/110 s -> 7/10/16/22; speed and reaction steps moved from 45 to 70 s | eased to match | So the first minute isn't just the same pressure later. |
+| 2026-11-04 | Revive | new `REVIVE`: 150 coins or an ad, once a run, 5 s offer, clears 520 units, 2 s safe, restarts at 60% speed | a second chance | Owner's idea; price and the ad option are defaults to tune. |

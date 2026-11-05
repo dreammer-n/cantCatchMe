@@ -178,6 +178,51 @@ export class PauseScreen extends Screen {
   }
 }
 
+// After a crash: carry on for coins, or for an ad, before the results. Counts down by itself.
+export class ReviveScreen extends Screen {
+  constructor({ onPay, onAd, onDecline }) {
+    const count = dt('revive-count', '5');
+    const pay = textButton('btn-primary', 'REVIVE', onPay, 'Revive with coins');
+    const ad = textButton('btn-secondary', 'WATCH AD: REVIVE', onAd, 'Watch an ad to revive');
+    const balance = coinBadge();
+    super('revive', [
+      balance,
+      el('h2', 'screen-title', [dt('', 'CONTINUE?')]),
+      count,
+      pay,
+      ad,
+      textButton('btn-secondary', 'NO THANKS', onDecline, 'See the results'),
+    ]);
+    this.count = count;
+    this.pay = pay;
+    this.ad = ad;
+    this.balance = balance;
+  }
+
+  show({ cost, canPay, adMode, coins }) {
+    this.cost = cost;
+    this.pay.hidden = !canPay;
+    this.pay.setText(`REVIVE · ${formatCoins(cost)} COINS`);
+    this.ad.hidden = adMode === 'none';
+    this.setAdState('ready');
+    this.balance.setCoins(coins);
+    this.setCount(5);
+    super.show();
+  }
+
+  setCount(seconds) {
+    setDisplay(this.count, String(Math.max(0, Math.ceil(seconds))));
+  }
+
+  setAdState(state) {
+    this.ad.disabled = state === 'busy';
+    this.pay.disabled = state === 'busy';
+    if (state === 'ready') this.ad.setText('WATCH AD: REVIVE');
+    if (state === 'busy') this.ad.setText('LOADING AD...');
+    if (state === 'failed') this.ad.setText('NO AD - TRY AGAIN');
+  }
+}
+
 const CAUSES = {
   police: 'RAMMED BY THE POLICE',
   pinned: 'BOXED IN BY THE POLICE',

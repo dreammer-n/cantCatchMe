@@ -43,11 +43,11 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
 {
   const at = difficultyAt;
   check('0-15 s: patrol cruisers only', at(14.9).interceptorShare === 0 && at(14.9).bearcatShare === 0);
-  check('15-30 s: interceptors, no Bearcats', at(15).interceptorShare > 0 && at(29.9).bearcatShare === 0);
-  check('from 30 s: Bearcats', at(30).bearcatShare > 0.1);
-  check('roadblocks from 35 s', ROADBLOCK.firstAt === 35);
-  check('from 45 s: the helicopter', HELICOPTER.firstAt === 45);
-  check('and more Bearcats later on', at(90).bearcatShare > at(30).bearcatShare);
+  check('15-45 s: interceptors, no Bearcats', at(15).interceptorShare > 0 && at(44.9).bearcatShare === 0);
+  check('from 45 s: Bearcats', at(45).bearcatShare > 0.1);
+  check('roadblocks from 40 s', ROADBLOCK.firstAt === 40);
+  check('from 70 s: the helicopter', HELICOPTER.firstAt === 70);
+  check('and more Bearcats later on', at(110).bearcatShare > at(45).bearcatShare);
 }
 
 // ---- Drawing sheets -------------------------------------------------------------------------
@@ -464,9 +464,9 @@ function roadblockSim() {
   drive(s, 3000, 3000);
   s.time = HELICOPTER.firstAt - 0.5;
   const before = run(s, 0.3);
-  check('no helicopter before 45 s', !s.helicopter.active && !before.some((e) => e.type === 'helicopter'));
+  check('no helicopter before 70 s', !s.helicopter.active && !before.some((e) => e.type === 'helicopter'));
   const on = run(s, 0.4);
-  check('it arrives at 45 s', s.helicopter.active && on.filter((e) => e.type === 'helicopter').length === 1);
+  check('it arrives at 70 s', s.helicopter.active && on.filter((e) => e.type === 'helicopter').length === 1);
   check('from out of sight', Math.hypot(s.helicopter.x - s.player.x, s.helicopter.y - s.player.y) > 1000);
   const start = Math.hypot(s.helicopter.x - s.player.x, s.helicopter.y - s.player.y);
   s.helicopter.nextDrop = 1e6;
@@ -592,9 +592,9 @@ function roadblockSim() {
   run(n, HELICOPTER.warningSeconds + 0.5);
   n.reset(4);
   check('a new run has no helicopter and no blocks', !n.helicopter.active && n.helicopter.drops.every((x) => !x.active && !x.shape));
-  n.time = 44;
+  n.time = HELICOPTER.firstAt - 1;
   run(n, 0.1);
-  check('and it comes back at 45 s', !n.helicopter.active);
+  check('and it comes back only at 70 s', !n.helicopter.active);
   // Blocks can't land on holes or anything else solid.
   const hole = { kind: 'void', isVoid: true, x: 3000, y: 3000 - 300 * HELICOPTER.dropAheadSeconds, heading: 0, collider: { type: 'circle', r: 90 }, breakable: false, outline: [] };
   const v = quiet([hole]);
@@ -631,7 +631,7 @@ function roadblockSim() {
           if (e.type === 'spawn') {
             if (e.police.armored) {
               bearcats += 1;
-              if (s.time < 30) early += 1;
+              if (s.time < 45) early += 1;
             }
             if (e.police.parked) {
               parked += 1;
@@ -653,16 +653,16 @@ function roadblockSim() {
     causes[r.cause] = (causes[r.cause] || 0) + 1;
   }
   check('Bearcats turn up in real runs', bearcats > 0, `${bearcats} spawned`);
-  check('never before 30 s', early === 0);
+  check('never before 45 s', early === 0);
   check('never more than the limit at once', mostBearcats <= BEARCAT.maxActive, `most ${mostBearcats}`);
-  check('roadblocks turn up, never before 35 s', parked > 0 && parkedEarly === 0, `${parked / 2} roadblocks`);
-  check('the helicopter turns up, never before 45 s', copters > 0 && copterEarly === 0, `in ${copters} of 25 runs`);
+  check('roadblocks turn up, never before 40 s', parked > 0 && parkedEarly === 0, `${parked / 2} roadblocks`);
+  check('the helicopter never turns up before 70 s', copterEarly === 0, `it came in ${copters} of 25 runs`);
   check('numbers stay sound', bad === 0);
   check('collision shapes stay bounded', mostShapes < 1300, `most ${mostShapes}; endings ${JSON.stringify(causes)}; ${flats} flats`);
 }
 
 {
-  // Few bots live past 45 s, so these start there, to see the helicopter at work for a whole run.
+  // Few bots live past 70 s, so these start there, to see the helicopter at work for a whole run.
   const sim = newSim();
   let flares = 0;
   let lands = 0;
@@ -691,6 +691,39 @@ function roadblockSim() {
   check('in a real chase it marks spots and drops blocks', flares > 0 && lands > 0, `${flares} flares, ${lands} landed in 15 runs`);
   check('within its limit', mostDrops <= HELICOPTER.maxDrops, `most at once ${mostDrops}`);
   check('solid props don\'t end most runs', endedOnProp <= 7, `${endedOnProp} of 15`);
+}
+
+// ---- The second chance -------------------------------------------------------------------
+{
+  const { REVIVE } = T;
+  const s = quiet();
+  drive(s, 3000, 3200);
+  run(s, 0.2);
+  const near = cruiser(s, s.player.x + 200, s.player.y, 0);
+  const far = cruiser(s, s.player.x + 2000, s.player.y, 0);
+  s.crashPlayer('police');
+  check('after a crash the run can be revived', s.revivePlayer() && s.state === 'running' && s.revived);
+  check('the car is back on clear road, moving along it', s.world.isClear(s.player.x, s.player.y, 30) && s.player.speed > 100 && Math.abs(Math.sin(s.player.heading)) < 1e-9, `speed ${s.player.speed.toFixed(0)}`);
+  check('police close by are blown away, those far off are not', !near.alive && far.alive);
+  check('blowing them away earns nothing: no combo, no wrecks counted', s.stats.wrecks === 0);
+  s.crashPlayer('police');
+  check('for a moment nothing can wreck it', s.state === 'running');
+  run(s, REVIVE.safeSeconds + 0.1);
+  s.crashPlayer('police');
+  check('after that it can crash again', s.state === 'crashed');
+  check('but a run can only be revived once', !s.revivePlayer() && s.state === 'crashed');
+  s.reset(5);
+  check('a new run has its second chance back', !s.revived && s.safeTime === 0);
+  // Fallen into a hole on the road: it comes back on the road, clear of the hole.
+  const hole = { kind: 'void', isVoid: true, x: 3000, y: 3000, heading: 0, collider: { type: 'circle', r: 150 }, breakable: false, outline: [] };
+  const v = quiet([hole]);
+  drive(v, 3000, 3000);
+  v.chunks.update(3000, 3000);
+  v.player.startFall(hole);
+  v.crashPlayer('void');
+  check('a fall can be revived too', v.revivePlayer() && !v.player.isFalling && v.state === 'running');
+  check('and the car comes back on the road, clear of the hole', v.world.isClear(v.player.x, v.player.y, 30) && Math.hypot(v.player.x - 3000, v.player.y - 3000) > 150 && (v.player.x % 600 === 0 || v.player.y % 600 === 0), `at ${v.player.x.toFixed(0)}, ${v.player.y.toFixed(0)}`);
+  check('the price is within reach of a few runs\' coins', REVIVE.cost <= 300 && REVIVE.cost >= 50);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

@@ -30,11 +30,24 @@ export class AudioSystem {
     this.chasePrimed = false;
     this.chasePriming = false;
     this.engine = null; // the engine loop, whose speed sets its pitch
-    // Fetched now, so the sound is ready at the first touch; decoded once there is a context to do it with.
+    // Fetched and decoded while the game loads, so the music can start at the very first touch. Browsers allow no
+    // sound before that touch, but an offline context can decode without one, and what it makes plays in any context.
     this.downloads = new Map();
-    const fetchFile = (name, path) => this.downloads.set(name, fetch(ASSETS + path).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null));
+    const decoder = offlineDecoder();
+    const fetchFile = (name, path) =>
+      this.downloads.set(
+        name,
+        fetch(ASSETS + path)
+          .then((r) => (r.ok ? r.arrayBuffer() : null))
+          .then((bytes) => (bytes && decoder ? decoder.decodeAudioData(bytes).catch(() => null) : bytes))
+          .catch(() => null),
+      );
     fetchFile('menu', AUDIO.music.menu);
     for (const [name, file] of Object.entries(AUDIO.files)) fetchFile(name, file.path);
+    // The chase track starts filling its buffer now too, rather than at the first touch.
+    this.chase = new Audio(ASSETS + AUDIO.music.chase);
+    this.chase.loop = true;
+    this.chase.preload = 'auto';
   }
 
   get audible() {
@@ -83,15 +96,13 @@ export class AudioSystem {
     // Music.
     this.menuGain = this.outputGain(this.music);
     this.chaseGain = this.outputGain(this.music);
-    this.chase = new Audio(ASSETS + AUDIO.music.chase);
-    this.chase.loop = true;
-    this.chase.preload = 'auto';
     ctx.createMediaElementSource(this.chase).connect(this.chaseGain);
     this.setMusic(this.track);
 
     for (const [name, download] of this.downloads) {
       download
-        .then((bytes) => (bytes ? ctx.decodeAudioData(bytes) : null))
+        // Already decoded, unless this browser had no offline context to do it with.
+        .then((sound) => (sound instanceof ArrayBuffer ? ctx.decodeAudioData(sound) : sound))
         .then((buffer) => {
           if (!buffer) return;
           this.buffers.set(name, buffer);
@@ -127,7 +138,7 @@ export class AudioSystem {
   // starts in response to a button press that may not count. So it is started once, silently, at the first touch
   // that does count, and paused again unless it is wanted.
   primeChase() {
-    if (!this.chase || this.chasePrimed || this.chasePriming) return;
+    if (!this.ctx || this.chasePrimed || this.chasePriming) return;
     this.chasePriming = true;
     this.chase
       .play()
@@ -143,7 +154,7 @@ export class AudioSystem {
 
   // The chase track plays only while it can be heard, so a pause or mute stops it for real.
   syncChase() {
-    if (!this.chase) return;
+    if (!this.ctx) return;
     if (this.track === 'chase' && this.musicOn && this.audible) this.chase.play().catch(() => {});
     else this.chase.pause();
   }
@@ -276,5 +287,16 @@ export class AudioSystem {
     gain.gain.value = file.volume * clamp(volume, 0, 1);
     source.connect(gain).connect(this.effects);
     source.start(now);
+  }
+}
+
+// An offline audio context, only for decoding (it never plays, so it needs no touch first). Null where there is none.
+function offlineDecoder() {
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!Offline) return null;
+  try {
+    return new Offline(2, 1, 48000);
+  } catch {
+    return null;
   }
 }

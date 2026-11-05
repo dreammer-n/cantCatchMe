@@ -22,6 +22,7 @@ import {
   PALETTE,
   POWERUP,
   RENDER,
+  REVIVE,
   TRAUMA,
   TUMBLE,
   VIEW,
@@ -224,8 +225,41 @@ export class GameScene extends Phaser.Scene {
     return this.mode === 'playing';
   }
 
+  // One second chance a run, if the player can pay for it or there is an ad to watch.
+  offerReviveOrFinish() {
+    const adMode = PlatformManager.rewardedAdMode();
+    const canPay = Garage.coins >= REVIVE.cost;
+    if (this.sim.revived || (!canPay && adMode === 'none')) {
+      this.finishRun();
+      return;
+    }
+    this.mode = 'offer';
+    this.audio.quiet();
+    this.game.events.emit('revive-offer', { cost: REVIVE.cost, canPay, adMode, cause: this.sim.crash ? this.sim.crash.cause : 'police' });
+  }
+
+  // paid: the coins were spent (otherwise an ad was watched).
+  acceptRevive(paid) {
+    if (this.mode !== 'offer') return;
+    if (paid && !Garage.spend(REVIVE.cost)) {
+      this.finishRun();
+      return;
+    }
+    if (!this.sim.revivePlayer()) {
+      this.finishRun();
+      return;
+    }
+    this.handleEvents(this.sim.events.splice(0));
+  }
+
+  declineRevive() {
+    if (this.mode === 'offer') this.finishRun();
+  }
+
   finishRun() {
     this.finished = true;
+    this.mode = 'crashed';
+    PlatformManager.runFailed();
     const summary = this.sim.stats.summary();
     const { best } = Records.submit(summary);
     const newBest = summary.time > Maps.bestTime(Maps.selected);
@@ -277,15 +311,15 @@ export class GameScene extends Phaser.Scene {
 
     if (frozen) {
       gameDt = 0; // the action holds; camera shake and starbursts carry on
-    } else if (this.mode === 'attract') {
-      // The car waits on the title screen, still.
+    } else if (this.mode === 'attract' || this.mode === 'offer') {
+      // The car waits on the title screen, still; after a crash the world holds while the second chance is offered.
     } else if (this.turntable) {
       this.spinInPlace(command.steer, dt);
     } else {
       if (this.mode === 'crashed') {
         gameDt = dt * CRASH.slowMotion;
         this.crashClock += dt;
-        if (!this.finished && this.crashClock >= CRASH.gameOverDelay) this.finishRun();
+        if (!this.finished && this.crashClock >= CRASH.gameOverDelay) this.offerReviveOrFinish();
       }
       const playing = this.mode === 'playing';
       const events = this.sim.step(gameDt, { steer: playing ? command.steer : 0, activatePowerUp: playing && this.pendingPower }, this.simView);
@@ -355,8 +389,17 @@ export class GameScene extends Phaser.Scene {
             this.rig.addTrauma(TRAUMA.crash);
           }
           this.controls.releaseHeld();
-          PlatformManager.runFailed();
           this.game.events.emit('run-crashed', e.cause);
+          break;
+        case 'revive':
+          this.mode = 'playing';
+          this.crashClock = 0;
+          this.hitStop.reset();
+          this.playerView.setLook(this.looks.player);
+          this.effects.shockwave(e.x, e.y, e.radius, REVIVE.ringSeconds);
+          this.audio.play('shockwave');
+          this.audio.setMusic('chase');
+          this.game.events.emit('run-resumed');
           break;
         case 'despawn':
         case 'wreckGone':

@@ -2,12 +2,13 @@
   "loadingScreenType": "none",
   "disableLoadingLogo": true,
   "advertisement": {
-    "minimumDelayBetweenInterstitial": 60,
+    "minimumDelayBetweenInterstitial": 120,
+    "initialInterstitialDelay": 120,
     "interstitial": {
       "placements": [{ "id": "game_over" }]
     },
     "rewarded": {
-      "placements": [{ "id": "double_coins" }]
+      "placements": [{ "id": "double_coins" }, { "id": "revive" }]
     }
   },
   "platforms": {}

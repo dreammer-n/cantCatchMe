@@ -312,8 +312,8 @@ export const PlatformManager = {
   },
 
   // Shows a real rewarded ad. Resolves to true only if the platform says the reward was earned. The game is
-  // paused and silent while it is open. Call only when the player has asked for one.
-  showRewardedAd() {
+  // paused and silent while it is open. Call only when the player has asked for one. placement: what it is for.
+  showRewardedAd(placement = AD_PLACEMENT) {
     if (state.pendingAd) return state.pendingAd;
     if (this.rewardedAdMode() !== 'platform') return Promise.resolve(false);
     state.pendingAd = new Promise((resolve) => {
@@ -344,7 +344,7 @@ export const PlatformManager = {
       };
       timer = setTimeout(finish, AD_TIMEOUT_MS);
       try {
-        const result = state.bridge.advertisement.showRewarded(AD_PLACEMENT);
+        const result = state.bridge.advertisement.showRewarded(placement);
         if (result && typeof result.catch === 'function') result.catch(finish);
       } catch {
         finish();
