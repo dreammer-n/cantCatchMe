@@ -53,6 +53,16 @@ export class Car {
     this.air = 0; // seconds left in the air, off a ramp (only the drawing lifts the car)
     this.surface = null; // the ground under the car's middle: null, 'ice' or 'sand' (SURFACES), set by the collisions
     this.airTotal = 1;
+    this.airStart = 0; // the height it left the ramp at
+    this.airVz = 0; // and how fast it was going up
+    this.rampShape = null; // the ramp under the car's middle, if any (set by the collisions)
+    this.rampLift = 0; // up on a ramp: the height of the car's middle ...
+    this.rampPitch = 0; // ... its nose up (radians) ...
+    this.rampRoll = 0; // ... and its right side up (radians)
+    this.rampLeft = 0; // the ramp's height under the left and right wheels
+    this.rampRight = 0;
+    this.roll = 0; // in the air: how far it has rolled over (radians, right side up), and how fast
+    this.rollRate = 0;
     this.fallProgress = 0; // 0 at the edge .. 1 fully fallen
     this.fallShape = null; // the hole it went into
   }

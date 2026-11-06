@@ -1,4 +1,4 @@
-import { COLLISION, CURB } from '../config/tuning.js';
+import { COLLISION, CURB, RAMP } from '../config/tuning.js';
 
 // Collisions for the flat physics world. Pure maths, no Phaser.
 //
@@ -20,6 +20,21 @@ const R = COLLISION.carCircleRadius;
 const OFF = COLLISION.carCircleOffset;
 
 const hit = { nx: 0, ny: 0, depth: 0 };
+const probe = { nx: 0, ny: 0, depth: 0 };
+
+// How high a ramp's surface is under the point (x, y): nothing at its low end, RAMP.height at its high end.
+export function rampHeightAt(shape, x, y) {
+  const along = (x - shape.x) * shape.sin - (y - shape.y) * shape.cos;
+  return RAMP.height * Math.max(0, Math.min(1, (along + shape.hl) / (2 * shape.hl)));
+}
+
+// The same, but nothing off the ramp: for a wheel that may be beside it.
+export function rampSurfaceAt(shape, x, y) {
+  const along = (x - shape.x) * shape.sin - (y - shape.y) * shape.cos;
+  const across = (x - shape.x) * shape.cos + (y - shape.y) * shape.sin;
+  if (Math.abs(along) > shape.hl || Math.abs(across) > shape.hw) return 0;
+  return RAMP.height * ((along + shape.hl) / (2 * shape.hl));
+}
 
 // Static props in a grid with no edges, so each car only looks at the few props near it. Only
 // squares with something in them exist: chunks add and remove their props as the player moves.
@@ -297,6 +312,7 @@ export function collideWithWorld(car, world, result, onTouch) {
   result.ramp = null;
   let onCurb = false;
   let surface = null;
+  let rampUnder = null;
   const r = R * car.scale;
   for (let i = 0; i < 2; i += 1) {
     carCircles(car, circles);
@@ -311,7 +327,25 @@ export function collideWithWorld(car, world, result, onTouch) {
         return;
       }
       if (shape.isRamp) {
-        result.ramp = shape;
+        // On it (its middle over the ramp): it rides up the slope.
+        if (circleVsShape(car.x, car.y, CENTRE_POINT, shape, probe)) {
+          rampUnder = shape;
+          result.ramp = shape;
+          return;
+        }
+        // Coming at it from outside: its tall end is a wall, and so is a side wherever it stands taller than a
+        // step; the low end, and the low part of a side, the car drives up onto.
+        const square = hit.nx * shape.sin - hit.ny * shape.cos; // 1: the tall end's face; 0: a side
+        const into = car.vx * hit.nx + car.vy * hit.ny < 0;
+        const tall = square > RAMP.wallFacing || (Math.abs(square) < 0.5 && rampHeightAt(shape, c.x, c.y) > RAMP.sideStep);
+        if (into && tall) {
+          const impact = bounceOffSurface(car, hit.nx, hit.ny, hit.depth);
+          carCircles(car, circles);
+          if (impact > result.impact) {
+            result.impact = impact;
+            result.shape = shape;
+          }
+        }
         return;
       }
       // Giant: holes and curbs mean nothing, and anything solid gets knocked away like a cone.
@@ -351,6 +385,7 @@ export function collideWithWorld(car, world, result, onTouch) {
   }
   car.onCurb = onCurb;
   car.surface = surface;
+  car.rampShape = rampUnder;
   return result.impact;
 }
 

@@ -609,17 +609,30 @@ export const STREET_PROPS = {
 // moment, over police, small things and even holes. Buildings still stop it. Physics stays flat: only the
 // drawing lifts it.
 export const RAMP = {
-  width: 70,
-  length: 90,
-  height: 16, // its high end (drawing)
-  airSeconds: 0.75,
-  takeOff: 0.3, // the car leaves the ground once its middle is this far up the ramp (share of half its length)
-  airHeight: 70, // how high the car flies (drawing)
-  minSpeed: 150, // slower than this, the car just rolls over it
+  enabled: false, // switched off by the owner (2026-11-06): no ramps are placed in the world. The code stays for later.
+  width: 100,
+  length: 140,
+  height: 30, // its high end
+  // Riding it: each wheel sits on the ramp's surface, which gives the car its height, nose angle and sideways tilt;
+  // gravity slows it on the way up. Leaving it while up off the road, it flies: it goes up at its speed along the
+  // slope times the slope, and gravity brings it down (a car's length is about 4 m, so real gravity is about 204
+  // units/s/s). At 330 that is about a second in the air, and 2 m up. A car that leaves with one side higher
+  // (only half of it on the ramp) rolls over sideways; landing more than flipDeg from upright, it crashes.
+  gravity: 204,
+  lift: 1, // the push up off the top: 1 is the slope alone
+  maxAir: 2, // seconds, at the most
+  landingKeep: 0.92, // share of its speed the car keeps when it lands
+  flipDeg: 100, // land tilted further than this (on its side or roof) and the car is over
+  roughDeg: 40, // tilted more than this but not over: a rough landing that costs more speed
+  roughKeep: 0.75,
+  rollShare: 0.65, // share of the lopsided push that turns into roll (a car's weight and springs take the rest)
+  wheelBase: 0.35, // the wheels, front and back, as a share of the car's length from its middle
+  wallFacing: 0.7, // hitting the tall end from behind: a wall. Cos of how square on the hit must be
+  sideStep: 10, // a side lower than this is driven up onto; taller, it is a wall
   align: 0.5, // cos of the most the car's heading may differ from the ramp's
   laneOffset: 42, // from the road's centre line
   along: 160, // from the middle of the block, along the road
-  holeClearance: 280, // no road hole this close in front of a ramp
+  holeClearance: 380, // no road hole this close in front of a ramp
 };
 
 // Ground that changes the driving, for every car (player and police) whose middle is on it: ice lets the tires
@@ -692,6 +705,12 @@ export const WOODS_MAP = {
   // The ground (drawing only): every stretch of road between two crossings is worn asphalt, mud or a grass
   // track, picked from its place on the map, so it is the same from both chunks it touches.
   roads: [['asphalt', 35], ['mud', 35], ['grass', 30]],
+  // How each kind of stretch is drawn: half its width, how far it curves to the side, how ragged its edges are.
+  roadStyle: {
+    asphalt: { half: 84, bend: 16, ragged: 9 },
+    mud: { half: 78, bend: 34, ragged: 16 },
+    grass: { half: 70, bend: 38, ragged: 0 },
+  },
   ruts: 38, // tire ruts, from the middle of the road
   grassPatches: 6, // darker and lighter grass, a block
   tufts: 9,

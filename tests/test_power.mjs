@@ -713,29 +713,79 @@ const lock = (p) => {
       for (const ramp of c.items.filter((i) => i.isRamp)) if (c.voids.some((v) => Math.hypot(v.x - ramp.x, v.y - ramp.y) < RAMP.holeClearance)) rampsByHoles += 1;
     }
   }
-  check('Suburbs has hydrants, mailboxes, trash cans, hedges, fences and ramps', ['hydrant', 'mailbox', 'trashcan', 'bush', 'fence', 'ramp'].every((k) => kinds[k] > 0), JSON.stringify(['hydrant', 'mailbox', 'trashcan', 'bush', 'fence', 'ramp'].map((k) => kinds[k] || 0)));
+  check('Suburbs has hydrants, mailboxes, trash cans, hedges and fences', ['hydrant', 'mailbox', 'trashcan', 'bush', 'fence'].every((k) => kinds[k] > 0), JSON.stringify(['hydrant', 'mailbox', 'trashcan', 'bush', 'fence'].map((k) => kinds[k] || 0)));
+  check('no ramps in the world while they are switched off', RAMP.enabled || !kinds.ramp, `${kinds.ramp || 0}`);
   check('no road hole right by a ramp', rampsByHoles === 0, `${rampsByHoles}`);
   const others = maps.slice(1).map((m) => buildLayout(undefined, m));
   check('the other maps don\'t have them', others.every((l) => [0, 1, 2].every((cx) => l.chunkAt(cx, 1).items.every((i) => !['hydrant', 'mailbox', 'trashcan', 'ramp'].includes(i.kind)))));
 
-  // A ramp, low end first, fast enough: the car flies over a police car and a hole, then lands.
+  // A ramp, low end first: the car rides up it, leaves the top, flies over a police car and a hole, and lands.
   const ramp = { kind: 'ramp', isRamp: true, x: 3000, y: 2900, heading: 0, model: 'ramp', params: {}, collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 }, breakable: false };
-  const hole = { kind: 'void', isVoid: true, x: 3000, y: 2720, heading: 0, collider: { type: 'circle', r: 35 }, breakable: false, outline: [] };
+  const hole = { kind: 'void', isVoid: true, x: 3000, y: 2740, heading: 0, collider: { type: 'circle', r: 40 }, breakable: false, outline: [] };
   const s = quiet([ramp, hole]);
-  drive(s, 3000, 3000, 0, 320);
-  const blocker = cop(s, 3000, 2790, 0);
+  drive(s, 3000, 3020, 0, 330);
+  const blocker = cop(s, 3000, 2770, 0);
   blocker.handling.acceleration = 0;
-  const events = run(s, 0.45);
-  check('a ramp sends the car into the air', events.some((e) => e.type === 'jump'));
-  run(s, 0.9);
-  check('it flies over a police car and a hole, and lands', s.state === 'running' && !s.player.isFalling && s.player.y < 2680 && s.player.air === 0 && blocker.alive, `y ${s.player.y.toFixed(0)}, ${s.state}, police ${blocker.state}`);
-  const slow = quiet([ramp]);
-  drive(slow, 3000, 3000, 0, 100);
-  slow.player.handling.acceleration = 0;
-  check('too slow, it just rolls over', !run(slow, 1.2).some((e) => e.type === 'jump'));
+  run(s, 0.3);
+  check('on the slope the car is raised, nose up, level side to side', s.player.rampLift > 5 && s.player.rampPitch > 0.1 && Math.abs(s.player.rampRoll) < 0.01, `${s.player.rampLift.toFixed(1)} up, nose ${s.player.rampPitch.toFixed(2)}`);
+  const events = run(s, 0.4);
+  check('it takes off from the top', events.some((e) => e.type === 'jump') && s.player.air > 0 && s.player.airStart > RAMP.height * 0.8);
+  const heading = s.player.heading;
+  run(s, 0.3, { steer: 1 });
+  check('in the air the car cannot steer', Math.abs(s.player.heading - heading) < 1e-9);
+  run(s, 1);
+  check('it flies over a police car and a hole, and lands on its wheels', s.state === 'running' && !s.player.isFalling && s.player.y < 2650 && s.player.air === 0, `y ${s.player.y.toFixed(0)}, ${s.state}`);
+  // Faster means higher and further; gravity is the same for all.
+  const flight = (speed, x = 3000) => {
+    const t = quiet([ramp]);
+    drive(t, x, 3020, 0, speed);
+    t.player.handling = { ...t.player.handling, acceleration: 0, topSpeed: speed };
+    for (let i = 0; i < 120 && t.player.air === 0; i += 1) run(t, 1 / 60);
+    const peak = t.player.airStart + (t.player.airVz * t.player.airVz) / (2 * RAMP.gravity);
+    return { t, air: t.player.airTotal, peak };
+  };
+  const slow = flight(150);
+  const fast = flight(400);
+  check('a faster car jumps higher and stays up longer', fast.air > slow.air * 1.25 && fast.peak > slow.peak + 10, `${slow.air.toFixed(2)} s / ${slow.peak.toFixed(0)} high, against ${fast.air.toFixed(2)} s / ${fast.peak.toFixed(0)} high`);
+  // Half on the ramp: one side goes up and the other doesn't, so it rolls over. Fast, it lands on its roof.
+  const half = (speed) => {
+    const t = quiet([ramp]);
+    drive(t, 3000 + RAMP.width / 2, 3020, 0, speed);
+    t.player.handling = { ...t.player.handling, acceleration: 0, topSpeed: speed, maxTurnRateDeg: 0 };
+    run(t, 2.5);
+    return t;
+  };
+  const halfSlow = half(260);
+  check('half on the ramp at a normal speed: a rough landing, but on its wheels', halfSlow.state === 'running', halfSlow.state);
+  const halfFast = half(430);
+  check('half on the ramp at full speed: it rolls over and crashes', halfFast.state === 'crashed' && halfFast.crash.cause === 'flipped', `${halfFast.state} ${halfFast.crash ? halfFast.crash.cause : ''}`);
+  // From the tall end it is a wall.
   const back = quiet([{ ...ramp, heading: Math.PI }]);
-  drive(back, 3000, 3000, 0, 320);
-  check('from the high end, nothing', !run(back, 0.6).some((e) => e.type === 'jump'));
+  drive(back, 3000, 3020, 0, 330);
+  const backEvents = run(back, 0.6);
+  check('hitting the tall end from behind is a crash', back.state === 'crashed' && back.crash.cause === 'obstacle' && !backEvents.some((e) => e.type === 'jump'), back.state);
+  // From the side: driven up onto near its low end, a wall where it stands tall.
+  const sideRun = (y) => {
+    const t = quiet([ramp]);
+    drive(t, 2850, y, Math.PI / 2, 300);
+    t.player.handling = { ...t.player.handling, maxTurnRateDeg: 0 };
+    run(t, 1.2);
+    return t;
+  };
+  const low = sideRun(2955);
+  check('from the side, near its low end, it is driven over', low.state === 'running' && low.player.x > 3080, `${low.state}, x ${low.player.x.toFixed(0)}`);
+  const high = sideRun(2850);
+  check('from the side, where it stands tall, it is a wall', high.state === 'crashed', high.state);
+  // Police ride it and jump it too.
+  const chase = quiet([ramp]);
+  drive(chase, 3000, 2500, 0, 330);
+  const jumper = cop(chase, 3000, 3040, 0, { launchShare: 1, speedFactor: 1.1 });
+  let flew = false;
+  for (let i = 0; i < 90 && !flew; i += 1) {
+    run(chase, 1 / 60);
+    flew = jumper.model.air > 0;
+  }
+  check('police jump it too', flew);
 }
 
 // ---- Winter, Desert and Woods ------------------------------------------------------------------

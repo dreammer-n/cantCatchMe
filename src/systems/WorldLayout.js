@@ -126,7 +126,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
       if (forMap.sand && !riverHere) addTumbleweeds(cell, chunk.items, featureRng);
       // The block's ground goes under everything its arrangement painted.
       chunk.paint.splice(groundAt, 0, ...blockGround(cell, groundRng, arrangement));
-      if (rng() < WORLD.crosswalkChance) addCrosswalk(cell, chunk.paint, rng, i, j);
+      if (rng() < WORLD.crosswalkChance && !forMap.wild) addCrosswalk(cell, chunk.paint, rng, i, j);
     }
   }
   if (forMap.streets) addRoadWear(chunk, groundRng);
@@ -197,7 +197,7 @@ export function propCatalogue(forMap = MAPS[0]) {
     push('trashcan', 'trashcan', 0);
     for (const size of STREET_PROPS.bushSizes) push('bush', `bush${size}`, 0, { size });
     for (const deg of [0, 90]) push('fence', 'fence', deg);
-    for (const deg of [0, 180]) push('ramp', 'ramp', deg);
+    if (RAMP.enabled) for (const deg of [0, 180]) push('ramp', 'ramp', deg);
   }
   if (forMap.ice) push('snowman', 'snowman', 0);
   if (forMap.sand) {
@@ -380,7 +380,7 @@ function rampAt(x, y, headingDeg) {
     heading: headingDeg * DEG,
     model: 'ramp',
     params: {},
-    band: 'ground',
+    band: 'raised', // drawn under the cars, like a curb: they ride over it
     isRamp: true,
     collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 },
     breakable: false,
@@ -943,7 +943,7 @@ const BUILDERS = {
     const x = roadX + lane * RAMP.laneOffset;
     const y = cell.midY + along;
     if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + 200) return;
-    items.push(rampAt(x, y, lane < 0 ? 180 : 0));
+    if (RAMP.enabled) items.push(rampAt(x, y, lane < 0 ? 180 : 0));
   },
   // A line of traffic cones: knocked flying when hit, never a crash.
   cones(cell, items, paint, rng) {
@@ -1531,7 +1531,7 @@ function lump(rng, x, y, r, sides = 7, squash = 1) {
 
 // A block of wild grass: darker and lighter patches, a bare spot now and then, and tufts.
 function wildGround(cell, rng) {
-  const marks = [{ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' }];
+  const marks = [];
   const spot = (r) => ({ x: cell.x0 + r + rng() * (cell.size - r * 2), y: cell.y0 + r + rng() * (cell.size - r * 2) });
   for (let k = 0; k < WOODS_MAP.grassPatches; k += 1) {
     const r = 35 + rng() * 55;
@@ -1557,21 +1557,28 @@ function stretchRng(northSouth, line, stretch) {
   return createRng((Math.imul(line, 73856093) ^ Math.imul(stretch, 19349663) ^ (northSouth ? 0x5bd1e995 : 0x27d4eb2f)) >>> 0);
 }
 function wildRoadType(northSouth, line, stretch) {
+  // The roads out of the crossing where a run starts are always asphalt: a clean start.
+  const startLine = Math.round((northSouth ? START.x : START.y) / WORLD.cell);
+  const startAlong = Math.round((northSouth ? START.y : START.x) / WORLD.cell);
+  if (line === startLine && (stretch === startAlong || stretch === startAlong - 1)) return 'asphalt';
   return pickWeighted(stretchRng(northSouth, line, stretch), WOODS_MAP.roads);
 }
 
-// The Woods roads. Each stretch between crossings is one of:
-//   asphalt: the old road, its lane lines still there, grass eating into its edges and potholes in it;
-//   grass:   the road is gone: grass over it, a faint worn track, the odd broken piece of asphalt;
-//   mud:     the road is gone: uneven mud spilling over onto the grass, ruts and puddles.
-// Crossings soften their corners if all their roads are asphalt; otherwise they go to grass or mud too.
+// The Woods roads, drawn over grass laid across the whole chunk. Each stretch from one crossing to the next is a
+// worn track that curves gently from side to side, its width changing and its edges uneven, never a ruled strip:
+//   asphalt: old road with its lane lines, potholes, and grass at its edges;
+//   mud:     a muddy track with ruts and puddles;
+//   grass:   no road at all, just two worn ruts through the grass.
+// The curve is an S that comes back to the middle at both crossings and halfway along, so roads meet at the
+// crossings and line up with the river's bridges. The shapes come from each stretch's place in the world, so the
+// chunks on both sides of a border draw the same. The driving is the same everywhere.
 function addWildRoads(chunk) {
   const { cell, margin } = WORLD;
   const W = WOODS_MAP;
   const typeAt = (northSouth, k, j) => wildRoadType(northSouth, (northSouth ? chunk.cx : chunk.cy) * CELLS_PER_CHUNK + k, (northSouth ? chunk.cy : chunk.cx) * CELLS_PER_CHUNK + j);
-  // Lane lines and arrows only on the asphalt.
-  chunk.paint = chunk.paint.filter((mark) => {
-    if (mark.color || mark.poly || mark.ring) return true;
+  // Lane lines and arrows only on the asphalt; they are put back on top at the end.
+  const lines = chunk.paint.filter((mark) => {
+    if (mark.color || mark.poly || mark.ring) return false;
     const x = mark.arrow ? mark.x : mark.x + mark.w / 2;
     const y = mark.arrow ? mark.y : mark.y + mark.h / 2;
     const northSouth = Math.abs(x - Math.round(x / cell) * cell) < Math.abs(y - Math.round(y / cell) * cell);
@@ -1579,6 +1586,9 @@ function addWildRoads(chunk) {
     const j = Math.floor((northSouth ? y - chunk.y0 : x - chunk.x0) / cell);
     return typeAt(northSouth, k, Math.max(0, Math.min(CELLS_PER_CHUNK - 1, j))) === 'asphalt';
   });
+  // Grass under everything, then the blocks' own patches (already painted), then the roads.
+  chunk.paint = chunk.paint.filter((mark) => mark.color || mark.poly || mark.ring);
+  chunk.paint.unshift({ x: chunk.x0, y: chunk.y0, w: CHUNKS.size, h: CHUNKS.size, alpha: 1, color: 'lot' });
   const paint = (poly, color, alpha = 1) => chunk.paint.push({ poly, color, alpha });
   for (const northSouth of [true, false]) {
     for (let k = 0; k <= CELLS_PER_CHUNK; k += 1) {
@@ -1586,74 +1596,58 @@ function addWildRoads(chunk) {
         const lineId = (northSouth ? chunk.cx : chunk.cy) * CELLS_PER_CHUNK + k;
         const stretchId = (northSouth ? chunk.cy : chunk.cx) * CELLS_PER_CHUNK + j;
         const rng = stretchRng(northSouth, lineId, stretchId);
-        const type = pickWeighted(rng, W.roads);
+        const type = wildRoadType(northSouth, lineId, stretchId);
         const across = (northSouth ? chunk.x0 : chunk.y0) + k * cell;
-        const from = (northSouth ? chunk.y0 : chunk.x0) + j * cell + margin;
-        const to = from + cell - margin * 2;
-        // A point on this stretch: t along it (0..1), off across it from the middle line.
-        const at = (t, off) => {
-          const along = from + (to - from) * t;
-          return northSouth ? { x: across + off, y: along } : { x: along, y: across + off };
+        const from = (northSouth ? chunk.y0 : chunk.x0) + j * cell;
+        const style = W.roadStyle[type];
+        const bend = (rng() < 0.5 ? -1 : 1) * style.bend * (0.5 + rng() * 0.5);
+        const ripple = (rng() - 0.5) * style.bend * 0.5;
+        const swell = rng() * Math.PI * 2;
+        // The middle line across the road at a point t (0..1) along the stretch, and the road's half-width there.
+        const middle = (t) => bend * Math.sin(Math.PI * 2 * t) + ripple * Math.sin(Math.PI * 4 * t);
+        const halfWidth = (t) => style.half * (1 + 0.14 * Math.sin(t * 7 + swell));
+        const steps = 14;
+        const point = (t, off) => {
+          const along = from + cell * t;
+          return northSouth ? [across + off, along] : [along, across + off];
         };
-        if (type === 'asphalt') {
-          // Grass bites out of both edges, and a pothole or two.
-          for (const side of [-1, 1]) {
-            for (let t = rng() * 0.15; t < 1; t += 0.12 + rng() * 0.12) {
-              const p = at(t, side * (margin + 4 - rng() * 22));
-              paint(lump(rng, p.x, p.y, 12 + rng() * 26, 8, 0.8), 'lot');
-            }
-          }
-          for (let n = Math.floor(rng() * 3); n > 0; n -= 1) {
-            const p = at(0.1 + rng() * 0.8, (rng() - 0.5) * margin);
-            paint(lump(rng, p.x, p.y, 8 + rng() * 10, 7, 0.75), 'puddle', 0.75);
-          }
+        if (type === 'grass') {
+          for (const side of [-1, 1]) paint(trackPoly(rng, steps, (t) => point(t, middle(t) + side * W.ruts), 12, 3), 'mud', 0.4);
           continue;
         }
-        // The road is gone: grass over the whole stretch, with wandering edges.
-        const half = margin + 6;
-        const cover = northSouth ? [across - half, from - 4, across + half, to + 4] : [from - 4, across - half, to + 4, across + half];
-        paint(wanderingRect(rng, ...cover, northSouth, 4), 'lot');
-        if (type === 'grass') {
-          for (let n = 0; n < 3; n += 1) {
-            const p = at(rng(), (rng() - 0.5) * margin * 1.6);
-            paint(lump(rng, p.x, p.y, 30 + rng() * 40, 9, 0.7), n % 2 ? 'grassLight' : 'grassDark', 0.45);
-          }
-          // A faint track where wheels still go.
-          for (const side of [-1, 1]) {
-            const line = [];
-            const phase = rng() * 6;
-            for (let i = 0; i <= 10; i += 1) line.push(at(i / 10, side * W.ruts + 10 * Math.sin(i * 0.7 + phase)));
-            paint(stripPoly(line, 14), 'mud', 0.35);
-          }
-          if (rng() < 0.5) {
-            const p = at(0.2 + rng() * 0.6, (rng() - 0.5) * margin);
-            paint(lump(rng, p.x, p.y, 10 + rng() * 14, 5, 0.8), 'asphalt', 0.9);
+        // The road itself, its two edges ragged.
+        const left = [];
+        const right = [];
+        for (let i = 0; i <= steps; i += 1) {
+          const t = i / steps;
+          const end = i === 0 || i === steps;
+          const ragL = end ? 0 : (rng() - 0.5) * 2 * style.ragged;
+          const ragR = end ? 0 : (rng() - 0.5) * 2 * style.ragged;
+          left.push(...point(t, middle(t) - halfWidth(t) - ragL));
+          right.unshift(...point(t, middle(t) + halfWidth(t) + ragR).reverse());
+        }
+        // right was put in back to front, each pair reversed by unshift: turn the pairs the right way round.
+        const back = [];
+        for (let i = 0; i < right.length; i += 2) back.push(right[i + 1], right[i]);
+        paint([...left, ...back].map(round1), type === 'mud' ? 'mud' : 'asphalt');
+        if (type === 'mud') {
+          for (const side of [-1, 1]) paint(trackPoly(rng, steps, (t) => point(t, middle(t) + side * W.ruts * 0.8), 9, 2), 'mudDark', 0.55);
+          for (let n = 1 + Math.floor(rng() * 2); n > 0; n -= 1) {
+            const t = 0.15 + rng() * 0.7;
+            const [x, y] = point(t, middle(t) + (rng() - 0.5) * style.half);
+            paint(lump(rng, x, y, 13 + rng() * 14, 9, 0.6), 'puddle', 0.85);
           }
         } else {
-          // Mud: blobs along the stretch, wandering from side to side and spilling onto the grass.
-          for (let t = 0; t <= 1.001; t += 0.14 + rng() * 0.06) {
-            const p = at(t, (rng() - 0.5) * 60);
-            paint(lump(rng, p.x, p.y, 62 + rng() * 40, 9, 0.85), 'mud');
-          }
-          for (let n = 0; n < 3; n += 1) {
-            const p = at(rng(), (rng() - 0.5) * margin);
-            paint(lump(rng, p.x, p.y, 20 + rng() * 26, 8, 0.7), 'mudDark', 0.6);
-          }
-          for (const side of [-1, 1]) {
-            const line = [];
-            const phase = rng() * 6;
-            for (let i = 0; i <= 10; i += 1) line.push(at(i / 10, side * W.ruts * 0.8 + 12 * Math.sin(i * 0.8 + phase)));
-            paint(stripPoly(line, 10), 'mudDark', 0.55);
-          }
-          for (let n = 1 + Math.floor(rng() * 2); n > 0; n -= 1) {
-            const p = at(0.1 + rng() * 0.8, (rng() - 0.5) * margin);
-            paint(lump(rng, p.x, p.y, 14 + rng() * 16, 9, 0.6), 'puddle', 0.85);
+          for (let n = Math.floor(rng() * 3); n > 0; n -= 1) {
+            const t = 0.1 + rng() * 0.8;
+            const [x, y] = point(t, middle(t) + (rng() - 0.5) * style.half);
+            paint(lump(rng, x, y, 7 + rng() * 9, 7, 0.75), 'puddle', 0.7);
           }
         }
       }
     }
   }
-  // Crossings.
+  // Crossings: one patch of whichever surface the roads meeting there have most of.
   for (let i = 0; i <= CELLS_PER_CHUNK; i += 1) {
     for (let j = 0; j <= CELLS_PER_CHUNK; j += 1) {
       const meeting = [];
@@ -1661,46 +1655,26 @@ function addWildRoads(chunk) {
       if (j < CELLS_PER_CHUNK) meeting.push(typeAt(true, i, j));
       if (i > 0) meeting.push(typeAt(false, j, i - 1));
       if (i < CELLS_PER_CHUNK) meeting.push(typeAt(false, j, i));
+      const asphalt = meeting.filter((t) => t === 'asphalt').length;
+      const mud = meeting.filter((t) => t === 'mud').length;
+      if (asphalt === 0 && mud === 0) continue; // tracks crossing on grass
       const x = chunk.x0 + i * cell;
       const y = chunk.y0 + j * cell;
       const rng = createRng((Math.imul(chunk.cx * CELLS_PER_CHUNK + i, 2654435761) ^ Math.imul(chunk.cy * CELLS_PER_CHUNK + j, 40503)) >>> 0);
-      if (meeting.every((t) => t === 'asphalt')) {
-        // Round off the blocks' corners, so the crossing isn't a square.
-        for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) paint(lump(rng, x + dx * (margin + 4), y + dy * (margin + 4), 26 + rng() * 10, 8, 1), 'asphalt');
-        continue;
-      }
-      paint(lump(rng, x, y, margin * 1.15, 12, 1), 'lot');
-      if (meeting.includes('mud')) {
-        for (let n = 0; n < 3; n += 1) paint(lump(rng, x + (rng() - 0.5) * 80, y + (rng() - 0.5) * 80, 55 + rng() * 35, 9, 0.85), 'mud');
-        if (rng() < 0.6) paint(lump(rng, x + (rng() - 0.5) * 60, y + (rng() - 0.5) * 60, 16 + rng() * 14, 9, 0.6), 'puddle', 0.85);
-      } else {
-        paint(lump(rng, x, y, 40 + rng() * 25, 9, 0.7), 'grassDark', 0.4);
-      }
+      paint(lump(rng, x, y, margin * 1.05, 12, 1), asphalt >= mud ? 'asphalt' : 'mud');
     }
   }
+  chunk.paint.push(...lines);
 }
 
-// A rectangle whose two long sides wander a little, as a flat polygon. northSouth: it runs along y.
-function wanderingRect(rng, x0, y0, x1, y1, northSouth, wobble) {
-  const left = [];
-  const right = [];
-  const length = northSouth ? y1 - y0 : x1 - x0;
-  const steps = Math.max(2, Math.round(length / 45));
+// A thin, wobbling band along a line: at(t) gives the point on the line at t (0..1).
+function trackPoly(rng, steps, at, width, wobble) {
+  const points = [];
   for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps;
-    const a = (rng() - 0.5) * 2 * wobble;
-    const b = (rng() - 0.5) * 2 * wobble;
-    if (northSouth) {
-      const y = y0 + length * t;
-      left.push(round1(x0 + a), round1(y));
-      right.unshift(round1(x1 + b), round1(y));
-    } else {
-      const x = x0 + length * t;
-      left.push(round1(x), round1(y0 + a));
-      right.unshift(round1(x), round1(y1 + b));
-    }
+    const [x, y] = at(i / steps);
+    points.push({ x, y });
   }
-  return [...left, ...right];
+  return stripPoly(points.map((p) => ({ x: p.x + (rng() - 0.5) * wobble, y: p.y + (rng() - 0.5) * wobble })), width);
 }
 
 // A band along a line of points, `width` wide, as a flat polygon.

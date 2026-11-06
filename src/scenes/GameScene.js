@@ -597,13 +597,16 @@ export class GameScene extends Phaser.Scene {
           }
           break;
         case 'jump':
-          this.audio.play('bump', 0.4);
+          if (e.player) this.audio.play('bump', 0.4);
           break;
         case 'land':
           this.effects.landing(e.x, e.y);
-          this.playerView.bump(180);
-          this.audio.play('bump', 0.7);
-          this.rig.addTrauma(TRAUMA.knock);
+          if (e.player) {
+            // The harder it comes down, the harder the suspension takes it.
+            this.playerView.bump(Math.min(260, 60 + (e.impact || 0) * 0.9));
+            this.audio.play('bump', 0.7);
+            this.rig.addTrauma(TRAUMA.knock);
+          }
           break;
         default:
           break;

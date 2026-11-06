@@ -2,10 +2,10 @@ import { Car } from '../entities/Car.js';
 import { Airstrike } from '../entities/Airstrike.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK } from '../config/tuning.js';
-import { createRng } from '../utils/math.js';
+import { handlingFor, CAR_SIZE, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK } from '../config/tuning.js';
+import { createRng, wrapAngle } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
-import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
+import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole, rampHeightAt, rampSurfaceAt } from './CollisionSystem.js';
 import { steerPolice } from './PolicePursuit.js';
 import { PowerUps } from './PowerUpSystem.js';
 import { RunStats } from './ScoreSystem.js';
@@ -152,15 +152,10 @@ export class ChaseSimulation {
     if (player.isFalling) {
       player.fall(dt, VOID.fallSeconds, VOID.fallFriction);
       keepInsideHole(player, VOID.fallInset);
+    } else if (player.air > 0) {
+      this.fly(player, dt, null);
     } else if (running) player.stepFor(steer, dt, PHYSICS.maxStepSeconds);
     else player.slide(dt, WRECK.friction, WRECK.spinFriction);
-    if (player.air > 0) {
-      player.air -= dt;
-      if (player.air <= 0) {
-        player.air = 0;
-        this.emit('land', { x: player.x, y: player.y });
-      }
-    }
     this.chunks.update(player.x, player.y);
     this.powerUps.tick(this, dt);
     this.helicopter.update(this, dt);
@@ -183,12 +178,14 @@ export class ChaseSimulation {
     if (player.isFalling) {
       if (running && player.fallProgress >= 1) this.crashPlayer('void');
     } else {
-      this.collidePlayerWithWorld(running);
+      this.collidePlayerWithWorld(running, dt);
     }
     for (const police of this.police) {
       if (!police.active || police.model.isFalling) continue;
       this.touchingCar = police.model;
+      const rampBefore = police.model.rampShape;
       collideWithWorld(police.model, this.world, this.result, this.onConeTouch);
+      if (police.alive) this.rideRamp(police.model, rampBefore, dt);
       if (this.result.voidShape) {
         police.model.startFall(this.result.voidShape);
         this.wreckPolice(police, 'void');
@@ -218,8 +215,94 @@ export class ChaseSimulation {
     this.updateSpikeStrips(dt, view);
   }
 
+  // In the air off a ramp: no grip, so no steering and no engine; the car carries on as it left the ramp, rolling
+  // over as fast as it left rolling. On landing it keeps most of its speed, unless it comes down on its side or
+  // its roof: then it is over. police: the police car this is, or null for the player.
+  fly(car, dt, police) {
+    car.x += car.vx * dt;
+    car.y += car.vy * dt;
+    car.roll += car.rollRate * dt;
+    car.air -= dt;
+    if (car.air > 0) return;
+    car.air = 0;
+    const tilt = Math.abs(wrapAngle(car.roll));
+    const fall = Math.abs(car.airVz - RAMP.gravity * car.airTotal); // how fast it comes down
+    car.roll = 0;
+    car.rollRate = 0;
+    if (tilt > (RAMP.flipDeg * Math.PI) / 180) {
+      if (police) this.wreckPolice(police, 'flipped');
+      else this.crashPlayer('flipped');
+      return;
+    }
+    const keep = RAMP.landingKeep * (tilt > (RAMP.roughDeg * Math.PI) / 180 ? RAMP.roughKeep : 1);
+    car.vx *= keep;
+    car.vy *= keep;
+    this.emit('land', { x: car.x, y: car.y, player: !police, impact: fall + tilt * 120 });
+  }
+
+  // Up on a ramp: the height under each wheel gives the car its height, nose angle and tilt, and gravity slows it
+  // on the way up (and speeds it on the way down). Leaving the ramp while off the road, it flies (launch). prev:
+  // the ramp it was on before this step's collisions.
+  rideRamp(car, prev, dt) {
+    if (car.air > 0) return;
+    const shape = car.rampShape;
+    if (!shape) {
+      if (prev && car.rampLift > 1) this.launch(car, prev);
+      car.rampLift = car.rampPitch = car.rampRoll = car.rampLeft = car.rampRight = 0;
+      return;
+    }
+    const fx = Math.sin(car.heading);
+    const fy = -Math.cos(car.heading);
+    const w = (CAR_SIZE.width / 2) * car.scale;
+    const l = CAR_SIZE.length * RAMP.wheelBase * car.scale;
+    // Along the car, the slope runs on under a nose that is already over the top edge (the car is rigid); across
+    // it, a side that is off the ramp is down on the road.
+    const front = rampHeightAt(shape, car.x + fx * l, car.y + fy * l);
+    const back = rampHeightAt(shape, car.x - fx * l, car.y - fy * l);
+    const left = rampSurfaceAt(shape, car.x + fy * w, car.y - fx * w);
+    const right = rampSurfaceAt(shape, car.x - fy * w, car.y + fx * w);
+    car.rampLift = (left + right) / 2;
+    car.rampPitch = Math.atan2(front - back, 2 * l);
+    car.rampRoll = Math.atan2(right - left, 2 * w);
+    car.rampLeft = left;
+    car.rampRight = right;
+    // Gravity along the slope.
+    const pull = RAMP.gravity * (RAMP.height / RAMP.length) * dt;
+    car.vx -= shape.sin * pull;
+    car.vy += shape.cos * pull;
+  }
+
+  // Off the ramp while up off the road: it goes up at its speed along the slope times the slope (none if it went
+  // off a side), from the height it was at, and gravity brings it down. Only half on the ramp at the top, one
+  // side was going up and the other not: it rolls over.
+  launch(car, shape) {
+    const fx = shape.sin;
+    const fy = -shape.cos;
+    const along = (car.x - shape.x) * fx + (car.y - shape.y) * fy;
+    const up = car.vx * fx + car.vy * fy;
+    const offTheTop = along > shape.hl * 0.5 && up > 0;
+    const vz = offTheTop ? up * (RAMP.height / RAMP.length) * RAMP.lift : 0;
+    const h0 = car.rampLift;
+    const air = Math.min(RAMP.maxAir, (vz + Math.sqrt(vz * vz + 2 * RAMP.gravity * h0)) / RAMP.gravity);
+    const w = (CAR_SIZE.width / 2) * car.scale;
+    const on = (height) => (height > 1 ? 1 : 0);
+    car.air = air;
+    car.airTotal = air;
+    car.airStart = h0;
+    car.airVz = vz;
+    car.roll = car.rampRoll;
+    car.rollRate = offTheTop ? (RAMP.rollShare * vz * (on(car.rampRight) - on(car.rampLeft))) / (2 * w) : 0;
+    car.angularVelocity = 0;
+    if (vz > 0) this.emit('jump', { x: car.x, y: car.y, player: car === this.player });
+  }
+
   drivePolice(police, dt) {
     const car = police.model;
+    if (car.air > 0) {
+      this.fly(car, dt, police);
+      police.age += dt;
+      return;
+    }
     const burning = police.burning > 0;
     if (police.frozen > 0) {
       car.halt();
@@ -248,17 +331,18 @@ export class ChaseSimulation {
     }
   }
 
-  collidePlayerWithWorld(running) {
+  collidePlayerWithWorld(running, dt) {
     const player = this.player;
     this.touchingCar = player;
+    const rampBefore = player.rampShape;
     collideWithWorld(player, this.world, this.result, this.onConeTouch);
     if (!running) return;
+    this.rideRamp(player, rampBefore, dt);
     if (this.result.voidShape) {
       player.startFall(this.result.voidShape);
       this.emit('fall', { x: player.x, y: player.y });
       return;
     }
-    if (this.result.ramp && player.air <= 0) this.tryJump(this.result.ramp);
     if (this.result.spikes && player.flatTime <= 0) {
       player.puncture(FLAT_TIRE.seconds, this.rng() < 0.5 ? -1 : 1);
       this.emit('flat', { x: player.x, y: player.y });
@@ -611,17 +695,6 @@ export class ChaseSimulation {
     this.runExplosions();
   }
 
-  // Off a ramp, if the car meets it low end first and fast enough: it takes off from the top of it.
-  tryJump(shape) {
-    const player = this.player;
-    const heading = shape.item.heading;
-    if (player.speed < RAMP.minSpeed || Math.cos(player.heading - heading) < RAMP.align) return;
-    const along = (player.x - shape.x) * Math.sin(heading) - (player.y - shape.y) * Math.cos(heading);
-    if (along < (RAMP.length / 2) * RAMP.takeOff) return;
-    player.air = RAMP.airSeconds;
-    player.airTotal = RAMP.airSeconds;
-    this.emit('jump', { x: player.x, y: player.y });
-  }
 
   // BLACKOUT: engines and lights die close by.
   stallPolice(x, y, radius, seconds) {

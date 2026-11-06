@@ -183,10 +183,25 @@ export class CarView {
     if (leaning) bodyLean(model, lean);
     else lean.worldX = lean.worldY = lean.rotation = lean.yaw = 0;
     const hop = leaning ? this.updateHop(time) : 0;
-    // Off a ramp: up and down in an arc (drawing only).
-    const u = model.air > 0 ? 1 - model.air / model.airTotal : 0;
-    const air = model.air > 0 ? RAMP.airHeight * 4 * u * (1 - u) : 0;
-    const lift = (hop + air) * projection.lift;
+    // On a ramp: up on its surface, nose and sides tilted as its wheels are. Off it: flying in the arc the physics
+    // works out, rolling over if it left lopsided, its nose dipping as it comes down.
+    const facing = projection.screenHeading(model.heading);
+    let ramp = 0;
+    let pitch = 0;
+    let roll = 0;
+    let air = 0;
+    if (model.air > 0) {
+      const t = model.airTotal - model.air;
+      air = Math.max(0, model.airStart + model.airVz * t - (RAMP.gravity * t * t) / 2);
+      roll = model.roll;
+      pitch = model.airVz > 0 ? Math.atan((model.airVz - RAMP.gravity * t) / Math.max(1, model.speed)) : 0;
+    } else if (model.rampShape || model.rampLift > 0) {
+      ramp = model.rampLift;
+      pitch = model.rampPitch;
+      roll = model.rampRoll;
+    }
+    if (leaning) lean.rotation += -pitch * Math.sin(facing) - roll * Math.cos(facing);
+    const lift = (hop + air + ramp) * projection.lift;
     if (this.showWheels) {
       const share = BODY_LEAN.wheelsFollow;
       frameFor(heading + lean.yaw, projection, pick, this.wheelDirections);
@@ -215,6 +230,18 @@ export class CarView {
       if (this.tumble.z > TUMBLE.overFlamesHeight) this.sprite.setDepth(DEPTH.effects + 2);
     }
     if (this.wasFalling) this.endFall();
+    // Rolling over across the screen shows as the car flattening and turning over.
+    if (Math.abs(roll) > 0.02) {
+      const s = model.scale / RENDER.bakeScale;
+      const squash = 1 - (1 - Math.abs(Math.cos(roll))) * Math.abs(Math.sin(facing));
+      this.sprite.setScale(s, s * Math.max(0.12, squash)).setFlipY(Math.cos(roll) < 0 && Math.abs(Math.sin(facing)) > 0.5);
+      if (this.wheels) this.wheels.setScale(s, s * Math.max(0.12, squash));
+      this.rolled = true;
+    } else if (this.rolled) {
+      this.rolled = false;
+      this.sprite.setFlipY(false);
+      this.setScales(model.scale / RENDER.bakeScale);
+    }
     const flat = model.flatness;
     if (flat > 0 && !tumbling) {
       // It sits down on the flat corner, which leans whichever way that corner faces on screen, and rattles.
