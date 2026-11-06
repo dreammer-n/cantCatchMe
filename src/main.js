@@ -86,6 +86,7 @@ async function start() {
     // InputManager reads every device itself; menus and HUD are HTML buttons.
     input: { keyboard: false, gamepad: false, mouse: false, touch: false },
     render: { antialias: true, powerPreference: 'high-performance' },
+    audio: { noAudio: true }, // the game plays its own sound (AudioSystem); Phaser's would only slow the start
     scene: [BootScene, GameScene, UIScene, MenuScene, GarageScene, MapScene, GameOverScene],
   });
 

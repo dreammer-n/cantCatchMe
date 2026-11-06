@@ -871,5 +871,32 @@ const lock = (p) => {
   check('a bridge railing is solid', railed.player.x < 1200 + WOODS_MAP.railInset && !railed.player.isFalling, `x ${railed.player.x.toFixed(0)}`);
 }
 
+// ---- Wrecks are knocked aside, never a crash (owner, 2026-11-06) -------------------------------
+{
+  const s = quiet();
+  drive(s, 3000, 3300, 0, 340);
+  const p = cop(s, 3000, 3100, 0);
+  p.model.halt();
+  s.wreckPolice(p, 'test');
+  run(s, 0.05);
+  const before = { x: p.model.x, y: p.model.y };
+  const speedBefore = s.player.speed;
+  const events = run(s, 0.8);
+  check('driving straight into a wreck is no crash', s.state === 'running' && !events.some((e) => e.type === 'crash'), s.state);
+  check('the wreck is knocked out of the way', Math.hypot(p.model.x - before.x, p.model.y - before.y) > 40, `moved ${Math.hypot(p.model.x - before.x, p.model.y - before.y).toFixed(0)}`);
+  check('the car drives on past where the wreck was, a little slower', s.player.y < 3080 && s.player.speed > speedBefore * 0.7, `speed ${s.player.speed.toFixed(0)} of ${speedBefore.toFixed(0)}`);
+  check('and it is told, once', events.filter((e) => e.type === 'wreckKnock').length === 1);
+  // Police still come off worst against a wreck.
+  const t = quiet();
+  drive(t, 4000, 4000, Math.PI / 2, 0);
+  t.player.handling = { ...t.player.handling, acceleration: 0 };
+  const w = cop(t, 3000, 2800, 0);
+  w.model.halt();
+  t.wreckPolice(w, 'test');
+  const chaser = cop(t, 3000, 3000, 0, { launchShare: 1, speedFactor: 1.2 });
+  run(t, 1);
+  check('a police car that hits a wreck is wrecked', chaser.state === 'wreck', chaser.state);
+}
+
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

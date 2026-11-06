@@ -38,7 +38,9 @@ export class Scenery {
     this.seenVersion = -1;
     this.waiting = false; // chunks still to be filled in
     this.makeMarkTextures();
-    this.bakeCatalogue();
+    // Only the props on screen are drawn now (showProp draws each the first time); the rest of the map's come a
+    // few at a time after the title is up (bakeSome).
+    this.toBake = propCatalogue(this.map);
     for (let i = 0; i < CHUNKS.propPool; i += 1) this.freeProps.push(this.makeProp());
     this.freeSlots = createSlots(scene, layers);
     this.pillarProps = Array.from({ length: PILLARS.pool }, () => this.makeProp());
@@ -70,11 +72,23 @@ export class Scenery {
 
   // Draws every prop model for the current camera, once.
   bakeCatalogue() {
-    for (const entry of propCatalogue(this.map)) {
-      const key = propKey(entry.model, entry.heading);
-      bakeMesh(this.scene, key, this.meshFor(entry), entry.heading, projection, 'body', propBakeScale(entry));
-      bakeMesh(this.scene, `${key}:shadow`, this.meshFor(entry), entry.heading, projection, 'shadow');
-    }
+    for (const entry of propCatalogue(this.map)) this.bakeEntry(entry);
+    this.toBake = [];
+  }
+
+  // Draws one prop model (if not drawn yet) and returns its two drawings.
+  bakeEntry(entry) {
+    const key = propKey(entry.model, entry.heading);
+    return {
+      body: bakeMesh(this.scene, key, this.meshFor(entry), entry.heading, projection, 'body', propBakeScale(entry)),
+      shadow: bakeMesh(this.scene, `${key}:shadow`, this.meshFor(entry), entry.heading, projection, 'shadow'),
+    };
+  }
+
+  // Draws up to `count` more of the map's props not drawn yet. Returns whether any are left.
+  bakeSome(count) {
+    for (let i = 0; i < count && this.toBake.length > 0; i += 1) this.bakeEntry(this.toBake.pop());
+    return this.toBake.length > 0;
   }
 
   meshFor(entry) {
@@ -172,9 +186,9 @@ export class Scenery {
   }
 
   applyPillarDrawing() {
-    const key = propKey('pillar', 0);
-    this.pillarBody = bakeMesh(this.scene, key, null, 0, projection, 'body');
-    this.pillarShadow = bakeMesh(this.scene, `${key}:shadow`, null, 0, projection, 'shadow');
+    const drawn = this.bakeEntry({ kind: 'pillar', model: 'pillar', heading: 0, params: {} });
+    this.pillarBody = drawn.body;
+    this.pillarShadow = drawn.shadow;
     for (const prop of this.pillarProps) {
       prop.body.setTexture(this.pillarBody.key).setOrigin(this.pillarBody.originX, this.pillarBody.originY);
       prop.shadow.setTexture(this.pillarShadow.key).setOrigin(this.pillarShadow.originX, this.pillarShadow.originY);
@@ -191,8 +205,7 @@ export class Scenery {
         prop.shadow.setVisible(false);
         continue;
       }
-      const key = propKey('spikes', strip.northSouth ? 0 : Math.PI / 2);
-      const body = bakeMesh(this.scene, key, null, 0, projection, 'body');
+      const { body } = this.bakeEntry({ kind: 'spikes', model: 'spikes', heading: strip.northSouth ? 0 : Math.PI / 2, params: {} });
       prop.body.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
       projection.toScreen(strip.x, strip.y, 0, screen);
       prop.body.setVisible(true).setPosition(screen.x, screen.y).setDepth(DEPTH.raised);

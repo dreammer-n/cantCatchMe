@@ -33,7 +33,8 @@ export class MapWeather {
     this.nextStorm = SANDSTORM.firstAt;
     // The wind blows across the screen one way or the other for the whole run.
     this.wind = (Math.random() - 0.5) * 1.2 + (Math.random() < 0.5 ? 0 : Math.PI);
-    this.nextWeed = 1 + Math.random() * 2;
+    const [soonest, latest] = TUMBLEWEEDS.everySeconds;
+    this.nextWeed = (soonest + Math.random() * (latest - soonest)) * 0.6; // the first a little sooner
     this.dustClock = 0;
     for (const weed of this.weeds) this.hide(weed);
   }

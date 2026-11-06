@@ -21,7 +21,7 @@ export class HelicopterView {
   constructor(scene, layers) {
     this.scene = scene;
     makeBeamTexture(scene);
-    this.body = scene.add.image(0, 0, ensureCarAtlas(scene, 'helicopter'), 'dir0').setScale(ROTOR.modelScale / RENDER.bakeScale).setDepth(DEPTH.effects + 6).setVisible(false);
+    this.body = scene.add.image(0, 0, 'fx-glow').setScale(ROTOR.modelScale / RENDER.bakeScale).setDepth(DEPTH.effects + 6).setVisible(false);
     this.rotor = scene.add.graphics().setDepth(DEPTH.effects + 7).setVisible(false);
     this.disc = scene.add.image(0, 0, 'fx-glow').setTint(PALETTE.rotorBlur).setDepth(DEPTH.effects + 6.5).setVisible(false);
     // Soft, because it is far above the road: one patch for the body, a fainter one for the spinning rotor.
@@ -50,11 +50,12 @@ export class HelicopterView {
         shadow: scene.add.image(0, 0, '__DEFAULT').setAlpha(RENDER.shadowAlpha).setDepth(DEPTH.shadows).setVisible(false),
       };
     });
-    this.redraw();
+    this.drawn = false; // drawn when first needed, or in the warm-up after the title (GameScene.warmUp)
   }
 
-  // Called at startup and whenever the camera setup changes.
+  // Called when first needed and whenever the camera setup changes.
   redraw() {
+    this.drawn = true;
     this.atlas = ensureCarAtlas(this.scene, 'helicopter');
     this.directions = atlasMeta.get(this.atlas).directions;
     const meta = atlasMeta.get(this.atlas);
@@ -80,6 +81,7 @@ export class HelicopterView {
       this.hide();
       return;
     }
+    if (!this.drawn) this.redraw();
     this.drawLight(heli);
     this.drawBody(heli);
     this.drawRotor(heli, time);

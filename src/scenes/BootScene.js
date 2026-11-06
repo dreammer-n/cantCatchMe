@@ -1,12 +1,12 @@
 import * as Phaser from 'phaser';
-import { ensureCarAtlas } from '../render/carAtlas.js';
 import { makeEffectTextures } from '../render/Effects.js';
 import { applyMapPalette } from '../config/tuning.js';
 import { Maps } from '../systems/ScoreSystem.js';
 import { buildLayout } from '../systems/WorldLayout.js';
 
-// Prepares everything before the first frame. All art is built in code from low-poly models
-// (car drawings in 64 directions, props, particles), so the download contains no image files.
+// Prepares what the title screen needs, as fast as possible. All art is built in code from low-poly models
+// (car drawings in 64 directions, props, particles), so the download contains no image files. The police,
+// wrecks, helicopter, jet and the map's other props are drawn after the title is up (GameScene.warmUp).
 export class BootScene extends Phaser.Scene {
   constructor() {
     super('BootScene');
@@ -14,7 +14,6 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     makeEffectTextures(this);
-    for (const name of ['police', 'interceptor', 'bearcat', 'helicopter', 'jet', 'policeWreck', 'interceptorWreck', 'bearcatWreck']) ensureCarAtlas(this, name);
     this.registry.set('handlingPreset', 'car');
     applyMapPalette(Maps.current());
     this.registry.set('layout', buildLayout(undefined, Maps.current()));

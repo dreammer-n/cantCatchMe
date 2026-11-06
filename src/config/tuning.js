@@ -349,12 +349,13 @@ export const MAPS = [
     extras: ['mesa', 'tower'],
     open: true,
     sand: true, // soft sand, oil pumps, tumbleweeds (DESERT_MAP)
+    noPlanters: true, // cacti grow straight out of the sand: no curbed strips of trees by the shops and stations
     sandstorms: true, // SANDSTORM, TUMBLEWEEDS
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.75, size: [110, 300], stretch: 2.2, drifts: 0.75 },
     startPreset: 'dunes',
     tireDust: { tint: [0xe0bd88, 0xcaa06a], bits: 'sand' }, // sand dust and grains
     presets: {
-      dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['lawn', 20], ['mesa', 24], ['grove', 18], ['oilfield', 12], ['shop', 9], ['tower', 9], ['barriers', 6], ['station', 5]] },
+      dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['scrub', 20], ['mesa', 24], ['grove', 18], ['oilfield', 12], ['shop', 9], ['tower', 9], ['barriers', 6], ['station', 5]] },
     },
   },
   {
@@ -386,7 +387,7 @@ export const MAPS = [
     wild: true, // textured grass, roads of asphalt, mud and grass (WOODS_MAP.roads)
     tireDust: { tint: [0x9a8566, 0x7d6a50], bits: 'mud' }, // dirt dust and clods
     presets: {
-      forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 30], ['logs', 22], ['thicket', 12], ['lumber', 10], ['lawn', 12], ['open', 7], ['shop', 6], ['station', 5]] },
+      forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 30], ['logs', 22], ['thicket', 12], ['lumber', 10], ['scrub', 12], ['open', 7], ['shop', 6], ['station', 5]] },
     },
   },
 ];
@@ -454,15 +455,16 @@ export const INTERCEPTOR = {
 // [TUNE] Roadblocks: parked cruisers across a crossing ahead. They don't chase and don't count
 // toward HEAT.police. Hit one hard and the run is over; lure police into one and they pile up.
 export const ROADBLOCK = {
-  firstAt: 40, // seconds into the run
+  firstAt: 75, // seconds into the run
   everyMin: 12, // seconds between roadblocks, random in this range
   everyMax: 18,
   retrySeconds: 1, // no suitable crossing right now: look again this soon
   cars: 2,
   maxParked: 6,
-  spacing: 150, // between the cars, with the spike strip in the gap
+  spacing: 200, // between the cars, with the spike strip in the gap (wide enough to aim for)
+  carClearance: 30, // each car's own spot must be clear of props this far round
   angleDeg: 28, // the cars are angled in, like a V across the road
-  spikeHalfLength: 42, // the strip, across the road ...
+  spikeHalfLength: 64, // the strip, across the road (all the way across the gap) ...
   spikeHalfDepth: 13, // ... and along it
   spikeSeconds: 30, // it is taken away after this long, once out of sight
   maxSpikes: 3,
@@ -499,12 +501,14 @@ export const WARNING = {
 //   45 s +   full tactical pursuit: the helicopter (HELICOPTER), more cars, more of them interceptors
 //            and Bearcats, and interceptors react faster
 export const HEAT = {
-  police: [[0, 2], [15, 4], [30, 7], [45, 10], [75, 16], [110, 22], [160, 26]],
-  interceptorShare: [[14.99, 0], [15, 0.3], [30, 0.35], [45, 0.5], [90, 0.6]],
-  bearcatShare: [[44.99, 0], [45, 0.14], [70, 0.2], [110, 0.26]], // share of new cars that are Bearcats
-  speedFactor: [[0, 1.04], [30, 1.05], [70, 1.1], [150, 1.14]], // x the player's top speed of 300
-  turnDeg: [[0, 118], [150, 136]],
-  reaction: [[70, 1], [110, 0.65]], // interceptors' reaction time, x normal
+  // A gentle first two or three minutes (owner, 2026-11-06): one police car, then more, slower than the player at
+  // first; interceptors from 1 minute, Bearcats from 2; the full pressure of before by about 5 minutes.
+  police: [[0, 1], [30, 2], [60, 3], [90, 4], [120, 6], [150, 8], [180, 11], [240, 17], [300, 24], [360, 26]],
+  interceptorShare: [[59.99, 0], [60, 0.15], [120, 0.3], [180, 0.45], [240, 0.6]],
+  bearcatShare: [[119.99, 0], [120, 0.1], [180, 0.18], [240, 0.26]], // share of new cars that are Bearcats
+  speedFactor: [[0, 0.92], [60, 0.96], [120, 1.0], [180, 1.05], [240, 1.1], [300, 1.14]], // x the player's top speed of 300
+  turnDeg: [[0, 95], [150, 118], [270, 136]],
+  reaction: [[150, 1], [210, 0.65]], // interceptors' reaction time, x normal
 };
 
 // [TUNE] SWAT Bearcat: a heavy armoured truck. Slow to turn, hard to stop.
@@ -600,7 +604,7 @@ export const DESERT_MAP = {
   sandOnRoad: 0.6,
   pumps: [1, 2], // an oil field
   barrels: [2, 4],
-  tumbleweeds: [0, 2], // a block, lying still until hit
+  tumbleweedChance: 0.12, // share of blocks with a tumbleweed lying in them, still until hit
 };
 
 // A sandstorm now and then (drawing only): the edges of the screen fill with blowing sand, so police are hard to
@@ -617,8 +621,8 @@ export const SANDSTORM = {
 
 // Tumbleweeds bowling across the desert in the wind (drawing only): they burst when a car goes through them. [TUNE]
 export const TUMBLEWEEDS = {
-  most: 4,
-  everySeconds: [1.5, 3.5],
+  most: 1, // one at a time ...
+  everySeconds: [15, 25], // ... once in a while
   speed: [150, 240], // each one's own pace in the wind
   gust: 0.45, // the wind rises and falls by up to this share
   hopsPerSecond: 1.6, // now and then a gust bounds it into the air ...
@@ -687,7 +691,7 @@ export const HELICOPTER = {
   shadowWidth: 78, // its soft shadow on the road
   shadowLength: 190,
   shadowAlpha: 0.55,
-  firstAt: 70,
+  firstAt: 120,
   arriveDistance: 1500,
   height: 250,
   swoopHeight: 120,
@@ -747,7 +751,7 @@ export const COLLISION = {
   noseDeflect: 0.35, // after a hit the nose is turned this much beyond "along the surface"
   deflectFullAt: 120, // impact speed at which the nose deflection is complete
   spin: 0.0006, // how much an off-centre car-to-car hit spins the cars
-  wreckMass: 2.2, // wrecks are pushed less than driving cars
+  wreckMass: 2.2, // wrecks are pushed less than driving cars (police); the player knocks them aside (WRECK_KNOCK)
   playerMass: 1.25,
   treeRadius: 13,
   hydrantRadius: 9,
@@ -999,24 +1003,19 @@ export const POWER_LOOK = {
     scatter: 0.5, // and stands up to this share of the width off the trail's line
   },
   nitro: {
-    length: 190, // behind the car, at full size
-    width: 38, // the widest ring's radius
-    height: 10, // exhaust height
-    widestAt: 0.22, // share of the length where the flame is widest
-    flicker: 0.16, // each layer's length jumps by up to this share every frame
-    tongues: 4, // smaller flames licking out to the sides
-    outer: 0xe8401c, // red-orange
-    // [length share, width share, colour, unlit]: painted outside in, so each shows inside the last.
-    layers: [
-      [1, 1, 0xe8401c, false],
-      [0.78, 0.74, 0xff8a1e, false],
-      [0.55, 0.5, 0xffd04a, true],
-      [0.32, 0.3, 0x5ab8ff, true], // the blue-hot core
-      [0.18, 0.16, 0xe6f6ff, true],
-    ],
-    sparks: 9, // a second
-    glow: 0xff6a2a,
-    glowAlpha: 0.65,
+    // The original exhaust fire (orange puffs that rise and burn out), wider, with a hint of blue at its core.
+    everyMs: 30, // a burst this often
+    flamesEach: 3, // flames in each burst, spread across ...
+    spread: 1.1, // ... this share of the car's width
+    flameSize: 0.95, // a flame's size when it leaves the pipe (the original was 0.72)
+    flame: [0xffe27a, 0xff9a2e, 0xe8451a],
+    maxFlames: 220,
+    core: [0x3f8cff, 0x2f6bff, 0x6fb4ff], // blue-hot, right at the pipe
+    coreSize: 0.55,
+    maxCore: 40,
+    glow: 0xff7a2a,
+    glowAlpha: 0.55,
+    glowSize: 110,
   },
   oil: {
     size: 1.65, // drawn puddle radius, as a share of the slippery radius
@@ -1027,6 +1026,16 @@ export const POWER_LOOK = {
     sheenWidth: 3,
     drops: 3,
   },
+};
+
+// [TUNE] The player can't crash into a burnt-out wreck: it is knocked aside and the car drives on. Police that hit
+// one still wreck.
+export const WRECK_KNOCK = {
+  keep: 0.85, // share of its speed the player's car keeps
+  again: 0.6, // seconds before the same wreck can slow it again
+  push: 0.55, // share of the car's velocity the wreck is knocked away with ...
+  shove: 120, // ... plus this, straight away from the car
+  spin: 5, // radians a second, at most
 };
 
 // [TUNE] TURBO: a burst of speed, far past the car's own top speed, with flames from the exhaust.

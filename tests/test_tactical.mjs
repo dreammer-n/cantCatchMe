@@ -42,12 +42,13 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
 // ---- The difficulty curve --------------------------------------------------------------------
 {
   const at = difficultyAt;
-  check('0-15 s: patrol cruisers only', at(14.9).interceptorShare === 0 && at(14.9).bearcatShare === 0);
-  check('15-45 s: interceptors, no Bearcats', at(15).interceptorShare > 0 && at(44.9).bearcatShare === 0);
-  check('from 45 s: Bearcats', at(45).bearcatShare > 0.1);
-  check('roadblocks from 40 s', ROADBLOCK.firstAt === 40);
-  check('from 70 s: the helicopter', HELICOPTER.firstAt === 70);
-  check('and more Bearcats later on', at(110).bearcatShare > at(45).bearcatShare);
+  // The gentle start (owner, 2026-11-06).
+  check('the first minute: patrol cruisers only', at(59.9).interceptorShare === 0 && at(59.9).bearcatShare === 0);
+  check('1-2 minutes: interceptors, no Bearcats', at(60).interceptorShare > 0 && at(119.9).bearcatShare === 0);
+  check('from 2 minutes: Bearcats', at(120).bearcatShare >= 0.1);
+  check('roadblocks from 75 s', ROADBLOCK.firstAt === 75);
+  check('from 2 minutes: the helicopter', HELICOPTER.firstAt === 120);
+  check('and more Bearcats later on', at(240).bearcatShare > at(120).bearcatShare);
 }
 
 // ---- Drawing sheets -------------------------------------------------------------------------
@@ -625,13 +626,13 @@ function roadblockSim() {
     const r = playRun(sim, {
       seed,
       skill: 1.7,
-      maxSeconds: 120,
+      maxSeconds: 200,
       onStep(s, events) {
         for (const e of events) {
           if (e.type === 'spawn') {
             if (e.police.armored) {
               bearcats += 1;
-              if (s.time < 45) early += 1;
+              if (s.time < 120) early += 1;
             }
             if (e.police.parked) {
               parked += 1;
@@ -653,10 +654,10 @@ function roadblockSim() {
     causes[r.cause] = (causes[r.cause] || 0) + 1;
   }
   check('Bearcats turn up in real runs', bearcats > 0, `${bearcats} spawned`);
-  check('never before 45 s', early === 0);
+  check('never before 2 minutes', early === 0);
   check('never more than the limit at once', mostBearcats <= BEARCAT.maxActive, `most ${mostBearcats}`);
-  check('roadblocks turn up, never before 40 s', parked > 0 && parkedEarly === 0, `${parked / 2} roadblocks`);
-  check('the helicopter never turns up before 70 s', copterEarly === 0, `it came in ${copters} of 25 runs`);
+  check('roadblocks turn up, never before 75 s', parked > 0 && parkedEarly === 0, `${parked / 2} roadblocks`);
+  check('the helicopter never turns up before 2 minutes', copterEarly === 0, `it came in ${copters} of 25 runs`);
   check('numbers stay sound', bad === 0);
   check('collision shapes stay bounded', mostShapes < 1300, `most ${mostShapes}; endings ${JSON.stringify(causes)}; ${flats} flats`);
 }

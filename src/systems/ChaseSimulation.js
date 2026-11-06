@@ -2,7 +2,7 @@ import { Car } from '../entities/Car.js';
 import { Airstrike } from '../entities/Airstrike.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -287,6 +287,7 @@ export class ChaseSimulation {
         if ((player.ghost || player.air > 0) && (a.isPlayer || b.isPlayer)) continue;
         if (b.model.isFalling || Math.abs(b.model.y - a.model.y) > reach) continue;
         const ice = this.frozenAgainstPlayer(a, b);
+        const wreck = this.wreckAgainstPlayer(a, b);
         const { vx, vy, heading, angularVelocity } = player;
         const impact = collideCars(a.model, b.model);
         if (carContact.touched && player.crushing && (a.isPlayer || b.isPlayer)) {
@@ -298,6 +299,8 @@ export class ChaseSimulation {
           player.heading = heading;
           player.angularVelocity = angularVelocity;
           this.shattering.push(ice);
+        } else if (wreck && carContact.touched) {
+          this.knockWreck(wreck, vx, vy, heading, angularVelocity, impact);
         } else if (impact > 0) {
           this.onCarsTouch(a, b, impact);
         }
@@ -313,6 +316,35 @@ export class ChaseSimulation {
     if (a.isPlayer) return b.alive && b.frozen > 0 ? b : null;
     if (b.isPlayer) return a.alive && a.frozen > 0 ? a : null;
     return null;
+  }
+
+  // The burnt-out wreck in this pair, if the other one is the player.
+  wreckAgainstPlayer(a, b) {
+    const other = a.isPlayer ? b : b.isPlayer ? a : null;
+    return other && !other.alive && other.state === 'wreck' && !other.model.isFalling ? other : null;
+  }
+
+  // The player never crashes into a wreck: it is knocked out of the way and the player drives on, a little
+  // slower (once per wreck: a wreck pushed along in front doesn't slow the car again and again).
+  knockWreck(wreck, vx, vy, heading, angularVelocity, impact) {
+    const player = this.player;
+    const fresh = this.time - (wreck.knockedAt ?? -Infinity) > WRECK_KNOCK.again;
+    const keep = fresh ? WRECK_KNOCK.keep : 1;
+    player.vx = vx * keep;
+    player.vy = vy * keep;
+    player.heading = heading;
+    player.angularVelocity = angularVelocity;
+    const car = wreck.model;
+    const dx = car.x - player.x;
+    const dy = car.y - player.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    car.vx += vx * WRECK_KNOCK.push + (dx / distance) * WRECK_KNOCK.shove;
+    car.vy += vy * WRECK_KNOCK.push + (dy / distance) * WRECK_KNOCK.shove;
+    car.angularVelocity += (Math.random() - 0.5) * WRECK_KNOCK.spin;
+    if (fresh) {
+      wreck.knockedAt = this.time;
+      this.emit('wreckKnock', { x: car.x, y: car.y, impact });
+    }
   }
 
   // A frozen police car smashed to bits. No wreck is left in the way and nothing explodes.

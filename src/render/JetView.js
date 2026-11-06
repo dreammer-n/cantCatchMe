@@ -15,7 +15,7 @@ const shift = { x: 0, y: 0 };
 export class JetView {
   constructor(scene, layers) {
     this.scene = scene;
-    this.body = scene.add.image(0, 0, ensureCarAtlas(scene, 'jet'), 'dir0').setScale(JET.modelScale / RENDER.bakeScale).setDepth(DEPTH.effects + 8).setVisible(false);
+    this.body = scene.add.image(0, 0, 'fx-glow').setScale(JET.modelScale / RENDER.bakeScale).setDepth(DEPTH.effects + 8).setVisible(false);
     this.shadow = scene.add.image(0, 0, 'fx-glow').setTint(RENDER.shadowColor).setVisible(false);
     layers.shadows.add(this.shadow);
     this.marks = Array.from({ length: AIRSTRIKE.bombs }, () => {
@@ -26,11 +26,12 @@ export class JetView {
       return { glow, ring };
     });
     this.bombs = scene.add.graphics().setDepth(DEPTH.effects + 7);
-    this.redraw();
+    this.drawn = false; // drawn when first needed, or in the warm-up after the title
   }
 
-  // Called at startup and whenever the camera setup changes.
+  // Called when first needed and whenever the camera setup changes.
   redraw() {
+    this.drawn = true;
     const key = ensureCarAtlas(this.scene, 'jet');
     const meta = atlasMeta.get(key);
     this.directions = meta.directions;
@@ -52,6 +53,7 @@ export class JetView {
       this.hide();
       return;
     }
+    if (!this.drawn) this.redraw();
     // The jet, high up, and its shadow far off on the road.
     strike.jetPosition(jet);
     frameFor(strike.heading, projection, pick, this.directions);

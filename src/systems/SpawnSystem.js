@@ -136,6 +136,11 @@ export class SpawnDirector {
       const y = Math.round((player.y + dir.y * distance) / cell) * cell;
       if (!sim.chunks.contains(x, y) || isOnScreen(x, y, view, ROADBLOCK.screenMargin)) continue;
       if (!sim.world.isClear(x, y, ROADBLOCK.clearance) || sim.isNearCar(x, y, ROADBLOCK.clearance)) continue;
+      // Each car's own spot must be clear too: wide apart, they stand near the corners of the blocks.
+      const spot = (i) => (i - (ROADBLOCK.cars - 1) / 2) * ROADBLOCK.spacing;
+      let clear = true;
+      for (let i = 0; i < ROADBLOCK.cars && clear; i += 1) clear = sim.world.isClear(x + (northSouth ? spot(i) : 0), y + (northSouth ? 0 : spot(i)), ROADBLOCK.carClearance);
+      if (!clear) continue;
       for (let i = 0; i < ROADBLOCK.cars; i += 1) {
         const offset = (i - (ROADBLOCK.cars - 1) / 2) * ROADBLOCK.spacing;
         const heading = (northSouth ? Math.PI / 2 : 0) + (i === 0 ? -1 : 1) * degToRad(ROADBLOCK.angleDeg);

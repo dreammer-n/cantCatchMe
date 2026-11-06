@@ -1,13 +1,13 @@
 import * as Phaser from 'phaser';
-import { CAR_SIZE, DEPTH, FLAMER, POWER_LOOK, RENDER, SLICK, TURBO } from '../config/tuning.js';
+import { CAR_SIZE, DEPTH, FLAMER, POWER_LOOK, RENDER, SLICK } from '../config/tuning.js';
 import { depthAt } from './layers.js';
-import { bakeMesh, glowing, ngon, projectMesh } from './lowpoly.js';
+import { bakeMesh, glowing, ngon } from './lowpoly.js';
 import { projection } from './projection.js';
 
 // The big power-up effects, in the game's own low-poly look: SCORCHER's fire is made of faceted flame cones
-// drawn by the same renderer and light as the cars and props, set along the trail; TURBO's afterburner is a
-// faceted cone shaded the same way, rebuilt every frame; SLICK's oil is one pool drawn as a shape. Drawing
-// only: the power-ups themselves are in systems/PowerUpSystem.js.
+// drawn by the same renderer and light as the cars and props, set along the trail; TURBO's fire bursts from the
+// exhaust as puffs of flame with a blue-hot core; SLICK's oil is one pool drawn as a shape. Drawing only: the
+// power-ups themselves are in systems/PowerUpSystem.js.
 
 const s0 = { x: 0, y: 0 };
 const FLAME = POWER_LOOK.flame;
@@ -27,31 +27,6 @@ function flameMesh(variant) {
   ];
 }
 
-// One cone of TURBO's flame, along local -y (behind the car): a ring at the exhaust, a wider ring a short way
-// back, a point at the end. lean turns it off the straight line (radians, about the up axis), shift moves its
-// root sideways. spin turns the rings, so the facets catch the light as it burns.
-function flameCone(length, width, spin, color, unlit, lean = 0, shift = 0) {
-  const sides = 6;
-  const z = NITRO.height;
-  const c = Math.cos(lean);
-  const s = Math.sin(lean);
-  const at = (x, y, h) => [shift + x * c - y * s, x * s + y * c, h];
-  const ring = (y, r) => Array.from({ length: sides }, (_, i) => {
-    const a = spin + (i / sides) * Math.PI * 2;
-    return at(Math.cos(a) * r, y, z + Math.sin(a) * r * 0.8);
-  });
-  const verts = [...ring(0, width * 0.45), ...ring(-length * NITRO.widestAt, width), at(0, -length, z)];
-  const tip = sides * 2;
-  const faces = [];
-  for (let i = 0; i < sides; i += 1) {
-    const j = (i + 1) % sides;
-    faces.push({ v: [i, j, sides + j, sides + i], color, decals: [], unlit });
-    faces.push({ v: [sides + i, sides + j, tip], color, decals: [], unlit });
-  }
-  faces.push({ v: Array.from({ length: sides }, (_, i) => sides - 1 - i), color, decals: [], unlit });
-  return { verts, faces, layer: 0 };
-}
-
 // A steady random number from 0 to 1 for a seed.
 const noise = (seed) => {
   const v = Math.sin(seed * 12.9898) * 43758.5453;
@@ -63,7 +38,31 @@ export class PowerFx {
     this.scene = scene;
     this.trailGlow = scene.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
     layers.lights.add(this.trailGlow);
-    this.nitro = scene.add.graphics();
+    // TURBO: the original exhaust fire, wider, with a small blue-hot core right at the exhaust.
+    this.nitroFire = scene.add
+      .particles(0, 0, 'fx-puff', {
+        emitting: false,
+        lifespan: { min: 280, max: 560 },
+        speedX: { min: -14, max: 14 },
+        speedY: { min: -70, max: -30 },
+        scale: { start: NITRO.flameSize, end: 0.12 },
+        color: NITRO.flame,
+        maxAliveParticles: NITRO.maxFlames,
+      })
+      .setDepth(DEPTH.effects);
+    this.nitroCore = scene.add
+      .particles(0, 0, 'fx-puff', {
+        emitting: false,
+        lifespan: { min: 110, max: 200 },
+        speedX: { min: -6, max: 6 },
+        speedY: { min: -20, max: -6 },
+        scale: { start: NITRO.coreSize, end: 0.08 },
+        alpha: { start: 0.95, end: 0.4 },
+        tint: NITRO.core,
+        maxAliveParticles: NITRO.maxCore,
+      })
+      .setDepth(DEPTH.effects + 0.5);
+    this.nitroClock = 0;
     this.nitroGlow = scene.add.image(0, 0, 'fx-pool').setBlendMode(Phaser.BlendModes.ADD).setTint(NITRO.glow).setVisible(false);
     layers.lights.add(this.nitroGlow);
     this.oil = scene.add.graphics();
@@ -107,7 +106,9 @@ export class PowerFx {
   }
 
   clear() {
-    for (const g of [this.trailGlow, this.nitro, this.oil]) g.clear();
+    for (const g of [this.trailGlow, this.oil]) g.clear();
+    this.nitroFire.killAll();
+    this.nitroCore.killAll();
     for (const image of this.flames) image.setVisible(false);
     this.nitroGlow.setVisible(false);
     this.smoke.killAll();
@@ -151,7 +152,7 @@ export class PowerFx {
     this.drawFireTrail(sim.powerUps, sim.player, time, dt, live);
     this.drawBurningPolice(sim.police, time);
     for (let i = this.used; i < this.flames.length; i += 1) this.flames[i].setVisible(false);
-    this.drawNitro(sim.player, sim.powerUps, time, live);
+    this.drawNitro(sim.player, sim.powerUps, dt, live);
     this.drawOil(sim.powerUps.puddles);
   }
 
@@ -265,56 +266,36 @@ export class PowerFx {
 
   // ---- TURBO ----
 
-  drawNitro(player, powerUps, time, live) {
-    const g = this.nitro;
-    g.clear();
+  // Fire bursting from the exhaust, spread across the car's width, with a blue-hot core right at the pipe; the fire
+  // stays where it was let out, so it streams behind the car. A warm glow on the road under it.
+  drawNitro(player, powerUps, dt, live) {
     if (!live || player.boost <= 1) {
       this.nitroGlow.setVisible(false);
       return;
     }
-    // Swells in at the start, and dies down over the last half second.
-    const swell = Math.max(0.05, Math.min(1, (TURBO.seconds - powerUps.turboTime) / 0.15, powerUps.turboTime / 0.5));
     const fx = Math.sin(player.heading);
     const fy = -Math.cos(player.heading);
-    const back = CAR_SIZE.length * 0.48 * player.scale;
+    const back = CAR_SIZE.length * 0.55 * player.scale;
     const ex = player.x - fx * back;
     const ey = player.y - fy * back;
-    const size = player.scale * swell;
-    // A hard, uneven flicker: each layer jumps in length every frame, on its own.
-    const jump = () => 1 - NITRO.flicker + Math.random() * NITRO.flicker * 2;
-    const length = NITRO.length * size;
-    const width = NITRO.width * player.scale * Math.max(0.4, swell);
-    const spin = time * 0.006;
-    const mesh = [];
-    // Tongues licking out to the sides first, behind the main flame.
-    for (let k = 0; k < NITRO.tongues; k += 1) {
-      const side = k % 2 === 0 ? -1 : 1;
-      const lean = side * (0.18 + Math.random() * 0.22);
-      mesh.push(flameCone(length * (0.3 + Math.random() * 0.3), width * 0.45, spin + k, NITRO.outer, false, lean, side * width * 0.25));
-    }
-    for (const [share, widthShare, color, unlit] of NITRO.layers) mesh.push(flameCone(length * share * jump(), width * widthShare, spin, color, unlit));
-    projection.toScreen(ex, ey, 0, s0);
-    // Painted in order, outside first: each layer lies over the last, so the flame shows its hot middle.
-    for (const part of mesh) {
-      for (const drawn of projectMesh([part], player.heading, projection)) {
-        for (const face of drawn.faces) {
-          g.fillStyle(face.color, 1);
-          g.fillPoints(face.pts.map((p) => ({ x: s0.x + p.x, y: s0.y + p.y })), true);
-        }
+    this.nitroClock -= dt * 1000;
+    if (this.nitroClock <= 0) {
+      this.nitroClock = NITRO.everyMs;
+      const half = (CAR_SIZE.width / 2) * NITRO.spread * player.scale;
+      for (let k = 0; k < NITRO.flamesEach; k += 1) {
+        const across = (Math.random() * 2 - 1) * half;
+        projection.toScreen(ex - fy * across, ey + fx * across, 8, s0);
+        this.nitroFire.emitParticleAt(s0.x, s0.y, 1);
       }
-    }
-    g.setDepth(depthAt(ex, ey));
-    // Sparks thrown off the end of it.
-    if (Math.random() < NITRO.sparks * (1 / 60)) {
-      projection.toScreen(ex - fx * length * 0.7, ey - fy * length * 0.7, NITRO.height, s0);
-      this.embers.emitParticleAt(s0.x, s0.y, 2);
+      projection.toScreen(ex, ey, 8, s0);
+      this.nitroCore.emitParticleAt(s0.x, s0.y, 1);
+      if (Math.random() < 0.4) this.embers.emitParticleAt(s0.x, s0.y, 1);
     }
     this.nitroGlow
       .setVisible(true)
-      .setPosition(ex - fx * length * 0.35, ey - fy * length * 0.35)
-      .setScale((length * 0.9) / 64, (width * 2.6) / 64)
-      .setRotation(Math.atan2(fy, fx))
-      .setAlpha(NITRO.glowAlpha * swell * (0.85 + Math.random() * 0.15));
+      .setPosition(ex - fx * 40, ey - fy * 40)
+      .setScale(NITRO.glowSize / 64)
+      .setAlpha(NITRO.glowAlpha * (0.85 + Math.random() * 0.15));
   }
 
   // ---- SLICK ----

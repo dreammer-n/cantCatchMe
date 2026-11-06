@@ -33,13 +33,15 @@ function policeAt(x, y, headingDeg, role, options = {}) {
 // ---- Heat curve -----------------------------------------------------------------------------
 {
   const at = difficultyAt;
-  check('0-15 s: 2 to 4 police', at(0).targetPolice === 2 && at(14.9).targetPolice <= 4 && at(14.9).targetPolice >= 3, `${at(0).targetPolice} rising to ${at(14.9).targetPolice}`);
-  check('0-15 s: chasers only', at(0).interceptorShare === 0 && at(14.9).interceptorShare === 0);
-  check('from 15 s: interceptors appear', at(15).interceptorShare > 0.2, `${at(15).interceptorShare}`);
-  check('30-70 s: top speed climbs', at(70).speedFactor > at(30).speedFactor + 0.03 && at(30).speedFactor - at(0).speedFactor < 0.02, `${at(0).speedFactor} / ${at(30).speedFactor} / ${at(70).speedFactor}`);
-  check('70 s on: a swarm, with more interceptors reacting faster', at(110).targetPolice > at(70).targetPolice && at(110).interceptorShare > at(30).interceptorShare && at(110).reaction < at(70).reaction, `${at(70).targetPolice} -> ${at(110).targetPolice} police`);
+  // A gentle start (owner, 2026-11-06): the first two or three minutes are for learning, then it builds.
+  check('the first 30 s: one police car', at(0).targetPolice === 1 && at(29.9).targetPolice <= 2, `${at(0).targetPolice} rising to ${at(29.9).targetPolice}`);
+  check('the first minute: chasers only', at(0).interceptorShare === 0 && at(59.9).interceptorShare === 0);
+  check('from 1 minute: interceptors appear', at(60).interceptorShare > 0.1, `${at(60).interceptorShare}`);
+  check('early on, police are slower than the player; by 2 minutes they match it', at(0).speedFactor < 0.95 && at(120).speedFactor >= 1 && at(240).speedFactor > at(120).speedFactor + 0.05, `${at(0).speedFactor} / ${at(120).speedFactor} / ${at(240).speedFactor}`);
+  check('no more than 4 police in the first 90 s', at(90).targetPolice <= 4, `${at(90).targetPolice}`);
+  check('after 3 minutes: a swarm, with more interceptors reacting faster', at(300).targetPolice > at(180).targetPolice && at(240).interceptorShare > at(90).interceptorShare && at(240).reaction < at(120).reaction, `${at(180).targetPolice} -> ${at(300).targetPolice} police`);
   let rising = true;
-  for (let t = 1; t < 200; t += 1) if (at(t).targetPolice < at(t - 1).targetPolice) rising = false;
+  for (let t = 1; t < 400; t += 1) if (at(t).targetPolice < at(t - 1).targetPolice) rising = false;
   check('pressure never drops as the run goes on', rising);
   check('police never exceed the performance cap', at(9999).targetPolice <= T.POLICE.maxActive);
 }

@@ -790,7 +790,7 @@ const BUILDERS = {
     for (let i = 0; i < count; i += 1) {
       if (rng() < 0.5) items.push(parkedCar(rowX + (i + 0.5) * SCENERY.stallSpacing, rowY + SCENERY.stallLength / 2, rng() < 0.5 ? 0 : 180, rng));
     }
-    items.push(island(cell.midX, cell.y1 - 26, WORLD.islandLengths[0], false));
+    if (!map.noPlanters) items.push(island(cell.midX, cell.y1 - 26, WORLD.islandLengths[0], false));
     items.push(tree(cell.midX - 90, cell.y1 - 26, rng));
     items.push(tree(cell.midX + 90, cell.y1 - 26, rng));
     items.push(lamp(cell.midX, cell.y1 - 26, pick(rng, LAMP_FACINGS_DEG)));
@@ -839,7 +839,7 @@ const BUILDERS = {
     if (rng() < 0.7) items.push(parkedCar(stallX + 38, stallY + SCENERY.stallSpacing * 1.5, 270, rng));
     const islandX = cell.x1 - 36;
     const length = WORLD.islandLengths[0];
-    items.push(island(islandX, cell.midY, length, true));
+    if (!map.noPlanters) items.push(island(islandX, cell.midY, length, true));
     items.push(tree(islandX, cell.midY - length * 0.36, rng));
     items.push(tree(islandX, cell.midY + length * 0.38, rng));
     items.push(billboardAt(islandX, cell.midY, 270));
@@ -1032,6 +1032,25 @@ const BUILDERS = {
     cell.placed.push({ x: spot.x, y: spot.y, r: 50 });
   },
 
+  // Wild ground, no curb: the map's own trees (cacti in the desert) and rocks straight on the ground, and in the
+  // woods sometimes a fallen log. Where a town would have a lawn, the desert and the woods have this.
+  scrub(cell, items, paint, rng) {
+    const trees = 3 + Math.floor(rng() * 3);
+    for (let i = 0; i < trees; i += 1) {
+      const spot = randomSpot(cell, 40, rng);
+      if (spot) add(cell, tree(spot.x, spot.y, rng), 40);
+    }
+    const rocks = 1 + Math.floor(rng() * 2);
+    for (let i = 0; i < rocks; i += 1) {
+      const spot = randomSpot(cell, 30, rng);
+      if (spot) add(cell, boulderAt(spot.x, spot.y, pick(rng, WORLD.boulderSizes)), 30);
+    }
+    if ((map.extras || []).includes('log') && rng() < 0.4) {
+      const spot = randomSpot(cell, 50, rng);
+      if (spot) add(cell, { kind: 'log', name: named('log'), x: spot.x, y: spot.y, heading: pick(rng, WORLD.logTurnsDeg) * DEG, model: 'log', params: {}, band: 'objects', collider: { type: 'box', hw: 9, hl: 34 }, breakable: true }, 50);
+    }
+  },
+
   // Woods: stacks of sawn lumber (solid) and a loose log or two.
   lumber(cell, items, paint, rng) {
     const [fewest, most] = WOODS_MAP.lumberStacks;
@@ -1139,16 +1158,13 @@ function addSnowmen(cell, items, rng) {
   }
 }
 
-// Tumbleweeds caught in a block, waiting for a car.
+// Now and then a tumbleweed caught in a block, waiting for a car.
 function addTumbleweeds(cell, items, rng) {
-  const [fewest, most] = DESERT_MAP.tumbleweeds;
-  const count = fewest + Math.floor(rng() * (most - fewest + 1));
-  for (let n = 0; n < count; n += 1) {
-    const spot = randomSpot(cell, 22, rng, 6);
-    if (!spot) continue;
-    items.push({ kind: 'tumbleweed', name: named('tumbleweed'), x: spot.x, y: spot.y, heading: 0, model: 'tumbleweed', params: {}, band: 'objects', collider: { type: 'circle', r: COLLISION.tumbleweedRadius }, breakable: true });
-    cell.placed.push({ x: spot.x, y: spot.y, r: 22 });
-  }
+  if (rng() >= DESERT_MAP.tumbleweedChance) return;
+  const spot = randomSpot(cell, 22, rng, 6);
+  if (!spot) return;
+  items.push({ kind: 'tumbleweed', name: named('tumbleweed'), x: spot.x, y: spot.y, heading: 0, model: 'tumbleweed', params: {}, band: 'objects', collider: { type: 'circle', r: COLLISION.tumbleweedRadius }, breakable: true });
+  cell.placed.push({ x: spot.x, y: spot.y, r: 22 });
 }
 
 // Does this row of chunks have a river (Woods)?

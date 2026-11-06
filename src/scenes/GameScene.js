@@ -60,6 +60,8 @@ import { degToRad, wrapAngle } from '../utils/math.js';
 
 const screenPoint = { x: 0, y: 0 };
 const ATTRACT_HEADING = degToRad(150); // a flattering three-quarter view on the title screen
+const WARM_UP_AFTER_FRAMES = 2; // the title is drawn first, then the warm-up starts
+const WARM_UP_PROPS = 6; // prop drawings a frame
 
 // The game world. All rules live in ChaseSimulation (pure logic); this scene draws the result,
 // plays effects and sounds for the simulation's events, and runs the flow:
@@ -135,6 +137,7 @@ export class GameScene extends Phaser.Scene {
       stopWatchingView();
     });
 
+    this.queueWarmUp();
     this.enterAttract();
     if (import.meta.env.MODE !== 'production' && DEBUG) import('../dev/debugHooks.js').then(({ installDebugHooks }) => installDebugHooks(this));
   }
@@ -189,13 +192,20 @@ export class GameScene extends Phaser.Scene {
     return { atlasKey: ensureCarAtlas(this, `${id}Body`), wheelsKey: ensureCarAtlas(this, `${id}Wheels`), shadowPoints: carShadowPoints(id), lights: false };
   }
 
-  // The same car, burnt out: the player's own, or whichever police car it was.
+  // The same car, burnt out: the player's own, or whichever police car it was. Drawn the first time it is needed
+  // (normally already done in the warm-up).
   wreckLook(name) {
-    return { atlasKey: ensureCarAtlas(this, `${name}Wreck`), shadowPoints: carShadowPoints(name), lights: false, burnt: true };
+    return this.lazyLook(`${name}Wreck`, { shadowPoints: carShadowPoints(name), lights: false, burnt: true });
+  }
+
+  // A look whose drawing sheet is only made when something first asks for it.
+  lazyLook(atlasName, look) {
+    const scene = this;
+    return Object.defineProperty(look, 'atlasKey', { get: () => ensureCarAtlas(scene, atlasName), enumerable: true });
   }
 
   makeLooks() {
-    const look = (name, lights, lightSpot) => ({ atlasKey: ensureCarAtlas(this, name), shadowPoints: carShadowPoints(name), lights, lightSpot });
+    const look = (name, lights, lightSpot) => this.lazyLook(name, { shadowPoints: carShadowPoints(name), lights, lightSpot });
     return {
       player: this.playerLook(),
       playerWreck: this.wreckLook(this.carId),
@@ -225,7 +235,35 @@ export class GameScene extends Phaser.Scene {
     this.audio.setMusic('menu');
   }
 
+  // Everything the title screen doesn't show, queued to be drawn a piece a frame once the title is up, so the game
+  // reaches its title as fast as it can and a run still never waits for a drawing.
+  queueWarmUp() {
+    const cars = ['police', 'interceptor', 'policeWreck', `${this.carId}Wreck`, 'bearcat', 'interceptorWreck', 'bearcatWreck'];
+    this.warmUp = [
+      ...cars.map((name) => () => ensureCarAtlas(this, name)),
+      () => this.helicopterView.redraw(),
+      () => this.jetView.redraw(),
+    ];
+    this.warmUpDelay = WARM_UP_AFTER_FRAMES;
+  }
+
+  // One piece of the warm-up a frame; props come several at a time, they are small.
+  stepWarmUp() {
+    if (this.warmUpDelay > 0) {
+      this.warmUpDelay -= 1;
+      return;
+    }
+    if (this.warmUp.length > 0) this.warmUp.shift()();
+    else this.scenery.bakeSome(WARM_UP_PROPS);
+  }
+
+  finishWarmUp() {
+    while (this.warmUp.length > 0) this.warmUp.shift()();
+    while (this.scenery.bakeSome(64));
+  }
+
   startRun(seed = (Math.random() * 2 ** 31) >>> 0) {
+    this.finishWarmUp();
     this.useSelectedCar();
     this.useSelectedMap();
     this.sim.reset(seed);
@@ -328,6 +366,7 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------------------------------------
 
   update(time, delta) {
+    if (this.warmUp.length > 0 || this.scenery.toBake.length > 0) this.stepWarmUp();
     const frameMs = Math.min(delta, DISPLAY.maxFrameDeltaMs);
     const dt = frameMs / 1000;
     this.simTime += dt;
@@ -530,6 +569,12 @@ export class GameScene extends Phaser.Scene {
           this.rig.addTrauma(TRAUMA.scrape);
           this.effects.impact(e.x, e.y, EFFECTS.burstScrape);
           this.punch(HITSTOP.scrapeMs);
+          break;
+        case 'wreckKnock':
+          this.audio.play('bump', 0.7);
+          this.effects.impact(e.x, e.y, EFFECTS.burstSmash);
+          this.playerView.bump(120);
+          this.rig.addTrauma(TRAUMA.knock);
           break;
         case 'curb':
           this.playerView.bump(BODY_LEAN.hopFullImpact * 0.45);

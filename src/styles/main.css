@@ -46,38 +46,17 @@ body {
   touch-action: none;
 }
 
-/* ---------------------------------------------------------------- loading */
+/* ---------------------------------------------------------------- loading screen (#boot, in index.html)
+   Everything in it moves by transform or opacity only, which the browser keeps animating even while the game is
+   busy setting up. */
 
-#boot {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  background: var(--page-bg);
-  font: 800 clamp(16px, 4vmin, 22px) / 1 var(--font);
-  letter-spacing: 0.12em;
-  color: var(--cream);
-  transition: opacity 0.3s;
-}
-
-#boot.done {
-  opacity: 0;
-  pointer-events: none;
-}
-
-#boot span {
-  animation: boot-pulse 1s ease-in-out infinite alternate;
-}
-
-@keyframes boot-pulse {
-  from {
-    opacity: 0.35;
-  }
-  to {
-    opacity: 1;
-  }
-}
+#boot { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6vmin; background: var(--page-bg); transition: opacity 0.35s; }
+#boot.done { opacity: 0; pointer-events: none; }
+.boot-logo { width: min(70vw, 480px); height: auto; }
+/* A thin line under the name, with a red-and-blue police glow sweeping along it. */
+.boot-line { position: relative; width: min(46vw, 300px); height: 3px; overflow: hidden; background: rgba(244, 239, 230, 0.12); }
+.boot-glow { position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, #ff3b30 30%, #3d7bff 70%, transparent); animation: boot-sweep 1.1s ease-in-out infinite; will-change: transform; }
+@keyframes boot-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
 /* ---------------------------------------------------------------- overlay root */
 
@@ -250,8 +229,9 @@ body {
 }
 
 /* Darker behind the logo, so that it reads on bright maps. */
+/* The map is dimmed all over behind the title, so the logo and the buttons stand out; a little more behind the logo. */
 .screen.menu {
-  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.42), rgba(14, 15, 18, 0.28) 34%, rgba(14, 15, 18, 0.04) 56%);
+  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.62), rgba(14, 15, 18, 0.48) 34%, rgba(14, 15, 18, 0.42));
 }
 
 /* Title screen: logo at the top, buttons at the bottom, the car turning in the middle. */
