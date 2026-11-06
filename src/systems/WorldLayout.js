@@ -77,6 +77,10 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   const groundRng = createRng(hash + 7919);
   const streetRng = createRng(hash + 104729);
   const featureRng = createRng(hash + 15485863);
+  if (forMap.bare) {
+    addBareGround(chunk, groundRng);
+    return chunk;
+  }
   const river = forMap.rivers && hasRiver(cy);
   let hasThicket = false;
 
@@ -146,11 +150,12 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
 // be drawn during play. tests/test_world.mjs checks that chunks use nothing outside this list.
 export function propCatalogue(forMap = MAPS[0]) {
   const list = [];
+  if (forMap.bare) return list; // nothing stands on it
   const extras = forMap.extras || [];
   const words = new Set(Object.values(forMap.presets || CHUNKS.presets).flatMap((preset) => preset.landmarks));
   const push = (kind, model, headingDeg, params = {}) => list.push({ kind, model, heading: headingDeg * DEG, params });
   for (const length of WORLD.islandLengths) for (const deg of [0, 90]) push('island', `island${length}`, deg, { length });
-  for (const treeKind of forMap.trees) for (const size of WORLD.treeSizes) push('tree', `${treeKind}${size}`, 0, { treeKind, size });
+  for (const treeKind of forMap.trees) for (const size of treeSizesOf(treeKind)) push('tree', `${treeKind}${size}`, 0, { treeKind, size });
   for (const deg of LAMP_FACINGS_DEG) push(forMap.lamp, forMap.lamp, deg);
   for (const type of WORLD.blockTypes) for (const deg of WORLD.blockTurnsDeg) push('block', blockModel(type), deg, type);
   for (const length of WORLD.barrierLengths) for (const deg of WORLD.barrierTurnsDeg) push('barrier', `barrier${length}`, deg, { length });
@@ -179,12 +184,12 @@ export function propCatalogue(forMap = MAPS[0]) {
     push('shop', 'shop', deg);
     if (forMap.shop === 'cabin') push('cabin', 'cabin', deg);
   }
-  if (extras.includes('mesa')) for (const size of WORLD.mesaSizes) push('mesa', mesaModel(size), 0, { size });
+  if (extras.includes('mesa')) for (const size of WORLD.mesaSizes) for (const shape of WORLD.mesaShapes) push('mesa', mesaModel(size, shape), 0, { size, shape });
   if (extras.includes('tower')) push('tower', 'tower', 0);
   if (extras.includes('log')) for (const deg of WORLD.logTurnsDeg) push('log', 'log', deg);
   push('booth', 'booth', 0);
   for (const deg of WORLD.benchTurnsDeg) push('bench', 'bench', deg);
-  for (const size of WORLD.boulderSizes) push('boulder', boulderModel(size), 0, { size });
+  for (const size of WORLD.boulderSizes) for (const shape of WORLD.boulderShapes) push('boulder', boulderModel(size, shape), 0, { size, shape });
   for (const deg of [0, 270]) push('billboard', 'billboard', deg); // its board faces the camera either way
   if (forMap.streets) {
     push('hydrant', 'hydrant', 0);
@@ -221,16 +226,23 @@ function letterModel(letter, color) {
   return `letter-${letter}-${color}`;
 }
 
-function mesaModel(size) {
-  return `mesa${size}`;
+function mesaModel(size, shape) {
+  return `mesa-${shape}${size}`;
+}
+
+// A rock's shape, picked from its place: the same rock always comes back the same, and no other random number is
+// used, so nothing else in the world moves.
+function shapeAt(x, y, shapes) {
+  const h = Math.abs(Math.sin(x * 0.0127 + y * 0.0311) * 43758.5453);
+  return shapes[Math.floor((h - Math.floor(h)) * shapes.length) % shapes.length];
 }
 
 function lawnModel(width, length) {
   return `lawn${width}x${length}`;
 }
 
-function boulderModel(size) {
-  return `boulder${size}`;
+function boulderModel(size, shape) {
+  return `boulder-${shape}${size}`;
 }
 
 function civilianModel(shape, color) {
@@ -303,9 +315,13 @@ function named(kind) {
   return `${kind}-${counter}`;
 }
 
+function treeSizesOf(kind) {
+  return WORLD.treeSizesFor[kind] || WORLD.treeSizes;
+}
+
 function tree(x, y, rng) {
   const treeKind = pick(rng, map.trees);
-  const size = pick(rng, WORLD.treeSizes);
+  const size = pick(rng, treeSizesOf(treeKind));
   return {
     kind: 'tree',
     name: named('tree'),
@@ -510,8 +526,8 @@ function boulderAt(x, y, size) {
     x,
     y,
     heading: 0,
-    model: boulderModel(size),
-    params: { size },
+    model: boulderModel(size, shapeAt(x, y, WORLD.boulderShapes)),
+    params: { size, shape: shapeAt(x, y, WORLD.boulderShapes) },
     band: 'objects',
     collider: { type: 'circle', r: WORLD.boulderRadius * size },
     breakable: false,
@@ -860,8 +876,8 @@ const BUILDERS = {
         x: spot.x,
         y: spot.y,
         heading: 0,
-        model: mesaModel(size),
-        params: { size },
+        model: mesaModel(size, shapeAt(spot.x, spot.y, WORLD.mesaShapes)),
+        params: { size, shape: shapeAt(spot.x, spot.y, WORLD.mesaShapes) },
         band: 'objects',
         collider: { type: 'circle', r: radius },
         breakable: false,
@@ -1483,6 +1499,22 @@ function blockGround(cell, rng, arrangement) {
 }
 
 // Wear on the chunk's roads: patches where the road was mended, cracks, and manholes in the lanes.
+// The challenge map's ground: faint mended patches and cracks in the asphalt, nothing else.
+function addBareGround(chunk, rng) {
+  const g = map.bareGround;
+  const anywhere = (margin) => [chunk.x0 + margin + rng() * (CHUNKS.size - margin * 2), chunk.y0 + margin + rng() * (CHUNKS.size - margin * 2)];
+  for (let n = 0; n < g.patches; n += 1) {
+    const [x, y] = anywhere(120);
+    const along = lerp(g.patchSize[0][0], g.patchSize[0][1], rng());
+    const across = lerp(g.patchSize[1][0], g.patchSize[1][1], rng());
+    chunk.paint.push({ poly: turnedRect(x, y, along, across, rng() * Math.PI), color: 'patch', alpha: g.patchAlpha });
+  }
+  for (let n = 0; n < g.cracks; n += 1) {
+    const [x, y] = anywhere(60);
+    crack(chunk.paint, rng, x, y, rng() * Math.PI * 2);
+  }
+}
+
 // ---- Woods ground (drawing only) ----
 
 // A small lumpy shape, as a flat polygon.

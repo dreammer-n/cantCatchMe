@@ -50,12 +50,25 @@ export class RunStats {
 export const Records = {
   best: { time: 0, wrecks: 0, nearMisses: 0, combo: 0, distance: 0 },
   totals: { runs: 0, wrecks: 0, seconds: 0, distance: 0 },
+  hardBest: 0, // the best HARD START run, in whole seconds (the leaderboard's score)
 
   async load() {
     const best = await PlatformManager.getStoredValue(STORAGE_KEYS.best, null);
     const totals = await PlatformManager.getStoredValue(STORAGE_KEYS.totals, null);
     if (best && typeof best === 'object') this.best = { ...this.best, ...sanitize(best) };
     if (totals && typeof totals === 'object') this.totals = { ...this.totals, ...sanitize(totals) };
+    const hardBest = await PlatformManager.getStoredValue(STORAGE_KEYS.hardBest, 0);
+    this.hardBest = Number.isFinite(hardBest) && hardBest > 0 ? Math.floor(hardBest) : 0;
+  },
+
+  // A finished HARD START run. Returns its score (whole seconds) if it beats the best, so it goes to the
+  // leaderboard, or null.
+  submitHard(seconds) {
+    const score = Math.floor(seconds);
+    if (score <= this.hardBest) return null;
+    this.hardBest = score;
+    PlatformManager.setStoredValue(STORAGE_KEYS.hardBest, score);
+    return score;
   },
 
   // Records a finished run. Returns { newBest, best }.
@@ -86,11 +99,13 @@ export function starsFor(seconds) {
 }
 
 // What a finished run earned.
-export function coinsForRun(summary) {
+// hard: HARD START was on, which pays COINS.hardShare times as much.
+export function coinsForRun(summary, hard = false) {
   const time = Math.floor(summary.time * COINS.perSecond);
   const wrecks = summary.wrecks * COINS.perWreck;
   const combo = summary.combo * COINS.perCombo;
-  return { time, wrecks, combo, total: time + wrecks + combo };
+  const bonus = hard ? Math.round((time + wrecks + combo) * (COINS.hardShare - 1)) : 0;
+  return { time, wrecks, combo, hard: bonus, total: time + wrecks + combo + bonus };
 }
 
 // Which maps are open: every map's best run earns stars, and enough stars in all unlock the next map.

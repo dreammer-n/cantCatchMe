@@ -179,4 +179,7 @@ Records changes to physics, camera, AI and spawn balance. All values are prototy
 | 2026-11-06 | Roadblocks | `spacing` 150 -> 200, `spikeHalfLength` 42 -> 64, new `carClearance` 30 | gap between the cars about 156 instead of 106 | Owner: the gap must be bigger. |
 | 2026-11-06 | Tumbleweeds | rolling: `most` 4 -> 1, `everySeconds` 1.5-3.5 -> 15-25; lying: 0-2 a block -> 12% of blocks | | Owner: they appeared everywhere. |
 | 2026-11-06 | TURBO | back to exhaust puffs: 3 flames every 30 ms across 1.1x the car's width, size 0.95 (was 0.72), blue core 0.55 | | Owner: like the original, wider, with a hint of blue. |
+| 2026-11-06 | Challenge map | BLACKTOP: `policeScale` 1.6, 7 patches and 9 cracks a chunk | | Owner: a road-only map with lots of police, open from the start. |
+| 2026-11-06 | HARD START | new `HEAT_HARD` (the curve of decision 31), `COINS.hardShare` 1.5 | | Owner: a switch to start harder, for more coins. |
+| 2026-11-06 | Variety | new tree kinds (branchy, sapling, pineTall, pineWide, snowpineTall, snowpineWide, cactusOne, cactusPlain, deadTall); `boulderShapes` 4, `mesaShapes` 3; `treeSizesFor` | memory: Suburbs 14.6, Winter 14.0, Desert 13.4, Woods 15.1 MB of 16 | Owner: different shapes and sizes. |
 | 2026-11-05 | Woods | new `WOODS_MAP`: river every other chunk row, 105 swallowing half-width plus up to 24 of drawn bank; bridges 300 long; 2-3 lumber stacks (weight 10); thickets (weight 12, one a chunk) of trees 66 apart, path 125 wide | | First settings. |

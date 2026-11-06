@@ -111,6 +111,7 @@ export const STORAGE_KEYS = {
   totalCoins: 'totalCoins', // a whole number
   unlockedCars: 'unlockedCars', // [car id, ...]
   selectedCar: 'selectedCar', // car id
+  hardBest: 'hardBest', // best HARD START run, in seconds (what the leaderboard has)
   best: 'bestRun', // { time, wrecks, nearMisses, combo }
   totals: 'totals', // { runs, wrecks, seconds }
   settings: 'settings', // { sound }
@@ -203,6 +204,14 @@ export const COINS = {
   perSecond: 2,
   perWreck: 5,
   perCombo: 10, // for each step of the run's best combo
+  hardShare: 1.5, // a run with HARD START on pays this many times as much
+};
+
+// The one leaderboard: HARD START runs, longest first, in whole seconds. Its id is the one in the Playgama console
+// and in public/playgama-bridge-config.json.
+export const LEADERBOARD = {
+  id: 'hard_best',
+  shown: 10, // rows on the game's own leaderboard screen
   tallyMs: 700, // the count-up on the results screen (drawing only)
 };
 
@@ -282,7 +291,7 @@ export const MAPS = [
     stars: 0,
     palette: {},
     streets: true, // real streets: curbs, pavements, rounded corners and worn asphalt (WORLD.street)
-    trees: ['leafy', 'leafyDark'],
+    trees: ['leafy', 'leafyDark', 'branchy', 'sapling'],
     lamp: 'lamp',
     shop: 'shop',
     marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.6, size: [30, 85], stretch: 1.8 },
@@ -311,7 +320,7 @@ export const MAPS = [
       asphaltPatchLight: 0xf1f5f9,
       barrier: 0xf4f7fa,
     },
-    trees: ['snowpine'],
+    trees: ['snowpine', 'snowpineTall', 'snowpineWide'],
     lamp: 'lamp',
     shop: 'cabin',
     open: true,
@@ -343,7 +352,7 @@ export const MAPS = [
       trunk: 0x6b4a2c,
       skid: 0x9a6c3e, // furrows in the sand
     },
-    trees: ['cactus'],
+    trees: ['cactus', 'cactusOne', 'cactusPlain'],
     lamp: 'pole',
     shop: 'shop',
     extras: ['mesa', 'tower'],
@@ -376,7 +385,7 @@ export const MAPS = [
       asphaltPatchLight: 0x7c7e36,
       skid: 0x3e3324,
     },
-    trees: ['pine', 'dead'],
+    trees: ['pine', 'pineTall', 'pineWide', 'dead', 'deadTall'],
     lamp: 'pole',
     shop: 'cabin',
     extras: ['log'],
@@ -389,6 +398,27 @@ export const MAPS = [
     presets: {
       forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 30], ['logs', 22], ['thicket', 12], ['lumber', 10], ['scrub', 12], ['open', 7], ['shop', 6], ['station', 5]] },
     },
+  },
+  {
+    // The challenge: flat asphalt as far as you can drive, with nothing on it but a faint texture: no roads, no props,
+    // no holes. The only obstacles are the ones the police bring, and there are a lot more of them. Open from the
+    // start.
+    id: 'blacktop',
+    name: 'BLACKTOP',
+    stars: 0,
+    bare: true,
+    policeScale: 1.6, // x the police there would be on another map
+    palette: { asphalt: 0x3b4049, uiGround: 0x3b4049 },
+    trees: ['leafy'],
+    lamp: 'lamp',
+    shop: 'shop',
+    marks: { perCell: 1.4, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.45, size: [90, 240], stretch: 1.7 },
+    startPreset: 'bare',
+    presets: {
+      bare: { weight: 1, holeChance: 0, roadHoles: [0, 0], landmarks: [], cells: [['open', 1]] },
+    },
+    tireDust: { tint: [0x5c5e63, 0x74767b], bits: null },
+    bareGround: { patches: 7, patchSize: [[70, 180], [40, 110]], patchAlpha: 0.3, cracks: 9 }, // a chunk
   },
 ];
 
@@ -509,6 +539,19 @@ export const HEAT = {
   speedFactor: [[0, 0.92], [60, 0.96], [120, 1.0], [180, 1.05], [240, 1.1], [300, 1.14]], // x the player's top speed of 300
   turnDeg: [[0, 95], [150, 118], [270, 136]],
   reaction: [[150, 1], [210, 0.65]], // interceptors' reaction time, x normal
+};
+
+// HARD START (a switch on the title screen): the run starts as hard as it used to, before the gentle start of
+// decision 40. Pays COINS.hardShare.
+export const HEAT_HARD = {
+  police: [[0, 2], [15, 4], [30, 7], [45, 10], [75, 16], [110, 22], [160, 26]],
+  interceptorShare: [[14.99, 0], [15, 0.3], [30, 0.35], [45, 0.5], [90, 0.6]],
+  bearcatShare: [[44.99, 0], [45, 0.14], [70, 0.2], [110, 0.26]],
+  speedFactor: [[0, 1.04], [30, 1.05], [70, 1.1], [150, 1.14]],
+  turnDeg: [[0, 118], [150, 136]],
+  reaction: [[70, 1], [110, 0.65]],
+  roadblockAt: 40, // seconds: the first roadblock ...
+  helicopterAt: 70, // ... and the helicopter
 };
 
 // [TUNE] SWAT Bearcat: a heavy armoured truck. Slow to turn, hard to stop.
@@ -1580,9 +1623,11 @@ export const WORLD = {
   ],
   mesaSizes: [1, 1.4],
   mesaRadius: 42, // at size 1
+  mesaShapes: ['mound', 'butte', 'spire'],
   logTurnsDeg: [20, 100, 160],
   boulderSizes: [0.8, 1.15],
   boulderRadius: 15, // at size 1
+  boulderShapes: ['lump', 'slab', 'jagged', 'pile'],
   benchTurnsDeg: [0, 90],
   shopTurnsDeg: [180, 90], // the doors face the camera either way
   // The gas station, laid out around its canopy.
@@ -1607,5 +1652,6 @@ export const WORLD = {
   arrowWidth: 28,
   plazaHalfSize: 695, // half the width of the paved square in the middle of a plaza chunk
   treeSizes: [0.9, 1, 1.1, 1.2],
+  treeSizesFor: { branchy: [1, 1.2], sapling: [0.9, 1.1] }, // kinds with fewer sizes (fewer drawings to make)
   crosswalkChance: 0.18,
 };

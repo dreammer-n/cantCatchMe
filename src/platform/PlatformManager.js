@@ -366,6 +366,45 @@ export const PlatformManager = {
     }
   },
 
+  // ---- Leaderboards ----
+  // How this platform does leaderboards (Bridge): 'not_available' (none), 'in_game' (the game draws it from
+  // leaderboardEntries), 'native' (the platform shows it; the game only sends scores) or 'native_popup' (the game
+  // opens the platform's own window with showLeaderboard).
+  leaderboardMode() {
+    if (!state.bridge || !state.bridge.leaderboards) return 'not_available';
+    return state.bridge.leaderboards.type || 'not_available';
+  },
+
+  // Sends a score. Never throws and never holds the game up.
+  submitScore(id, score) {
+    if (this.leaderboardMode() === 'not_available') return;
+    try {
+      withTimeout(Promise.resolve(state.bridge.leaderboards.setScore(id, score)), SDK_TIMEOUT_MS).catch(() => {});
+    } catch {
+      // A leaderboard that fails must not break the game.
+    }
+  },
+
+  // The top of a leaderboard: [{ name, score, rank }], or null if it can't be had here or now.
+  async leaderboardEntries(id) {
+    if (this.leaderboardMode() !== 'in_game') return null;
+    try {
+      const entries = await withTimeout(Promise.resolve(state.bridge.leaderboards.getEntries(id)), SDK_TIMEOUT_MS);
+      return Array.isArray(entries) ? entries.map((e) => ({ name: String(e.name || ''), score: Number(e.score) || 0, rank: Number(e.rank) || 0 })) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  showLeaderboard(id) {
+    if (this.leaderboardMode() !== 'native_popup') return;
+    try {
+      withTimeout(Promise.resolve(state.bridge.leaderboards.showNativePopup(id)), SDK_TIMEOUT_MS).catch(() => {});
+    } catch {
+      // Nothing to do.
+    }
+  },
+
   // Writes pending changes now (e.g. right after a run ends).
   flush() {
     if (!state.saveTimer) return;

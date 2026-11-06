@@ -776,7 +776,7 @@ const lock = (p) => {
     const catalogue = new Set(propCatalogue(map).map((e) => `${e.model}:${Math.round((e.heading * 180) / Math.PI)}`));
     const unknown = new Set(s.chunks.flatMap((c) => c.items.map((i) => `${i.model}:${Math.round((i.heading * 180) / Math.PI)}`)).filter((k) => !catalogue.has(k)));
     check(`${name}: every prop is drawn at startup`, unknown.size === 0, [...unknown].slice(0, 4).join(' '));
-    check(`${name}: few distinct prop drawings`, catalogue.size < 130, `${catalogue.size}`);
+    check(`${name}: few distinct prop drawings`, catalogue.size < 140, `${catalogue.size}`);
     check(`${name}: the prop pool covers the fullest chunks`, s.fullest * 9 <= CHUNKS.propPool, `fullest ${s.fullest}`);
     // Nothing that blocks or swallows a car on a road (bridge decks are the road; railings stand just beside it).
     const strip = WORLD.margin - 25;

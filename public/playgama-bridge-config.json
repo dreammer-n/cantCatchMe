@@ -5,11 +5,37 @@
     "minimumDelayBetweenInterstitial": 120,
     "initialInterstitialDelay": 120,
     "interstitial": {
-      "placements": [{ "id": "game_over" }]
+      "placements": [
+        {
+          "id": "game_over"
+        }
+      ]
     },
     "rewarded": {
-      "placements": [{ "id": "double_coins" }, { "id": "revive" }]
+      "placements": [
+        {
+          "id": "double_coins"
+        },
+        {
+          "id": "revive"
+        }
+      ]
     }
   },
-  "platforms": {}
+  "platforms": {},
+  "leaderboards": [
+    {
+      "id": "hard_best",
+      "isMain": true
+    }
+  ],
+  "saas": {
+    "publicToken": "cmw0g924x0oomlf0hyzh31c93",
+    "leaderboards": {
+      "platforms": [
+        "playgama",
+        "qa_tool"
+      ]
+    }
+  }
 }

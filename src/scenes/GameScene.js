@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
 import {
   WORLD,
+  LEADERBOARD,
   applyMapPalette,
   handlingFor,
   AUDIO,
@@ -54,6 +55,7 @@ import { SirenBeams } from '../render/SirenBeams.js';
 import { ChaseSimulation } from '../systems/ChaseSimulation.js';
 import { HitStop } from '../systems/HitStop.js';
 import { Records, Garage, coinsForRun, Maps } from '../systems/ScoreSystem.js';
+import { Settings } from '../systems/Settings.js';
 import { ThreatRadar } from '../systems/ThreatRadar.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
@@ -266,6 +268,7 @@ export class GameScene extends Phaser.Scene {
     this.finishWarmUp();
     this.useSelectedCar();
     this.useSelectedMap();
+    this.sim.setPace({ hard: Settings.hardStart, policeScale: Maps.current().policeScale || 1 });
     this.sim.reset(seed);
     this.hitStop.reset();
     this.pendingPower = false;
@@ -325,7 +328,11 @@ export class GameScene extends Phaser.Scene {
     const newBest = summary.time > Maps.bestTime(Maps.selected);
     const mapUnlocks = Maps.submit(summary.time);
     const nextMap = Maps.nextLocked();
-    const coins = coinsForRun(summary);
+    const coins = coinsForRun(summary, this.sim.pace.hard);
+    if (this.sim.pace.hard) {
+      const score = Records.submitHard(summary.time);
+      if (score !== null) PlatformManager.submitScore(LEADERBOARD.id, score);
+    }
     Garage.award(coins.total);
     PlatformManager.flush();
     this.audio.quiet();

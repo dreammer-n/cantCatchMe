@@ -120,18 +120,75 @@ export function simulateAd() {
   });
 }
 
+// The HARD START leaderboard, on platforms where the game draws it itself.
+export class LeaderboardScreen extends Screen {
+  constructor({ onClose }) {
+    const list = el('ol', 'board-list');
+    const status = dt('board-status', '');
+    const mine = dt('board-mine', '');
+    super('board', [
+      el('h2', 'screen-title', [dt('', 'HARD START')]),
+      dt('board-sub', 'LONGEST RUNS'),
+      list,
+      status,
+      mine,
+      textButton('btn-primary', 'BACK', onClose, 'Back'),
+    ]);
+    this.list = list;
+    this.status = status;
+    this.mine = mine;
+  }
+
+  showLoading(best) {
+    this.list.replaceChildren();
+    setDisplay(this.status, 'LOADING');
+    setDisplay(this.mine, best > 0 ? `YOUR BEST: ${formatClock(best)}` : 'NO HARD START RUN YET');
+    this.show();
+  }
+
+  // entries: [{ name, score, rank }] or null if they couldn't be had.
+  showEntries(entries, shown) {
+    if (!entries) {
+      setDisplay(this.status, "COULDN'T LOAD THE LEADERBOARD");
+      return;
+    }
+    setDisplay(this.status, entries.length ? '' : 'NO RUNS YET: BE THE FIRST');
+    this.list.replaceChildren(
+      ...entries.slice(0, shown).map((entry, i) => {
+        // Names are the players' own: plain text, never the game's lettering, which can't draw every character.
+        const name = el('span', 'board-name');
+        name.textContent = entry.name || 'PLAYER';
+        return el('li', 'board-row', [dt('board-rank', String(entry.rank || i + 1)), name, dt('board-time', formatClock(entry.score))]);
+      }),
+    );
+  }
+}
+
 export class MenuScreen extends Screen {
-  constructor({ onPlay, onSound, onMusic, onGarage, onMaps }) {
+  constructor({ onPlay, onSound, onMusic, onGarage, onMaps, onHardStart, onBoard }) {
     const logo = el('h1', 'logo', [dt('logo-line', "CAN'T"), dt('logo-line', 'CATCH'), dt('logo-line logo-me', 'ME!')]);
     const play = textButton('btn-primary btn-play', 'PLAY', onPlay, 'Play', ICONS.play);
     const mapName = dt('menu-map', '');
     const sound = soundButton(onSound);
     const music = musicButton(onMusic);
     const hint = dt('menu-hint', '');
+    // HARD START: a switch. Off, it says what it would do; on, it says it is on and what it pays.
+    const hardLabel = dt('', '');
+    const hard = button('btn btn-secondary btn-hard', '', () => onHardStart(), 'Hard start on / off');
+    hard.append(hardLabel);
+    hard.setOn = (on) => {
+      setDisplay(hardLabel, on ? `HARD START: ON · COINS ×${COINS.hardShare}` : 'HARD START: OFF');
+      hard.classList.toggle('on', on);
+      hard.setAttribute('aria-pressed', String(on));
+    };
+    // The leaderboard, only where there is one to show.
+    const board = button('btn btn-icon btn-board', ICONS.trophy, () => onBoard(), 'Hard start leaderboard');
     super('menu', [
       el('div', 'menu-top', [logo]),
-      el('div', 'menu-bottom', [mapName, play, el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MAPS', onMaps, 'Maps'), sound, music]), hint]),
+      el('div', 'menu-bottom', [mapName, play, el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MAPS', onMaps, 'Maps'), sound, music, board]), hard, hint]),
     ]);
+    this.hard = hard;
+    this.board = board;
     this.balance = coinBadge();
     this.stars = starBadge();
     this.node.append(this.balance, this.stars);
@@ -147,8 +204,10 @@ export class MenuScreen extends Screen {
     setDisplay(this.mapName, Maps.current().name);
   }
 
-  show({ soundOn, musicOn, touch, coins }) {
+  show({ soundOn, musicOn, touch, coins, hardStart, boardShown }) {
     this.refresh(coins);
+    this.hard.setOn(hardStart);
+    this.board.hidden = !boardShown;
     this.sound.setOn(soundOn);
     this.music.setOn(musicOn);
     setDisplay(this.hint, touch ? 'HOLD LEFT OR RIGHT TO STEER · DOUBLE TAP: POWER-UP' : 'STEER WITH A D OR ARROWS · SPACE: POWER-UP');
@@ -289,7 +348,7 @@ export class GameOverScreen extends Screen {
   show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode }) {
     this.showCoins(balance);
     this.coinTotal = coins.total;
-    setDisplay(this.breakdown, `TIME +${formatCoins(coins.time)} · WRECKS +${formatCoins(coins.wrecks)} · COMBO +${formatCoins(coins.combo)}`);
+    setDisplay(this.breakdown, `TIME +${formatCoins(coins.time)} · WRECKS +${formatCoins(coins.wrecks)} · COMBO +${formatCoins(coins.combo)}${coins.hard ? ` · HARD START +${formatCoins(coins.hard)}` : ''}`);
     if (this.stopCount) this.stopCount();
     this.stopCount = countUp(this.earned, 0, doubled ? coins.total * 2 : coins.total, COINS.tallyMs);
     this.double.hidden = adMode === 'none' || coins.total === 0;

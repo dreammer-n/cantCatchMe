@@ -334,11 +334,22 @@ const run = (s, seconds, steer = 0) => {
   check('distance reads in metres', formatDistance(0) === '0.00 M' && formatDistance(T.UNITS_PER_METER * 48.82) === '48.82 M' && formatDistance(T.UNITS_PER_METER * 1234.5) === '1,234.50 M', formatDistance(T.UNITS_PER_METER * 1234.5));
 }
 
+// ---- HARD START pays more ----
+{
+  const run = { time: 60, wrecks: 4, combo: 2 };
+  const normal = coinsForRun(run);
+  const hard = coinsForRun(run, true);
+  check('HARD START pays half as much again', hard.total === Math.round(normal.total * T.COINS.hardShare) && hard.hard > 0 && normal.hard === 0, `${normal.total} -> ${hard.total}`);
+}
+
 // ---- Maps, and the stars that open them ----
 {
   Maps.restore(null, null);
-  check('the first map is open from the start, the others locked', Maps.current().id === 'suburb' && MAPS.slice(1).every((m) => !Maps.isUnlocked(m)) && Maps.isUnlocked(MAPS[0]));
-  check('there are at least 4 maps, each needing more stars', MAPS.length >= 4 && MAPS.every((m, i) => i === 0 || m.stars > MAPS[i - 1].stars));
+  // The challenge map (bare) is open from the start; the others open one after another with stars.
+  const progression = MAPS.filter((m) => !m.bare);
+  check('the first map is open from the start, the others locked', Maps.current().id === 'suburb' && progression.slice(1).every((m) => !Maps.isUnlocked(m)) && Maps.isUnlocked(MAPS[0]));
+  check('there are at least 4 maps, each needing more stars', progression.length >= 4 && progression.every((m, i) => i === 0 || m.stars > progression[i - 1].stars));
+  check('the challenge map is open from the start', MAPS.filter((m) => m.bare).every((m) => Maps.isUnlocked(m)));
   check('a locked map can\'t be selected', !Maps.select('winter') && Maps.selected === 'suburb');
   check('nor can one that doesn\'t exist', !Maps.select('moon') && Maps.selected === 'suburb');
   check('the next locked map is named, with the stars it needs', Maps.nextLocked().map.id === 'winter' && Maps.nextLocked().needed === 3);
@@ -415,7 +426,8 @@ const run = (s, seconds, steer = 0) => {
     check(`${map.name}: everything on it is drawn at startup`, missing === '', missing.slice(0, 120));
     check(`${map.name}: its props have models`, propCatalogue(map).every((e) => propMesh(e).length > 0));
     const start = buildChunk(Math.floor(START.x / CHUNKS.size), Math.floor(START.y / CHUNKS.size), undefined, map);
-    check(`${map.name}: it has a gas station at the start`, start.items.filter((i) => i.kind === 'canopy').length === 1);
+    if (map.bare) check(`${map.name}: nothing at all stands on it, and there are no holes`, start.items.length === 0 && start.voids.length === 0 && start.surfaces.length === 0);
+    else check(`${map.name}: it has a gas station at the start`, start.items.filter((i) => i.kind === 'canopy').length === 1);
     check(`${map.name}: the start is clear`, [...start.items, ...start.voids].every((i) => Math.hypot(i.x - START.x, i.y - START.y) >= START.clearRadius));
     const sim = new ChaseSimulation({ layout: buildLayout(undefined, map), handling: HANDLING_PRESETS.balanced });
     sim.reset(1);

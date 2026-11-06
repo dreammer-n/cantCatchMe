@@ -54,9 +54,14 @@ export function pineTree(size = 1) {
 // A round deciduous tree: a faceted ball of leaves on a brown trunk.
 export function leafyTree(size = 1, color = PALETTE.leafy) {
   const s = size * SCENERY.treeScale;
+  const crown = (x, y, z0, z1, radius, tone, layer, seed) =>
+    roughen(faceted({ x: x * s, y: y * s, z0: z0 * s, z1: z1 * s, radius: radius * s, color: shadeColor(color, tone), sides: 7, layer, rings: [[0, 0.45], [0.25, 0.9], [0.55, 1], [0.82, 0.66], [1, 0]] }), 0.14, seed, x * s, y * s);
   return [
-    ngon({ sides: 5, r0: 5 * s, r1: 4 * s, z0: 0, z1: 26 * s, color: PALETTE.trunk, layer: 0 }),
-    faceted({ z0: 20 * s, z1: 76 * s, radius: 33 * s, color, sides: 8, layer: 1, rings: [[0, 0.42], [0.22, 0.88], [0.5, 1], [0.78, 0.68], [1, 0]] }),
+    ngon({ sides: 5, r0: 6.5 * s, r1: 3.6 * s, z0: 0, z1: 8 * s, color: PALETTE.trunk, layer: 0 }),
+    ngon({ sides: 5, r0: 3.6 * s, r1: 3 * s, z0: 8 * s, z1: 34 * s, color: PALETTE.trunk, layer: 0 }),
+    crown(4, 6, 22, 60, 25, 0.86, 1, 1),
+    crown(-9, -4, 26, 66, 22, 1, 2, 2),
+    crown(6, -8, 40, 80, 19, 1.12, 3, 3),
   ];
 }
 
@@ -75,18 +80,59 @@ export function snowPine(size = 1) {
   ];
 }
 
+// Stretches a model: sx across, sz up. For tall-and-thin or short-and-wide versions of a tree.
+function stretch(parts, sx, sz) {
+  for (const part of parts) {
+    for (const v of part.verts) {
+      v[0] *= sx;
+      v[1] *= sx;
+      v[2] *= sz;
+    }
+    for (const face of part.faces) if (face.quad) for (const v of face.quad) { v[0] *= sx; v[1] *= sx; v[2] *= sz; }
+  }
+  return parts;
+}
+
+// A tall, slim tree: a crooked trunk that splits into branches, each ending in its own small clump of leaves at a
+// different height (after the owner's reference picture).
+export function branchyTree(size = 1, color = PALETTE.leafy) {
+  const s = size * SCENERY.treeScale;
+  const bark = PALETTE.trunk;
+  const at = (x, y, z) => [x * s, y * s, z * s];
+  const clump = (x, y, z, r, tone, layer, seed) =>
+    roughen(faceted({ x: x * s, y: y * s, z0: (z - r * 0.8) * s, z1: (z + r * 0.9) * s, radius: r * s, color: shadeColor(color, tone), sides: 6, layer, rings: [[0, 0.5], [0.3, 0.95], [0.62, 1], [0.86, 0.6], [1, 0]] }), 0.16, seed, x * s, y * s);
+  return [
+    ngon({ sides: 5, r0: 4.2 * s, r1: 3 * s, z0: 0, z1: 30 * s, color: bark, layer: 0 }),
+    twig(at(0, 0, 28), at(3, -1, 62), 4.6 * s, bark, 0),
+    twig(at(3, -1, 60), at(1, 0, 92), 3.6 * s, bark, 0),
+    twig(at(0, 0, 34), at(-16, 3, 48), 2.4 * s, bark, 1),
+    twig(at(2, -1, 50), at(16, -2, 66), 2.4 * s, bark, 1),
+    twig(at(3, -1, 70), at(-12, -3, 82), 2.2 * s, bark, 1),
+    clump(-17, 3, 50, 10, 1, 2, 1),
+    clump(17, -2, 68, 12, 0.92, 2, 2),
+    clump(-12, -3, 84, 11, 1.08, 3, 3),
+    clump(2, 0, 98, 14, 1, 4, 4),
+  ];
+}
+
+// A young tree: a thin trunk and one small crown.
+export function saplingTree(size = 1, color = PALETTE.leafy) {
+  const s = size * SCENERY.treeScale;
+  return [
+    ngon({ sides: 5, r0: 2.6 * s, r1: 2 * s, z0: 0, z1: 26 * s, color: PALETTE.trunk, layer: 0 }),
+    roughen(faceted({ z0: 20 * s, z1: 46 * s, radius: 14 * s, color: shadeColor(color, 1.08), sides: 6, layer: 1, rings: [[0, 0.5], [0.3, 0.95], [0.6, 1], [0.85, 0.6], [1, 0]] }), 0.15, 6, 0, 0),
+  ];
+}
+
 // A cactus: a tall ribbed column with two arms.
-export function cactus(size = 1) {
+export function cactus(size = 1, arms = 2) {
   const s = size * SCENERY.treeScale * 1.15;
   const c = PALETTE.cactus;
   const column = (x, y, r, z0, z1, layer) => ngon({ x, y, sides: 6, r0: r * s, r1: r * s * 0.85, z0: z0 * s, z1: z1 * s, color: c, layer });
-  return [
-    column(0, 0, 8, 0, 72, 2),
-    box(-20 * s, -6 * s, -3.5 * s, 3.5 * s, 32 * s, 40 * s, c, 1),
-    column(-20 * s, 0, 4.5, 32, 58, 1),
-    box(6 * s, 19 * s, -3.5 * s, 3.5 * s, 22 * s, 30 * s, c, 3),
-    column(19 * s, 0, 4.5, 22, 46, 3),
-  ];
+  const parts = [column(0, 0, 8, 0, arms === 0 ? 58 : 72, 2)];
+  if (arms >= 1) parts.push(box(-20 * s, -6 * s, -3.5 * s, 3.5 * s, 32 * s, 40 * s, c, 1), column(-20 * s, 0, 4.5, 32, 58, 1));
+  if (arms >= 2) parts.push(box(6 * s, 19 * s, -3.5 * s, 3.5 * s, 22 * s, 30 * s, c, 3), column(19 * s, 0, 4.5, 22, 46, 3));
+  return parts;
 }
 
 // A bare dead tree, orange against the grass.
@@ -114,11 +160,24 @@ export function felledLog() {
 }
 
 // A great red rock, flat-topped.
-export function mesa(size = 1) {
+// shape: 'mound' (a broad banded rock), 'butte' (steep sides, a flat top), 'spire' (tall and narrow).
+export function mesa(size = 1, shape = 'mound') {
   const r = WORLD.mesaRadius * size;
-  return [
-    faceted({ z0: 0, z1: r * 0.85, radius: r * 1.2, color: PALETTE.mesa, sides: 8, rings: [[0, 1], [0.55, 0.9], [0.95, 0.62], [1, 0]] }),
-  ];
+  const bands = [shadeColor(PALETTE.mesa, 0.88), PALETTE.mesa, shadeColor(PALETTE.mesa, 1.14), shadeColor(PALETTE.mesa, 0.96)];
+  if (shape === 'butte') {
+    const rock = roughen(faceted({ z0: 0, z1: r * 1.5, radius: r * 1.05, color: PALETTE.mesa, sides: 7, rings: [[0, 1], [0.3, 0.97], [0.85, 0.9], [0.97, 0.82], [1, 0]] }), 0.1, size * 3, 0, 0);
+    band(rock, r * 1.5, bands);
+    return [rock];
+  }
+  if (shape === 'spire') {
+    const rock = roughen(faceted({ z0: 0, z1: r * 2.1, radius: r * 0.75, color: PALETTE.mesa, sides: 6, rings: [[0, 1], [0.35, 0.82], [0.7, 0.6], [0.92, 0.42], [1, 0]] }), 0.14, size * 5, 0, 0);
+    band(rock, r * 2.1, bands);
+    return [rock, roughen(faceted({ x: r * 0.8, y: r * 0.3, z0: 0, z1: r * 0.45, radius: r * 0.4, color: shadeColor(PALETTE.mesa, 0.9), sides: 5, layer: 1, rings: [[0, 1], [0.6, 0.8], [1, 0]] }), 0.2, size * 7, r * 0.8, r * 0.3)];
+  }
+  const rock = roughen(faceted({ z0: 0, z1: r * 0.95, radius: r * 1.18, color: PALETTE.mesa, sides: 7, rings: [[0, 1], [0.35, 0.97], [0.7, 0.86], [0.93, 0.62], [1, 0]] }), 0.16, size * 7, 0, 0);
+  band(rock, r * 0.95, [shadeColor(PALETTE.mesa, 0.88), PALETTE.mesa, shadeColor(PALETTE.mesa, 1.14), shadeColor(PALETTE.mesa, 0.96)]);
+  const stone = roughen(faceted({ x: r * 1.05, y: -r * 0.55, z0: 0, z1: r * 0.38, radius: r * 0.36, color: shadeColor(PALETTE.mesa, 0.9), sides: 5, layer: 1, rings: [[0, 1], [0.6, 0.8], [1, 0]] }), 0.2, size * 11, r * 1.05, -r * 0.55);
+  return [rock, stone];
 }
 
 // A water tower: four wooden legs under a round tank with a pointed lid.
@@ -159,9 +218,55 @@ export function cabin() {
 }
 
 // A low-poly grey rock.
-export function boulder(size = 1) {
+// shape: 'lump' (a rounded lump with a stone at its foot), 'slab' (low and flat), 'jagged' (tall and broken),
+// 'pile' (two or three stones together).
+export function boulder(size = 1, shape = 'lump') {
   const r = WORLD.boulderRadius * size;
-  return [faceted({ z0: 0, z1: r * 1.5, radius: r * 1.25, color: PALETTE.boulder, sides: 6, rings: [[0, 0.92], [0.45, 1], [0.8, 0.6], [1, 0]] })];
+  const c = PALETTE.boulder;
+  const piece = (x, y, height, radius, tone, layer, seed, sides = 5) =>
+    roughen(faceted({ x, y, z0: 0, z1: height, radius, color: shadeColor(c, tone), sides, layer, rings: [[0, 1], [0.55, 0.8], [1, 0]] }), 0.24, seed, x, y);
+  if (shape === 'slab') {
+    return [roughen(faceted({ z0: 0, z1: r * 0.55, radius: r * 1.45, color: c, sides: 7, rings: [[0, 1], [0.6, 0.95], [0.9, 0.7], [1, 0]] }), 0.2, size * 13, 0, 0)];
+  }
+  if (shape === 'jagged') {
+    return [
+      roughen(faceted({ z0: 0, z1: r * 2, radius: r * 0.95, color: c, sides: 5, rings: [[0, 1], [0.4, 0.8], [0.75, 0.45], [1, 0]] }), 0.3, size * 17, 0, 0),
+      piece(r * 0.9, -r * 0.5, r * 0.7, r * 0.5, 0.9, 1, size * 19),
+    ];
+  }
+  if (shape === 'pile') {
+    return [
+      piece(-r * 0.45, r * 0.2, r * 0.9, r * 0.75, 1, 0, size * 23, 6),
+      piece(r * 0.55, -r * 0.1, r * 0.75, r * 0.65, 0.88, 1, size * 29, 6),
+      piece(0, -r * 0.65, r * 0.55, r * 0.5, 1.08, 2, size * 31),
+    ];
+  }
+  const rock = roughen(faceted({ z0: 0, z1: r * 1.15, radius: r * 1.2, color: PALETTE.boulder, sides: 6, rings: [[0, 0.95], [0.4, 1], [0.8, 0.74], [1, 0]] }), 0.24, size * 5, 0, 0);
+  const stone = roughen(faceted({ x: r * 1.05, y: r * 0.45, z0: 0, z1: r * 0.55, radius: r * 0.45, color: shadeColor(PALETTE.boulder, 0.9), sides: 5, layer: 1, rings: [[0, 1], [0.55, 0.8], [1, 0]] }), 0.22, size * 9, r * 1.05, r * 0.45);
+  return [rock, stone];
+}
+
+// Pushes the points of a faceted solid about, so it is a lump rather than a perfectly round shape. The same
+// every time for the same seed. (cx, cy): its middle.
+function roughen(part, amount, seed, cx, cy) {
+  const top = Math.max(...part.verts.map((v) => v[2]));
+  part.verts.forEach((v, i) => {
+    const r1 = Math.sin((i + 1) * 12.9898 + seed * 78.233) * 43758.5453;
+    const r2 = Math.sin((i + 1) * 39.3468 + seed * 11.135) * 24634.6345;
+    const k = 1 + ((r1 - Math.floor(r1)) - 0.5) * 2 * amount;
+    v[0] = cx + (v[0] - cx) * k;
+    v[1] = cy + (v[1] - cy) * k;
+    if (v[2] > 0) v[2] = Math.min(top * 1.05, v[2] * (1 + ((r2 - Math.floor(r2)) - 0.5) * amount));
+  });
+  return part;
+}
+
+// Colours a rock's faces in bands by height, like layered stone. colors: from the bottom up.
+function band(part, height, colors) {
+  for (const face of part.faces) {
+    const z = face.v.reduce((sum, i) => sum + part.verts[i][2], 0) / face.v.length;
+    face.color = colors[Math.min(colors.length - 1, Math.floor((z / height) * colors.length))];
+  }
 }
 
 // A park bench: wooden slats on a dark frame. Runs along local x; its seat faces local -y.
@@ -611,9 +716,18 @@ export function propMesh(item) {
       return island(p.length, p.width);
     case 'tree':
       if (p.treeKind === 'pine') return pineTree(p.size);
+      if (p.treeKind === 'pineTall') return stretch(pineTree(p.size), 0.78, 1.32);
+      if (p.treeKind === 'pineWide') return stretch(pineTree(p.size), 1.22, 0.8);
       if (p.treeKind === 'snowpine') return snowPine(p.size);
+      if (p.treeKind === 'snowpineTall') return stretch(snowPine(p.size), 0.8, 1.3);
+      if (p.treeKind === 'snowpineWide') return stretch(snowPine(p.size), 1.2, 0.82);
       if (p.treeKind === 'cactus') return cactus(p.size);
+      if (p.treeKind === 'cactusOne') return cactus(p.size, 1);
+      if (p.treeKind === 'cactusPlain') return cactus(p.size, 0);
       if (p.treeKind === 'dead') return deadTree(p.size);
+      if (p.treeKind === 'deadTall') return stretch(deadTree(p.size), 0.85, 1.35);
+      if (p.treeKind === 'branchy') return branchyTree(p.size);
+      if (p.treeKind === 'sapling') return saplingTree(p.size);
       return leafyTree(p.size, PALETTE[p.treeKind]);
     case 'lamp':
       return lampPost();
@@ -644,7 +758,7 @@ export function propMesh(item) {
     case 'log':
       return felledLog();
     case 'mesa':
-      return mesa(p.size);
+      return mesa(p.size, p.shape);
     case 'tower':
       return waterTower();
     case 'cabin':
@@ -660,7 +774,7 @@ export function propMesh(item) {
     case 'bench':
       return bench();
     case 'boulder':
-      return boulder(p.size);
+      return boulder(p.size, p.shape);
     case 'billboard':
       return billboard();
     case 'hydrant':

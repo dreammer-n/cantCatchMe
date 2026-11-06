@@ -1,8 +1,9 @@
 import * as Phaser from 'phaser';
 import { PlatformManager } from '../platform/PlatformManager.js';
-import { Garage } from '../systems/ScoreSystem.js';
+import { LEADERBOARD } from '../config/tuning.js';
+import { Garage, Records } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
-import { MenuScreen } from '../ui/Screens.js';
+import { LeaderboardScreen, MenuScreen } from '../ui/Screens.js';
 
 // Title screen (HTML) over the world, where the player's car waits on the start ring.
 // Play with the button, Enter / Space or gamepad A.
@@ -21,10 +22,13 @@ export class MenuScene extends Phaser.Scene {
         onMusic: () => this.toggleMusic(),
         onGarage: () => this.openOver('GarageScene', { from: 'MenuScene' }),
         onMaps: () => this.openOver('MapScene'),
+        onHardStart: () => this.toggleHardStart(),
+        onBoard: () => this.openBoard(),
       });
     }
     const touch = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
-    this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, touch, coins: Garage.coins });
+    const boardMode = PlatformManager.leaderboardMode();
+    this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, touch, coins: Garage.coins, hardStart: Settings.hardStart, boardShown: boardMode === 'in_game' || boardMode === 'native_popup' });
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     const close = () => this.close();
     this.game.events.once('run-started', close);
@@ -64,6 +68,36 @@ export class MenuScene extends Phaser.Scene {
   close() {
     this.screen.hide();
     this.scene.stop();
+  }
+
+  // The HARD START leaderboard: the platform's own window where it has one, otherwise the game's screen.
+  async openBoard() {
+    if (!this.screen || this.screen.node.hidden) return;
+    this.audio.unlock();
+    this.audio.play('click');
+    if (PlatformManager.leaderboardMode() === 'native_popup') {
+      PlatformManager.showLeaderboard(LEADERBOARD.id);
+      return;
+    }
+    if (!this.boardScreen) this.boardScreen = new LeaderboardScreen({ onClose: () => this.closeBoard() });
+    this.screen.hide();
+    this.boardScreen.showLoading(Records.hardBest);
+    const entries = await PlatformManager.leaderboardEntries(LEADERBOARD.id);
+    if (!this.boardScreen.node.hidden) this.boardScreen.showEntries(entries, LEADERBOARD.shown);
+  }
+
+  closeBoard() {
+    this.audio.play('click');
+    this.boardScreen.hide();
+    this.screen.node.hidden = false;
+    this.readyAt = this.time.now + 250;
+  }
+
+  toggleHardStart() {
+    this.audio.unlock();
+    Settings.setHardStart(!Settings.hardStart);
+    this.screen.hard.setOn(Settings.hardStart);
+    this.audio.play('click');
   }
 
   toggleSound() {

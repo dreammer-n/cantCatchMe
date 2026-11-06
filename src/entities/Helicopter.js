@@ -1,4 +1,4 @@
-import { HELICOPTER } from '../config/tuning.js';
+import { HEAT_HARD, HELICOPTER } from '../config/tuning.js';
 import { clamp, headingOf, lerp, smoothFactor, wrapAngle } from '../utils/math.js';
 
 // The police helicopter, as pure logic (no Phaser; render/HelicopterView.js draws it). It can't be hit
@@ -44,7 +44,7 @@ export class Helicopter {
   update(sim, dt) {
     const player = sim.player;
     if (!this.active) {
-      if (sim.state === 'running' && sim.time >= HELICOPTER.firstAt) this.arrive(sim);
+      if (sim.state === 'running' && sim.time >= (sim.pace && sim.pace.hard ? HEAT_HARD.helicopterAt : HELICOPTER.firstAt)) this.arrive(sim);
       else return;
     }
     this.clock += dt;

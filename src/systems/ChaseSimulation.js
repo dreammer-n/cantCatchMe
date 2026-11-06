@@ -9,7 +9,7 @@ import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keep
 import { steerPolice } from './PolicePursuit.js';
 import { PowerUps } from './PowerUpSystem.js';
 import { RunStats } from './ScoreSystem.js';
-import { SpawnDirector, isOnScreen } from './SpawnSystem.js';
+import { NORMAL_PACE, SpawnDirector, isOnScreen } from './SpawnSystem.js';
 import { nearestRoadPoint } from './WorldLayout.js';
 
 // One chase, as pure game logic (no Phaser, no drawing, no sound), so it can be tested and
@@ -21,6 +21,8 @@ const MAX_SUBSTEP = 1 / 60;
 
 export class ChaseSimulation {
   constructor({ layout, handling }) {
+    // How a run is paced: HARD START, and how many police the map has (SpawnSystem.difficultyAt). Set before reset.
+    this.pace = NORMAL_PACE;
     this.world = new StaticWorld();
     this.chunks = new ChunkManager(layout, this.world);
     this.player = new Car(handling);
@@ -66,6 +68,10 @@ export class ChaseSimulation {
     return CRASH.playerImpact * (this.car ? this.car.durability : 1);
   }
 
+  setPace(pace) {
+    this.pace = { ...NORMAL_PACE, ...pace };
+  }
+
   reset(seed) {
     this.rng = createRng(seed);
     this.time = 0;
@@ -84,7 +90,7 @@ export class ChaseSimulation {
     this.bodies.push(this.playerBody);
     this.chunks.update(START.x, START.y);
     for (const cone of this.cones) resetCone(cone);
-    this.spawner.reset();
+    this.spawner.reset(this.pace);
     this.powerUps.reset(this);
     this.helicopter.reset(this);
     this.airstrike.reset();

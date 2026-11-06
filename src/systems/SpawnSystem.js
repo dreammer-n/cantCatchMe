@@ -1,4 +1,4 @@
-import { BEARCAT, HEAT, INTERCEPTOR, POLICE, ROADBLOCK, SPAWN, WORLD } from '../config/tuning.js';
+import { BEARCAT, HEAT, HEAT_HARD, HELICOPTER, INTERCEPTOR, POLICE, ROADBLOCK, SPAWN, WORLD } from '../config/tuning.js';
 import { projection } from '../render/projection.js';
 import { clamp, degToRad, lerp, tableLookup } from '../utils/math.js';
 import { nearestRoadPoint, pointOnRoad } from './WorldLayout.js';
@@ -8,16 +8,28 @@ const ground = { x: 0, y: 0, northSouth: false };
 const DIRECTION = { x: 0, y: 0 };
 
 // How hard the run is at a given time (seconds of survival). See HEAT in tuning.js.
-export function difficultyAt(time) {
+// pace: { hard: HARD START is on, policeScale: the map's share of police } (ChaseSimulation.pace).
+export function difficultyAt(time, pace = NORMAL_PACE) {
+  const heat = pace.hard ? HEAT_HARD : HEAT;
   return {
-    targetPolice: Math.min(POLICE.maxActive, Math.round(tableLookup(HEAT.police, time))),
+    targetPolice: Math.min(POLICE.maxActive, Math.round(tableLookup(heat.police, time) * pace.policeScale)),
     interval: lerp(SPAWN.intervalStart, SPAWN.intervalEnd, clamp(time / SPAWN.intervalRampSeconds, 0, 1)),
-    interceptorShare: tableLookup(HEAT.interceptorShare, time),
-    bearcatShare: tableLookup(HEAT.bearcatShare, time),
-    speedFactor: tableLookup(HEAT.speedFactor, time),
-    turnDeg: tableLookup(HEAT.turnDeg, time),
-    reaction: tableLookup(HEAT.reaction, time),
+    interceptorShare: tableLookup(heat.interceptorShare, time),
+    bearcatShare: tableLookup(heat.bearcatShare, time),
+    speedFactor: tableLookup(heat.speedFactor, time),
+    turnDeg: tableLookup(heat.turnDeg, time),
+    reaction: tableLookup(heat.reaction, time),
   };
+}
+
+export const NORMAL_PACE = { hard: false, policeScale: 1 };
+
+// When the first roadblock and the helicopter come.
+export function roadblockStart(pace = NORMAL_PACE) {
+  return pace.hard ? HEAT_HARD.roadblockAt : ROADBLOCK.firstAt;
+}
+export function helicopterStart(pace = NORMAL_PACE) {
+  return pace.hard ? HEAT_HARD.helicopterAt : HELICOPTER.firstAt;
 }
 
 // Is a ground point inside the visible screen area (plus `margin` screen units)?
@@ -44,9 +56,9 @@ function travelDirection(player) {
 // Keeps the number of police on the map at the level the run's difficulty asks for, and every so
 // often parks a roadblock on a crossing ahead.
 export class SpawnDirector {
-  reset() {
+  reset(pace = NORMAL_PACE) {
     this.cooldown = 0;
-    this.nextRoadblock = ROADBLOCK.firstAt;
+    this.nextRoadblock = roadblockStart(pace);
   }
 
   update(sim, dt, view) {
@@ -57,7 +69,7 @@ export class SpawnDirector {
     }
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
-    const level = difficultyAt(sim.time);
+    const level = difficultyAt(sim.time, sim.pace);
     if (sim.pursuers >= level.targetPolice || sim.activeCars >= POLICE.maxCars) return;
     this.cooldown = this.trySpawn(sim, view, level) ? level.interval : 0.15;
   }

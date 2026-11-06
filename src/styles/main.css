@@ -188,6 +188,61 @@ body {
   height: 22px;
 }
 
+/* The HARD START leaderboard. */
+.board-sub {
+  font-size: clamp(12px, 3vmin, 16px);
+  color: var(--amber);
+}
+
+.board-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: 2.4em 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--panel);
+  font-size: clamp(12px, 3vmin, 16px);
+}
+
+.board-rank {
+  color: var(--amber);
+}
+
+.board-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font: 700 1em / 1.2 var(--font);
+}
+
+.board-status,
+.board-mine {
+  font-size: clamp(11px, 2.8vmin, 14px);
+  color: rgba(244, 239, 230, 0.8);
+}
+
+/* HARD START: small, and dim while off; amber lettering while on. */
+.btn-hard {
+  min-height: 38px;
+  font-size: clamp(11px, 2.8vmin, 14px);
+  color: rgba(244, 239, 230, 0.6);
+}
+
+.btn-hard.on {
+  color: var(--amber);
+}
+
 .btn-sound.off {
   color: rgba(244, 239, 230, 0.5);
 }

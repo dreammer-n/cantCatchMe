@@ -40,6 +40,12 @@ function policeAt(x, y, headingDeg, role, options = {}) {
   check('early on, police are slower than the player; by 2 minutes they match it', at(0).speedFactor < 0.95 && at(120).speedFactor >= 1 && at(240).speedFactor > at(120).speedFactor + 0.05, `${at(0).speedFactor} / ${at(120).speedFactor} / ${at(240).speedFactor}`);
   check('no more than 4 police in the first 90 s', at(90).targetPolice <= 4, `${at(90).targetPolice}`);
   check('after 3 minutes: a swarm, with more interceptors reacting faster', at(300).targetPolice > at(180).targetPolice && at(240).interceptorShare > at(90).interceptorShare && at(240).reaction < at(120).reaction, `${at(180).targetPolice} -> ${at(300).targetPolice} police`);
+  // HARD START: the old, harder start; and the challenge map's extra police.
+  const hard = { hard: true, policeScale: 1 };
+  check('HARD START: two police at once, interceptors from 15 s, faster than the player from the start', at(0, hard).targetPolice === 2 && at(15, hard).interceptorShare > 0.2 && at(0, hard).speedFactor > 1, `${at(0, hard).targetPolice}, ${at(0, hard).speedFactor}`);
+  check('HARD START: far more police by 1 minute than a normal run', at(60, hard).targetPolice >= at(60).targetPolice * 3, `${at(60, hard).targetPolice} against ${at(60).targetPolice}`);
+  const blacktop = T.MAPS.find((m) => m.bare);
+  check('the challenge map has more police than the others', at(120, { hard: false, policeScale: blacktop.policeScale }).targetPolice > at(120).targetPolice, `${at(120, { hard: false, policeScale: blacktop.policeScale }).targetPolice} against ${at(120).targetPolice}`);
   let rising = true;
   for (let t = 1; t < 400; t += 1) if (at(t).targetPolice < at(t - 1).targetPolice) rising = false;
   check('pressure never drops as the run goes on', rising);
