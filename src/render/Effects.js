@@ -1,11 +1,11 @@
 import * as Phaser from 'phaser';
-import { DEPTH, EFFECTS, FLAMER, FREEZE, PALETTE, RENDER } from '../config/tuning.js';
+import { DEPTH, EFFECTS, FLAMER, FREEZE, MAPS, PALETTE, RENDER } from '../config/tuning.js';
 import { chunkPose, stepChunk, stepChunkTurn } from './Tumble.js';
 import { DEBRIS, DEBRIS_KINDS, frameName, makeDebrisSheet, shardFrames } from './debrisModels.js';
 import { lerp } from '../utils/math.js';
 import { shadeColor } from './lowpoly.js';
 import { projection } from './projection.js';
-import { BLACKOUT, SLICK } from '../config/tuning.js';
+import { BLACKOUT } from '../config/tuning.js';
 import { paintBlob, paintEmber, paintFireCore, paintGlow, paintPool, paintPuff, paintRing, paintScorch } from './softShapes.js';
 
 const screen = { x: 0, y: 0 };
@@ -69,6 +69,41 @@ export class Effects {
         maxAliveParticles: EFFECTS.maxSmoke,
       })
       .setDepth(DEPTH.effects);
+    // Tire smoke the colour of each map's ground (MAPS tireDust), and what the tires throw up with it: grains of
+    // sand, clods of mud (snow uses the COLD SNAP flakes).
+    this.tireSmokes = new Map(
+      MAPS.map((map) => [
+        map.id,
+        scene.add
+          .particles(0, 0, 'fx-puff', {
+            ...base,
+            lifespan: { min: 460, max: 820 },
+            speedX: { min: -16, max: 16 },
+            speedY: { min: -30, max: -8 },
+            scale: { start: 0.28, end: 0.95, ease: 'Quad.easeOut' },
+            alpha: { start: 0.9, end: 0, ease: 'Cubic.easeIn' },
+            rotate: { min: 0, max: 360 },
+            tint: map.tireDust.tint,
+            maxAliveParticles: EFFECTS.maxSmoke,
+          })
+          .setDepth(DEPTH.effects),
+      ]),
+    );
+    const grains = (tint) =>
+      scene.add
+        .particles(0, 0, 'fx-ember', {
+          ...base,
+          lifespan: { min: 300, max: 600 },
+          speed: { min: 60, max: 170 },
+          angle: { min: 200, max: 340 },
+          gravityY: 700,
+          scale: { start: 0.4, end: 0.25 },
+          tint,
+          maxAliveParticles: EFFECTS.maxGrains,
+        })
+        .setDepth(DEPTH.effects + 1);
+    this.grains = { sand: grains([0xd8b27a, 0xb88a52]), mud: grains([0x5f4630, 0x7a5b3b, 0x4a3a28]) };
+    this.ground = null;
     this.darkSmoke = scene.add
       .particles(0, 0, 'fx-puff', {
         ...base,
@@ -221,19 +256,32 @@ export class Effects {
       })
       .setDepth(DEPTH.effects + 1);
 
-    // The Flamer's trail: big licking flames, drawn from the patches on the road.
-    this.trailFire = scene.add
+    // COLD SNAP: snowflakes flung out and drifting down, and clouds of powder snow.
+    this.snow = scene.add
       .particles(0, 0, 'fx-puff', {
         ...base,
-        lifespan: { min: 280, max: 560 },
-        speedX: { min: -12, max: 12 },
-        speedY: { min: -70, max: -30 },
-        scale: { start: 0.72, end: 0.12 },
-        color: [0xffe27a, 0xff9a2e, 0xe8451a],
-        maxAliveParticles: EFFECTS.maxTrailFire,
+        lifespan: { min: 1200, max: 2400 },
+        speed: { min: 30, max: 300 },
+        angle: { min: 0, max: 360 },
+        gravityY: 55,
+        scale: { start: 0.2, end: 0.07 },
+        alpha: { start: 1, end: 0, ease: 'Cubic.easeIn' },
+        tint: [0xffffff, 0xf0f8ff, 0xd6ecfa],
+        maxAliveParticles: EFFECTS.maxSnow,
       })
-      .setDepth(DEPTH.effects);
-
+      .setDepth(DEPTH.effects + 1);
+    // COLD SNAP's snow rides out on the ring: flakes and puffs of powder, each at its own share of the ring's
+    // reach, gone when the ring is.
+    this.ringSnow = Array.from({ length: EFFECTS.ringFlakes + EFFECTS.ringClouds }, (_, i) => ({
+      image: scene.add.image(0, 0, 'fx-puff').setVisible(false).setDepth(DEPTH.effects + 1),
+      cloud: i >= EFFECTS.ringFlakes,
+      angle: 0,
+      share: 1,
+      z: 0,
+      size: 1,
+      alpha: 1,
+    }));
+    this.snowBlast = null;
     // BLACKOUT: electric sparks crackling over dead police cars.
     this.sparks = scene.add
       .particles(0, 0, 'fx-ember', {
@@ -262,14 +310,40 @@ export class Effects {
         maxAliveParticles: EFFECTS.maxRocks,
       })
       .setDepth(DEPTH.effects + 1);
-    // SLICK: dark puddles on the road, each with a sheen.
-    this.puddles = Array.from({ length: SLICK.maxPuddles }, () => {
-      const oil = scene.add.image(0, 0, 'fx-blob').setTint(PALETTE.oil).setVisible(false);
-      const shine = scene.add.image(0, 0, 'fx-blob').setTint(PALETTE.oilShine).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
-      layers.ground.add(oil);
-      layers.ground.add(shine);
-      return { oil, shine, angle: Math.random() * 6 };
+    // A burst hydrant's fountain, and leaves, paper and splinters from things knocked flying.
+    this.water = scene.add
+      .particles(0, 0, 'fx-puff', {
+        ...base,
+        lifespan: { min: 550, max: 900 },
+        speedX: { min: -70, max: 70 },
+        speedY: { min: -340, max: -200 },
+        gravityY: 760,
+        scale: { start: 0.26, end: 0.12 },
+        alpha: { start: 0.9, end: 0 },
+        tint: [0xffffff, PALETTE.water, 0x9fd4ff],
+        maxAliveParticles: EFFECTS.maxWater,
+      })
+      .setDepth(DEPTH.effects);
+    this.bits = scene.add
+      .particles(0, 0, makeDebrisSheet(scene), {
+        ...base,
+        frame: shardFrames(),
+        lifespan: { min: 400, max: 800 },
+        speed: { min: 80, max: 240 },
+        angle: { min: 200, max: 340 },
+        gravityY: 900,
+        rotate: { start: 0, end: 540 },
+        scale: { start: 0.5, end: 0.3 },
+        maxAliveParticles: EFFECTS.maxBits,
+      })
+      .setDepth(DEPTH.effects + 1);
+    this.sprays = [];
+    this.wetPatches = Array.from({ length: 6 }, () => {
+      const image = scene.add.image(0, 0, 'fx-blob').setTint(PALETTE.wet).setVisible(false);
+      layers.ground.add(image);
+      return { image, age: 0 };
     });
+    this.nextWet = 0;
     // COLD SNAP: ice spreading over the road.
     this.ice = Array.from({ length: EFFECTS.maxIce }, () => {
       const image = scene.add.image(0, 0, 'fx-blob').setTint(PALETTE.frost).setVisible(false);
@@ -283,6 +357,22 @@ export class Effects {
       layers.lights.add(glow);
       return glow;
     });
+  }
+
+  // The map being driven: which tire smoke to use.
+  setGround(map) {
+    this.ground = map;
+  }
+
+  // Smoke and bits off a skidding tire, the colour of the ground.
+  tireDust(x, y) {
+    const map = this.ground || MAPS[0];
+    projection.toScreen(x, y, 4, screen);
+    this.tireSmokes.get(map.id).emitParticleAt(screen.x, screen.y, 1);
+    const bits = map.tireDust.bits;
+    if (!bits || Math.random() > EFFECTS.tireBitsChance) return;
+    if (bits === 'snow') this.snow.emitParticleAt(screen.x, screen.y - 4, 2);
+    else this.grains[bits].emitParticleAt(screen.x, screen.y, 2);
   }
 
   smokePuff(x, y, z = 4, dark = false) {
@@ -317,6 +407,40 @@ export class Effects {
     this.groundRing(x, y, big ? EFFECTS.ringRadiusBig : EFFECTS.ringRadius);
     this.throwChunks(x, y, big ? EFFECTS.chunksBig : EFFECTS.chunksSmall, paint);
     this.scorch(x, y);
+  }
+
+  // ---- Things knocked flying ----
+
+  // A hydrant knocked over: water fountains up for a few seconds, and the road around gets wet.
+  hydrantBurst(x, y, seconds) {
+    this.sprays.push({ x, y, left: seconds });
+    const wet = this.wetPatches[this.nextWet];
+    this.nextWet = (this.nextWet + 1) % this.wetPatches.length;
+    wet.age = 0;
+    wet.image.setVisible(true).setPosition(x, y).setScale(0.6).setRotation(Math.random() * 6).setAlpha(0);
+  }
+
+  // Bits flying off something knocked: leaves, paper, splinters. colors: the tints to use.
+  bitsBurst(x, y, colors, count = 10) {
+    projection.toScreen(x, y, 10, screen);
+    this.bits.setParticleTint(colors[Math.floor(Math.random() * colors.length)]);
+    this.bits.emitParticleAt(screen.x, screen.y, count);
+  }
+
+  // A car goes into a river: a fountain of water and a ring of spray.
+  splash(x, y) {
+    projection.toScreen(x, y, 4, screen);
+    this.water.emitParticleAt(screen.x, screen.y, 40);
+    for (let i = 0; i < 10; i += 1) {
+      const a = (i / 10) * Math.PI * 2;
+      projection.toScreen(x + Math.cos(a) * 34, y + Math.sin(a) * 34, 2, screen);
+      this.water.emitParticleAt(screen.x, screen.y, 2);
+    }
+  }
+
+  // A car lands off a ramp.
+  landing(x, y) {
+    this.dustRing(x, y, 40, 8);
   }
 
   // ---- Power-ups ----
@@ -370,13 +494,6 @@ export class Effects {
     this.rocks.emitParticleAt(screen.x, screen.y, 8);
   }
 
-  // TURBO: flames from the exhaust, at (x, y) on the road behind the car.
-  exhaust(x, y) {
-    projection.toScreen(x, y, 8, screen);
-    this.trailFire.emitParticleAt(screen.x, screen.y, 1);
-    if (Math.random() < 0.5) this.fire.emitParticleAt(screen.x, screen.y, 1);
-  }
-
   // BLACKOUT: an electric ring and a burst of sparks.
   empBlast(x, y, radius) {
     this.shockwave(x, y, radius, BLACKOUT.ringSeconds, PALETTE.emp);
@@ -390,34 +507,10 @@ export class Effects {
     this.sparks.emitParticleAt(screen.x + (Math.random() - 0.5) * 30, screen.y, count);
   }
 
-  // DECOY and PHANTOM: a soft pop of light and sparkles.
-  shimmer(x, y, count = 16) {
+  // TURBO, DECOY and PHANTOM: a soft pop of light, and nothing more.
+  softPop(x, y, tint = 0xffffff) {
     projection.toScreen(x, y, 14, screen);
-    this.flash(screen.x, screen.y, 2);
-    this.frost.emitParticleAt(screen.x, screen.y, count);
-  }
-
-  // PHANTOM's trail: a sparkle now and then where the car has been.
-  ghostTrail(x, y) {
-    projection.toScreen(x, y, 14, screen);
-    this.frost.emitParticleAt(screen.x + (Math.random() - 0.5) * 30, screen.y + (Math.random() - 0.5) * 16, 1);
-  }
-
-  // SLICK: the puddles grow as the oil spreads, and fade as it dries.
-  syncPuddles(puddles) {
-    puddles.forEach((puddle, i) => {
-      const view = this.puddles[i];
-      if (!puddle.active) {
-        view.oil.setVisible(false);
-        view.shine.setVisible(false);
-        return;
-      }
-      const grow = Math.min(1, puddle.age / 0.25);
-      const fade = Math.min(1, (SLICK.seconds - puddle.age) / 1);
-      const size = (SLICK.radius * 2.6 * (0.4 + 0.6 * grow)) / 64;
-      view.oil.setVisible(true).setPosition(puddle.x, puddle.y).setScale(size, size * 0.8).setRotation(view.angle).setAlpha(fade);
-      view.shine.setVisible(true).setPosition(puddle.x - 8, puddle.y - 6).setScale(size * 0.45, size * 0.3).setRotation(view.angle).setAlpha(0.6 * fade);
-    });
+    this.flash(screen.x, screen.y, 2, tint);
   }
 
   blastGlow(x, y, radius, tint = 0xff8a2a) {
@@ -510,11 +603,11 @@ export class Effects {
     });
   }
 
-  flash(sx, sy, size) {
+  flash(sx, sy, size, tint = 0xfff1c8) {
     const flash = this.flashes[this.nextFlash];
     this.nextFlash = (this.nextFlash + 1) % this.flashes.length;
     this.scene.tweens.killTweensOf(flash);
-    flash.setPosition(sx, sy).setScale(size * 0.4).setAlpha(1).setVisible(true).setTint(0xfff1c8);
+    flash.setPosition(sx, sy).setScale(size * 0.4).setAlpha(1).setVisible(true).setTint(tint);
     this.scene.tweens.add({ targets: flash, scale: size, alpha: 0, duration: 320, ease: 'Quad.easeOut', onComplete: () => flash.setVisible(false) });
   }
 
@@ -533,9 +626,39 @@ export class Effects {
   }
 
   // Freeze: the same kind of ring in frost colours, and a burst of sparkles.
+  // COLD SNAP going off: the ring, and snow flung out with it: flakes and powder racing out at the ring's own
+  // pace, most just behind its edge, all fading and gone as the ring is.
   freezeBlast(x, y) {
     this.shockwave(x, y, FREEZE.radius, FREEZE.ringSeconds, PALETTE.frost);
-    this.frost.emitParticleAt(screen.x, screen.y, 36);
+    this.snowBlast = { x, y, radius: FREEZE.radius, seconds: FREEZE.ringSeconds, age: 0 };
+    for (const flake of this.ringSnow) {
+      flake.angle = Math.random() * Math.PI * 2;
+      flake.share = flake.cloud ? 0.55 + Math.random() * 0.4 : 0.35 + Math.sqrt(Math.random()) * 0.7;
+      flake.z = flake.cloud ? 6 + Math.random() * 10 : 4 + Math.random() * 34;
+      flake.size = flake.cloud ? 0.9 + Math.random() * 0.8 : 0.1 + Math.random() * 0.14;
+      flake.alpha = flake.cloud ? 0.6 : 0.95;
+      flake.image.setVisible(true).setTint(Math.random() < 0.5 ? 0xffffff : 0xe2f2fc).setRotation(Math.random() * 6);
+    }
+  }
+
+  updateSnowBlast(dt) {
+    const blast = this.snowBlast;
+    if (!blast) return;
+    blast.age += dt;
+    const t = Math.min(1, blast.age / blast.seconds);
+    const reach = blast.radius * (1 - (1 - t) * (1 - t)); // the ring's own growth (updatePulse)
+    for (const flake of this.ringSnow) {
+      const d = reach * flake.share;
+      projection.toScreen(blast.x + Math.cos(flake.angle) * d, blast.y + Math.sin(flake.angle) * d, flake.z * (1 - 0.5 * t), screen);
+      flake.image
+        .setPosition(screen.x, screen.y)
+        .setScale(flake.size * (1 + (flake.cloud ? 1.2 : 0.3) * t))
+        .setAlpha(flake.alpha * (1 - t * t));
+    }
+    if (t >= 1) {
+      this.snowBlast = null;
+      for (const flake of this.ringSnow) flake.image.setVisible(false);
+    }
   }
 
   // A frozen car smashed to bits: ice and panels, but no fire.
@@ -577,14 +700,15 @@ export class Effects {
   // A police car catching fire.
   ignite(x, y) {
     projection.toScreen(x, y, 14, screen);
-    this.fire.emitParticleAt(screen.x, screen.y, 8);
-    this.flames.emitParticleAt(screen.x, screen.y, 5);
+    this.flash(screen.x, screen.y, 3.2);
+    this.fire.emitParticleAt(screen.x, screen.y, 10);
+    this.darkSmoke.emitParticleAt(screen.x, screen.y - 10, 6);
+    this.blastGlow(x, y, 90);
   }
 
-  // Draws the Flamer's trail. patches: PowerUps.patches, one glow each; a burning patch gives off flames.
-  syncPatches(patches, dt) {
+  // The Flamer's trail lights the road: one glow under each patch (the flames themselves are render/PowerFx.js).
+  syncPatches(patches) {
     const size = (FLAMER.patchRadius * 1.5) / 32;
-    const chance = dt * FLAMER.flamesPerSecond;
     for (let i = 0; i < patches.length; i += 1) {
       const patch = patches[i];
       const glow = this.firePatches[i];
@@ -594,15 +718,28 @@ export class Effects {
       }
       const life = 1 - patch.age / FLAMER.patchSeconds;
       glow.setVisible(true).setPosition(patch.x, patch.y).setScale(size).setAlpha(EFFECTS.firePatchAlpha * Math.min(1, life * 2));
-      if (Math.random() < chance * life) {
-        projection.toScreen(patch.x, patch.y, 6, screen);
-        this.trailFire.emitParticleAt(screen.x + (Math.random() - 0.5) * 26, screen.y + (Math.random() - 0.5) * 14, 1);
-        if (Math.random() < 0.35) this.fire.emitParticleAt(screen.x, screen.y - 10, 1);
-      }
     }
   }
 
   update(dt) {
+    for (let i = this.sprays.length - 1; i >= 0; i -= 1) {
+      const spray = this.sprays[i];
+      spray.left -= dt;
+      if (spray.left <= 0) {
+        this.sprays.splice(i, 1);
+        continue;
+      }
+      projection.toScreen(spray.x, spray.y, 10, screen);
+      this.water.emitParticleAt(screen.x, screen.y, 2);
+    }
+    for (const wet of this.wetPatches) {
+      if (!wet.image.visible) continue;
+      wet.age += dt;
+      const grow = Math.min(1, wet.age / 2);
+      const fade = Math.min(1, (EFFECTS.wetSeconds - wet.age) / 2);
+      if (fade <= 0) wet.image.setVisible(false);
+      else wet.image.setScale(0.6 + grow * 1.6).setAlpha(0.55 * Math.min(1, wet.age * 3) * fade);
+    }
     for (const slot of this.ice) {
       if (!slot.image.visible) continue;
       slot.age += dt;
@@ -649,6 +786,7 @@ export class Effects {
         chunk.shadow.setVisible(false);
       }
     }
+    this.updateSnowBlast(dt);
     const p = this.pulse;
     if (!p) return;
     p.age += dt;
@@ -666,11 +804,11 @@ export class Effects {
   }
 
   clear() {
-    for (const emitter of [this.smoke, this.darkSmoke, this.chunkSmoke, this.fireball, this.fire, this.debris, this.flames, this.frost, this.trailFire, this.sparks, this.rocks]) emitter.killAll();
-    for (const view of this.puddles) {
-      view.oil.setVisible(false);
-      view.shine.setVisible(false);
-    }
+    for (const emitter of [this.smoke, this.darkSmoke, this.chunkSmoke, this.fireball, this.fire, this.debris, this.flames, this.frost, this.snow, ...this.tireSmokes.values(), this.grains.sand, this.grains.mud, this.sparks, this.rocks, this.water, this.bits]) emitter.killAll();
+    this.sprays.length = 0;
+    this.snowBlast = null;
+    for (const flake of this.ringSnow) flake.image.setVisible(false);
+    for (const wet of this.wetPatches) wet.image.setVisible(false);
     for (const slot of this.ice) slot.image.setVisible(false);
     for (const glow of this.firePatches) glow.setVisible(false);
     for (const chunk of this.chunks) {

@@ -150,7 +150,7 @@ export function fixedMap(items) {
   return {
     chunkAt(cx, cy) {
       const here = items.filter((i) => inChunk(i, cx, cy));
-      return { cx, cy, x0: cx * T.CHUNKS.size, y0: cy * T.CHUNKS.size, seed: 1, preset: 'test', paint: [], items: here.filter((i) => !i.isVoid), voids: here.filter((i) => i.isVoid) };
+      return { cx, cy, x0: cx * T.CHUNKS.size, y0: cy * T.CHUNKS.size, seed: 1, preset: 'test', paint: [], items: here.filter((i) => !i.isVoid && !i.surface), voids: here.filter((i) => i.isVoid), surfaces: here.filter((i) => i.surface) };
     },
   };
 }

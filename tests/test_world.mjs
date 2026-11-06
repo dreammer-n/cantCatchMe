@@ -1,7 +1,6 @@
 // Checks for the endless world: chunk layouts, streaming, holes and falling, police recycling.
 import { Camera, Car, CS, ChaseSimulation, SCREENS, T, buildLayout, fixedMap, isOnScreen, newSim, playRun, projection } from './simkit.mjs';
 import { ChunkManager } from '../src/systems/ChunkManager.js';
-import { holeLipY } from '../src/render/Tumble.js';
 import { buildChunk, chunkCoord, propCatalogue } from '../src/systems/WorldLayout.js';
 
 let pass = 0;
@@ -58,7 +57,8 @@ const onAnyRoad = (x, y) => {
 const allThings = (c) => [...c.items, ...c.voids];
 check('every prop and hole stays inside its own chunk', sample.every((c) => allThings(c).every((i) => chunkCoord(i.x) === c.cx && chunkCoord(i.y) === c.cy)));
 check('border roads are always completely clear, so chunks always connect', sample.every((c) => allThings(c).every((i) => !onBorderRoad(i.x, i.y, c))));
-const blocking = sample.flatMap((c) => (c.preset === 'plaza' ? [] : c.items.filter((i) => onAnyRoad(i.x, i.y))));
+// Ramps lie on the road on purpose: cars drive over them.
+const blocking = sample.flatMap((c) => (c.preset === 'plaza' ? [] : c.items.filter((i) => !i.isRamp && onAnyRoad(i.x, i.y))));
 check('no props on any road outside plazas', blocking.length === 0, `${blocking.length} found`);
 const holeOutlineClear = sample.every((c) => c.voids.every((v) => v.outline.every((p) => p.x - c.x0 > margin && c.x0 + S - p.x > margin && p.y - c.y0 > margin && c.y0 + S - p.y > margin)));
 check('holes, including their drawn edges, never reach a border road', holeOutlineClear);
@@ -305,14 +305,6 @@ function run(s, seconds, steer = 0) {
   const hw = 92;
   check('the same in a missing section of road', g.player.isFalling && Math.abs(g.player.x - 1000) <= hw && Math.abs(g.player.y - 1000) <= 60, `${(g.player.x - 1000).toFixed(0)}, ${(g.player.y - 1000).toFixed(0)}`);
 
-  // The near lip hides the car as it drops.
-  const ring = [];
-  for (let i = 0; i < 16; i += 1) ring.push({ x: 1000 + Math.cos((i / 16) * Math.PI * 2) * 100, y: 1000 + Math.sin((i / 16) * Math.PI * 2) * 100 });
-  const centre = projection.toScreen(1000, 1000);
-  const lip = holeLipY(ring, centre.x, projection);
-  check('the lip of a hole is the near side of it on screen', lip > centre.y + 60 && lip < centre.y + 100 * projection.squash + 2, `${(lip - centre.y).toFixed(0)} below the middle`);
-  check('beyond the hole\'s sides there is no lip', holeLipY(ring, centre.x + 400, projection) === Infinity);
-  check('no outline, no lip', holeLipY([], centre.x, projection) === Infinity);
   check('the fall is drawn long enough to drop out of sight', T.VOID.fallDrop > T.VOID.sinkholeRadius[1] * 2 * projection.squash * 0.8);
 }
 

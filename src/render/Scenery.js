@@ -3,7 +3,7 @@ import { CHUNKS, CONES, DEPTH, EFFECTS, MAPS, PALETTE, PILLARS, RENDER, ROADBLOC
 import { propCatalogue } from '../systems/WorldLayout.js';
 import { createRng } from '../utils/math.js';
 import { depthAt } from './layers.js';
-import { clipToRect, groundColor } from './groundPaint.js';
+import { clipToRect, groundColor, surfacePaint } from './groundPaint.js';
 import { bakeMesh, releasePropDrawings } from './lowpoly.js';
 import { projection } from './projection.js';
 import { LAMP_REACH, propBakeScale, propMesh } from './propModels.js';
@@ -456,7 +456,13 @@ export class Scenery {
     g.clear();
     const towardX = projection.sinA;
     const towardY = projection.cosA;
+    // Ice, soft sand and rivers first: they lie on the ground, under any hole.
+    for (const shape of surfacePaint(data)) {
+      g.fillStyle(shape.color, shape.alpha);
+      g.fillPoints(shape.points, true);
+    }
     for (const hole of data.voids) {
+      if (hole.water) continue; // drawn with its river
       const scaled = (factor, shift = 0) =>
         hole.outline.map((p) => ({
           x: hole.x + (p.x - hole.x) * factor + towardX * shift,

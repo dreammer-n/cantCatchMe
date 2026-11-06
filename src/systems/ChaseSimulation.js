@@ -2,7 +2,7 @@ import { Car } from '../entities/Car.js';
 import { Airstrike } from '../entities/Airstrike.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, AIRSTRIKE, ARMOR, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
+import { handlingFor, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK } from '../config/tuning.js';
 import { createRng } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole } from './CollisionSystem.js';
@@ -148,6 +148,13 @@ export class ChaseSimulation {
       keepInsideHole(player, VOID.fallInset);
     } else if (running) player.stepFor(steer, dt, PHYSICS.maxStepSeconds);
     else player.slide(dt, WRECK.friction, WRECK.spinFriction);
+    if (player.air > 0) {
+      player.air -= dt;
+      if (player.air <= 0) {
+        player.air = 0;
+        this.emit('land', { x: player.x, y: player.y });
+      }
+    }
     this.chunks.update(player.x, player.y);
     this.powerUps.tick(this, dt);
     this.helicopter.update(this, dt);
@@ -245,6 +252,7 @@ export class ChaseSimulation {
       this.emit('fall', { x: player.x, y: player.y });
       return;
     }
+    if (this.result.ramp && player.air <= 0) this.tryJump(this.result.ramp);
     if (this.result.spikes && player.flatTime <= 0) {
       player.puncture(FLAT_TIRE.seconds, this.rng() < 0.5 ? -1 : 1);
       this.emit('flat', { x: player.x, y: player.y });
@@ -276,7 +284,7 @@ export class ChaseSimulation {
       for (let j = i + 1; j < bodies.length; j += 1) {
         const b = bodies[j];
         if (b.model.x - a.model.x > reach) break;
-        if (player.ghost && (a.isPlayer || b.isPlayer)) continue;
+        if ((player.ghost || player.air > 0) && (a.isPlayer || b.isPlayer)) continue;
         if (b.model.isFalling || Math.abs(b.model.y - a.model.y) > reach) continue;
         const ice = this.frozenAgainstPlayer(a, b);
         const { vx, vy, heading, angularVelocity } = player;
@@ -563,6 +571,18 @@ export class ChaseSimulation {
       if (distance < AIRSTRIKE.blastRadius * player.scale) this.crashPlayer('airstrike');
     }
     this.runExplosions();
+  }
+
+  // Off a ramp, if the car meets it low end first and fast enough: it takes off from the top of it.
+  tryJump(shape) {
+    const player = this.player;
+    const heading = shape.item.heading;
+    if (player.speed < RAMP.minSpeed || Math.cos(player.heading - heading) < RAMP.align) return;
+    const along = (player.x - shape.x) * Math.sin(heading) - (player.y - shape.y) * Math.cos(heading);
+    if (along < (RAMP.length / 2) * RAMP.takeOff) return;
+    player.air = RAMP.airSeconds;
+    player.airTotal = RAMP.airSeconds;
+    this.emit('jump', { x: player.x, y: player.y });
   }
 
   // BLACKOUT: engines and lights die close by.

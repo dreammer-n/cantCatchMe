@@ -53,6 +53,7 @@ export class ChunkManager {
     const shapes = [];
     const cones = [];
     for (const item of data.voids) shapes.push(this.world.add(item));
+    for (const item of data.surfaces || []) if (item.collider) shapes.push(this.world.add(item));
     for (const item of data.items) {
       if (!item.collider) continue;
       const shape = this.world.add(item);

@@ -13,7 +13,8 @@ export class PowerUps {
   constructor() {
     this.pillars = Array.from({ length: PILLARS.pool }, () => ({ active: false, state: 'idle', x: 0, y: 0, time: 0, shape: null }));
     this.patches = Array.from({ length: FLAMER.maxPatches }, () => ({ active: false, x: 0, y: 0, age: 0 }));
-    this.puddles = Array.from({ length: SLICK.maxPuddles }, () => ({ active: false, x: 0, y: 0, age: 0 }));
+    this.puddles = Array.from({ length: SLICK.maxPuddles }, () => ({ active: false, x: 0, y: 0, age: 0, group: 0 }));
+    this.slickGroup = 0; // which spill a puddle belongs to (the drawing makes one pool of each)
   }
 
   reset(sim) {
@@ -148,6 +149,7 @@ export class PowerUps {
     } else if (kind === 'slick') {
       this.slickLeft = SLICK.puddles;
       this.slickGap = SLICK.spacing;
+      this.slickGroup += 1;
     } else if (kind === 'decoy') {
       this.launchDecoy(sim);
     } else if (kind === 'blackout') {
@@ -227,7 +229,7 @@ export class PowerUps {
         const puddle = this.puddles[this.nextPuddle];
         this.nextPuddle = (this.nextPuddle + 1) % this.puddles.length;
         const back = SLICK.behind * player.scale;
-        Object.assign(puddle, { active: true, age: 0, x: player.x - Math.sin(player.heading) * back, y: player.y + Math.cos(player.heading) * back });
+        Object.assign(puddle, { active: true, age: 0, group: this.slickGroup, x: player.x - Math.sin(player.heading) * back, y: player.y + Math.cos(player.heading) * back });
         sim.emit('puddle', { x: puddle.x, y: puddle.y });
         anyPuddle = true;
       }

@@ -1,4 +1,4 @@
-import { SKIDS } from '../config/tuning.js';
+import { PALETTE, SKIDS } from '../config/tuning.js';
 
 // Tire marks left while cars slide. A fixed pool of short strips is reused (oldest first),
 // so the number of marks can never grow past SKIDS.maxMarks.
@@ -32,7 +32,7 @@ export class SkidMarks {
     mark.setPosition((x + last.x) / 2, (y + last.y) / 2);
     mark.setSize(length + 1, SKIDS.width); // +1 avoids hairline gaps between strips (stays centred)
     mark.setRotation(Math.atan2(dy, dx));
-    mark.setAlpha(SKIDS.alpha).setVisible(true);
+    mark.setFillStyle(PALETTE.skid).setAlpha(SKIDS.alpha).setVisible(true);
     mark.age = 0;
     last.x = x;
     last.y = y;

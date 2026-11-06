@@ -1,5 +1,7 @@
-import { FLAT_TIRE } from '../config/tuning.js';
+import { FLAT_TIRE, SURFACES } from '../config/tuning.js';
 import { degToRad, smoothFactor, wrapAngle } from '../utils/math.js';
+
+const FIRM_GROUND = { grip: 1, drive: 1, speed: 1, scrub: 1 };
 
 // Arcade driving model shared by the player and (from Milestone 2) the police.
 // Pure maths, no Phaser, so it can be tested on its own.
@@ -48,6 +50,9 @@ export class Car {
     this.boost = 1; // TURBO: top speed ...
     this.boostAccel = 1; // ... and acceleration, as shares of the car's own
     this.ghost = false; // PHANTOM: passes through cars and solid props (not holes)
+    this.air = 0; // seconds left in the air, off a ramp (only the drawing lifts the car)
+    this.surface = null; // the ground under the car's middle: null, 'ice' or 'sand' (SURFACES), set by the collisions
+    this.airTotal = 1;
     this.fallProgress = 0; // 0 at the edge .. 1 fully fallen
     this.fallShape = null; // the hole it went into
   }
@@ -71,6 +76,7 @@ export class Car {
       steer = Math.max(-1, Math.min(1, steer * answer + this.flatSide * (FLAT_TIRE.pull + shimmy) * flat));
     }
     const slide = Math.min(1, Math.abs(this.lateralSpeed) / h.slideFullSlip);
+    const ground = this.surface ? SURFACES[this.surface] : FIRM_GROUND;
 
     // Steering toward the direction of the slide (counter-steering) turns the nose faster.
     const counterSteer = steer * this.lateralSpeed > 0 ? slide * Math.abs(steer) : 0;
@@ -94,18 +100,18 @@ export class Car {
 
     // Grip drops while steering and while already sliding, and recovers gradually afterwards.
     // Part-steering (police) blends between the two; for the player (-1/0/1) it is one or the other.
-    const targetGrip = (h.gripStraight + (h.gripTurning - h.gripStraight) * lock) * (1 - h.slideGripLoss * slide) * (1 - (1 - FLAT_TIRE.gripShare) * flat);
+    const targetGrip = (h.gripStraight + (h.gripTurning - h.gripStraight) * lock) * (1 - h.slideGripLoss * slide) * (1 - (1 - FLAT_TIRE.gripShare) * flat) * ground.grip;
     this.grip += (targetGrip - this.grip) * smoothFactor(h.gripChangeRate, dt);
 
     // Tires kill sideways motion; sliding scrubs a little forward speed, deep slides a bit more.
     lateral *= Math.exp(-this.grip * dt);
     const slip = Math.atan2(Math.abs(lateral), Math.max(1, Math.abs(forward)));
     const deepSlide = Math.min(1, Math.max(0, (slip - degToRad(h.deepSlideStartDeg)) / degToRad(h.deepSlideRangeDeg)));
-    forward -= (h.slideScrub * Math.abs(lateral) + h.deepSlideScrub * deepSlide) * dt;
+    forward -= (h.slideScrub * Math.abs(lateral) + h.deepSlideScrub * deepSlide) * ground.scrub * dt;
 
     // Engine always drives toward top speed (no brake, no reverse). Tires on a curb find little traction.
-    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * this.boostAccel * (1 - (1 - FLAT_TIRE.accelShare) * flat) * (1 - h.slideEngineLoss * slide);
-    let topSpeed = h.topSpeed * this.boost * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
+    const drive = (this.onCurb ? h.acceleration * h.curbEngineShare : h.acceleration) * this.boostAccel * ground.drive * (1 - (1 - FLAT_TIRE.accelShare) * flat) * (1 - h.slideEngineLoss * slide);
+    let topSpeed = h.topSpeed * this.boost * ground.speed * (1 - (1 - FLAT_TIRE.topSpeedShare) * flat);
     // Top speed covers the whole car, forward and sideways together: a turn can't add speed.
     if (h.slideCountsAsSpeed) topSpeed = Math.sqrt(Math.max(0, topSpeed * topSpeed - lateral * lateral));
     if (forward < topSpeed) forward = Math.min(topSpeed, forward + drive * dt);

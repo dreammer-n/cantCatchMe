@@ -23,14 +23,14 @@ export const CHUNKS = {
   // the tallest phones (checked by tests/test_world.mjs).
   size: 2400,
   activeRadius: 1, // chunks kept on each side of the player's: 1 = a 3 x 3 grid
-  propPool: 1200, // images prepared at startup (checked against the fullest chunks by the tests)
+  propPool: 1600, // images prepared at startup (checked against the fullest chunks by the tests)
   // weight: how often this layout appears. cells: [arrangement, weight] for each city block in it.
   // holeChance: how often this kind of chunk has holes in its inside roads (never on its border roads);
   // roadHoles: [fewest, most] when it does. Holes should be a surprise, not the landscape.
   presets: {
     // landmarks: the word statues this kind of chunk can have.
-    suburb: { weight: 40, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['GAS', 'PARK', 'MALL'], cells: [['parking', 34], ['lawn', 28], ['shop', 14], ['booth', 10], ['station', 8], ['open', 6]] },
-    city: { weight: 12, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['open', 10]] },
+    suburb: { weight: 40, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['GAS', 'PARK', 'MALL'], cells: [['parking', 34], ['lawn', 28], ['shop', 14], ['booth', 10], ['station', 8], ['site', 8], ['open', 6]] },
+    city: { weight: 12, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['STOP', 'MALL', 'HOTEL'], cells: [['blocks', 35], ['garden', 20], ['grove', 15], ['barriers', 10], ['cones', 10], ['site', 8], ['open', 10]] },
     parking: { weight: 24, holeChance: 0, roadHoles: [0, 0], landmarks: ['MALL', 'PARK'], cells: [['parking', 65], ['garden', 25], ['grove', 5], ['open', 5]] },
     plaza: { weight: 8, holeChance: 0, roadHoles: [0, 0], landmarks: ['GAMES', 'DINER'], cells: [['garden', 30], ['grove', 30], ['open', 20], ['cones', 20]] },
     industrial: { weight: 12, holeChance: 0.12, roadHoles: [1, 1], landmarks: ['GAS', 'DEPOT'], cells: [['yard', 60], ['barriers', 25], ['cones', 15]] },
@@ -51,10 +51,12 @@ export const VOID = {
   fallSeconds: 1,
   fallFriction: 1.2, // it carries most of its speed over the edge ...
   fallInset: 8, // ... until the far wall of the hole stops it, this far short of the edge
-  fallScale: 0.85, // drawn size at the bottom of the fall: the camera has no perspective, so only a little
   fallDrop: 280, // screen units it drops, faster and faster, hidden by the near lip of the hole as it goes
   fallTiltDeg: 24, // it tips nose first
   fallTipShare: 0.35, // over this share of the fall
+  maskFrom: 0.1, // from this far into the fall, the car shows only through the opening
+  sinkDrop: 34, // into a river: screen units it sinks, slowly, as the water closes over it
+  sinkTiltDeg: 14,
   resultsDelay: 0.7, // real seconds between the end of the fall and the results screen
 };
 
@@ -285,6 +287,7 @@ export const MAPS = [
     shop: 'shop',
     marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.6, size: [30, 85], stretch: 1.8 },
     startPreset: 'suburb',
+    tireDust: { tint: [0x5c5e63, 0x74767b], bits: null }, // grey tire smoke
     presets: null, // CHUNKS.presets
   },
   {
@@ -295,6 +298,7 @@ export const MAPS = [
       asphalt: 0xd3dde9, // the snow itself
       uiGround: 0x59627a,
       track: 0x7f90a8,
+      skid: 0x8696ad, // ruts in the snow
       lot: 0xd3dde9,
       plaza: 0xb4c0d0,
       curb: 0x9fafc3,
@@ -311,10 +315,12 @@ export const MAPS = [
     lamp: 'lamp',
     shop: 'cabin',
     open: true,
+    ice: true, // ice patches, frozen ponds and snowmen (WINTER_MAP)
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.8, size: [110, 300], stretch: 2.2, drifts: 0.6 },
     startPreset: 'snow',
+    tireDust: { tint: [0xffffff, 0xe6f0f8], bits: 'snow' }, // powder snow and flakes
     presets: {
-      snow: { weight: 1, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['WINTER', 'PARK'], cells: [['parking', 30], ['lawn', 34], ['shop', 12], ['booth', 8], ['station', 6], ['barriers', 6], ['open', 4]] },
+      snow: { weight: 1, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['WINTER', 'PARK'], cells: [['parking', 30], ['lawn', 30], ['pond', 10], ['shop', 12], ['booth', 8], ['station', 6], ['barriers', 6], ['open', 4]] },
     },
   },
   {
@@ -335,16 +341,20 @@ export const MAPS = [
       asphaltPatchLight: 0xeecb94,
       paintWhite: 0xf4e9d4,
       trunk: 0x6b4a2c,
+      skid: 0x9a6c3e, // furrows in the sand
     },
     trees: ['cactus'],
     lamp: 'pole',
     shop: 'shop',
     extras: ['mesa', 'tower'],
     open: true,
+    sand: true, // soft sand, oil pumps, tumbleweeds (DESERT_MAP)
+    sandstorms: true, // SANDSTORM, TUMBLEWEEDS
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.75, size: [110, 300], stretch: 2.2, drifts: 0.75 },
     startPreset: 'dunes',
+    tireDust: { tint: [0xe0bd88, 0xcaa06a], bits: 'sand' }, // sand dust and grains
     presets: {
-      dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['lawn', 22], ['mesa', 26], ['grove', 20], ['shop', 10], ['tower', 10], ['barriers', 7], ['station', 5]] },
+      dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['lawn', 20], ['mesa', 24], ['grove', 18], ['oilfield', 12], ['shop', 9], ['tower', 9], ['barriers', 6], ['station', 5]] },
     },
   },
   {
@@ -363,16 +373,20 @@ export const MAPS = [
       pineDark: 0x4a6530,
       asphaltPatchDark: 0x6f7030,
       asphaltPatchLight: 0x7c7e36,
+      skid: 0x3e3324,
     },
     trees: ['pine', 'dead'],
     lamp: 'pole',
     shop: 'cabin',
     extras: ['log'],
+    rivers: true, // a river with bridges, lumber stacks, thickets (WOODS_MAP)
     marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.7, size: [50, 140], stretch: 1.8, lotOnly: true },
     patch: { perCell: 12, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.9, size: [10, 20], lotOnly: true, tuft: true },
     startPreset: 'forest',
+    wild: true, // textured grass, roads of asphalt, mud and grass (WOODS_MAP.roads)
+    tireDust: { tint: [0x9a8566, 0x7d6a50], bits: 'mud' }, // dirt dust and clods
     presets: {
-      forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 38], ['logs', 28], ['lawn', 14], ['open', 8], ['shop', 7], ['station', 5]] },
+      forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 30], ['logs', 22], ['thicket', 12], ['lumber', 10], ['lawn', 12], ['open', 7], ['shop', 6], ['station', 5]] },
     },
   },
 ];
@@ -530,6 +544,117 @@ export const FLAT_TIRE = {
 };
 
 // [TUNE] The police helicopter. It can't be stopped; it arrives at 45 s.
+// [TUNE] Suburbs street furniture and building sites: hydrants, mailboxes and trash cans on the pavements, hedges and
+// fences in the gardens, and ramps on the road by building sites. Only on a map with `streets`.
+export const STREET_PROPS = {
+  perBlock: [0, 2], // pieces on a block's pavements
+  inset: 15, // from the block's edge: on the pavement
+  kinds: [['hydrant', 3], ['mailbox', 3], ['trashcan', 4]],
+  mailboxTurnsDeg: [0, 90, 180, 270],
+  bushes: [1, 3], // in each lawn
+  bushSizes: [1, 1.3],
+  fenceChance: 0.45, // a lawn with a row of picket fence along one side
+  fenceLength: 44, // one piece
+  sprayFor: 4, // seconds a burst hydrant sprays (drawing only)
+};
+
+// [TUNE] A ramp on the road by a building site: drive onto it, low end first, and the car leaves the ground for a
+// moment, over police, small things and even holes. Buildings still stop it. Physics stays flat: only the
+// drawing lifts it.
+export const RAMP = {
+  width: 70,
+  length: 90,
+  height: 16, // its high end (drawing)
+  airSeconds: 0.75,
+  takeOff: 0.3, // the car leaves the ground once its middle is this far up the ramp (share of half its length)
+  airHeight: 70, // how high the car flies (drawing)
+  minSpeed: 150, // slower than this, the car just rolls over it
+  align: 0.5, // cos of the most the car's heading may differ from the ramp's
+  laneOffset: 42, // from the road's centre line
+  along: 160, // from the middle of the block, along the road
+  holeClearance: 280, // no road hole this close in front of a ramp
+};
+
+// Ground that changes the driving, for every car (player and police) whose middle is on it: ice lets the tires
+// slide (less grip, wheelspin, and a slide scrubs off less speed), soft sand drags the speed down. Shares of the
+// car's own numbers. [TUNE]
+export const SURFACES = {
+  ice: { grip: 0.25, drive: 0.55, speed: 1, scrub: 0.3 },
+  sand: { grip: 1, drive: 0.5, speed: 0.6, scrub: 1 },
+};
+
+// Winter (MAPS winter, `ice`): ice patches on the roads and in the blocks, frozen ponds that fill a block, and
+// snowmen to smash. Their own random numbers, so nothing else on the map moves. [TUNE]
+export const WINTER_MAP = {
+  icePatches: [3, 6], // a chunk
+  iceRadius: [50, 95],
+  iceOnRoad: 0.6, // share of patches on a road rather than in a block
+  pondRadius: [135, 165], // a pond fills the middle of its block
+  snowmen: [0, 2], // a block
+};
+
+// Desert (MAPS desert, `sand`): patches of soft sand, oil pumps with their barrels, tumbleweeds, and sandstorms. [TUNE]
+export const DESERT_MAP = {
+  sandPatches: [3, 5], // a chunk
+  sandRadius: [70, 125],
+  sandOnRoad: 0.6,
+  pumps: [1, 2], // an oil field
+  barrels: [2, 4],
+  tumbleweeds: [0, 2], // a block, lying still until hit
+};
+
+// A sandstorm now and then (drawing only): the edges of the screen fill with blowing sand, so police are hard to
+// see until they are close. The red warning arrows still show. [TUNE]
+export const SANDSTORM = {
+  firstAt: 35, // seconds into a run
+  everyMin: 45,
+  everyMax: 75,
+  seconds: 9, // at full strength
+  fadeSeconds: 2, // coming and going
+  strength: 0.95, // how thick it gets at the screen edge
+  clearShare: 0.22, // share of the screen's short side kept clear round the car
+};
+
+// Tumbleweeds bowling across the desert in the wind (drawing only): they burst when a car goes through them. [TUNE]
+export const TUMBLEWEEDS = {
+  most: 4,
+  everySeconds: [1.5, 3.5],
+  speed: [150, 240], // each one's own pace in the wind
+  gust: 0.45, // the wind rises and falls by up to this share
+  hopsPerSecond: 1.6, // now and then a gust bounds it into the air ...
+  hop: [140, 300], // ... this fast upward
+  gravity: 900,
+  bounce: 0.42, // share of its fall speed kept on each landing
+  radius: 21, // the ball (propModels tumbleweed)
+  hitRadius: 36,
+  knock: 0.9, // share of the car's speed it is knocked away with ...
+  knockUp: [260, 380], // ... and how fast upward; it breaks up on its second landing
+};
+
+// Woods (MAPS woods, `rivers`): a river runs east-west across every other row of chunks, through the middle of a
+// row of blocks, so the road network is never cut: every road crosses it on a bridge with railings. Driving into
+// the water ends the run, like a hole. Also stacks of lumber, and thickets of trees with one narrow path through. [TUNE]
+export const WOODS_MAP = {
+  riverEvery: 2, // rows of chunks
+  riverRowOffset: 0, // which rows: cy % riverEvery === riverRowOffset (the start is in row 1)
+  riverBlock: 2, // which row of blocks inside the chunk
+  riverHalfWidth: 105, // the part that swallows cars
+  bankWobble: 24, // the drawn water reaches up to this much further, wandering along the bank
+  deckLength: 300, // a bridge, along the road
+  railInset: 88, // railings, from the road's centre line
+  // The ground (drawing only): every stretch of road between two crossings is worn asphalt, mud or a grass
+  // track, picked from its place on the map, so it is the same from both chunks it touches.
+  roads: [['asphalt', 35], ['mud', 35], ['grass', 30]],
+  ruts: 38, // tire ruts, from the middle of the road
+  grassPatches: 6, // darker and lighter grass, a block
+  tufts: 9,
+  lumberStacks: [2, 3],
+  thicketSpacing: 66, // trees on a rough grid ...
+  thicketJitter: 14,
+  pathWidth: 125, // ... with a path this wide wandering through
+  pathWander: 70,
+};
+
 // [TUNE] The jet airstrike: from 3 minutes in, a jet bombs a line across the road ahead of the car. Red circles
 // mark every spot first; the line runs at a slant, beside the car's path, so there is always a way out.
 export const AIRSTRIKE = {
@@ -625,6 +750,13 @@ export const COLLISION = {
   wreckMass: 2.2, // wrecks are pushed less than driving cars
   playerMass: 1.25,
   treeRadius: 13,
+  hydrantRadius: 9,
+  mailboxRadius: 9,
+  trashRadius: 12,
+  bushRadius: 17,
+  snowmanRadius: 15,
+  tumbleweedRadius: 19,
+  barrelRadius: 11,
   lampRadius: 7,
   coneRadius: 11,
   civilianHalfWidth: 22, // parked cars are boxes the size of a car
@@ -736,6 +868,16 @@ export const CONES = {
     pole: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 },
     log: { knockSpeed: 0.8, slowdown: 0.92, spin: 6 },
     civilian: { knockSpeed: 0.8, slowdown: 0.82, spin: 2.5, sideKick: 190, flySeconds: 2.2, hop: 46 }, // a parked car bounces aside, and costs real speed
+    // Suburbs street furniture (STREET_PROPS).
+    hydrant: { knockSpeed: 0.55, slowdown: 0.86, spin: 4, flySeconds: 0.9, hop: 20 }, // heavy, and it bursts
+    mailbox: { knockSpeed: 0.85, slowdown: 0.94, spin: 9 },
+    trashcan: { knockSpeed: 0.9, slowdown: 0.95, spin: 11 },
+    bush: { knockSpeed: 0.55, slowdown: 0.9, spin: 2, flySeconds: 0.7, hop: 10 },
+    fence: { knockSpeed: 0.8, slowdown: 0.95, spin: 8 },
+    // Winter, Desert and Woods.
+    snowman: { knockSpeed: 0.6, slowdown: 0.9, spin: 3, flySeconds: 0.8, hop: 16 },
+    tumbleweed: { knockSpeed: 1.1, slowdown: 0.99, spin: 10, flySeconds: 1.3, hop: 40 },
+    barrel: { knockSpeed: 0.85, slowdown: 0.9, spin: 7 },
   },
 };
 
@@ -828,8 +970,63 @@ export const FLAMER = {
   patchRadius: 26,
   tireReach: 16, // added to the patch radius: how near a car's centre must come for its tires to touch
   burnSeconds: 1, // from catching fire to exploding
-  flamesPerSecond: 9, // flame clouds from each patch (drawing only)
   maxPatches: 45, // enough for all the fire burning at once: see tests/test_power.mjs
+};
+
+// How SCORCHER's fire, TURBO's afterburner and SLICK's oil look (drawing only: render/PowerFx.js). [TUNE]
+export const POWER_LOOK = {
+  flame: {
+    width: 64, // a flame's base on the trail, in world units
+    height: 72, // how tall at full strength
+    meshWidth: 30, // the flame model's own size (render/PowerFx.js flameMesh)
+    meshHeight: 58,
+    outer: 0xd23a17, // dark red-orange cone at the back
+    middle: 0xff8a1c, // orange
+    core: 0xffd84a, // bright yellow heart (unlit: it glows)
+    groundGlow: 0xff6a10,
+    groundGlowAlpha: 0.32,
+    smoke: [0xa4501f, 0x6e3a22, 0x3f2c26],
+    smokePerSecond: 14,
+    maxSmoke: 40,
+    embersPerSecond: 26,
+    maxEmbers: 40,
+    // Flames on a police car that has caught: [along, across, size] as shares of the car's length and width.
+    bodySpots: [[0.3, 0, 1], [-0.25, 0.3, 0.9], [-0.25, -0.3, 0.85], [0, 0.45, 0.7], [0.05, -0.45, 0.75], [-0.42, 0, 0.8]],
+    bodyWidth: 40,
+    bodyHeight: 66,
+    sizeRange: [0.5, 1.45], // each flame on the trail is between these shares of the full size
+    lean: 0.32, // and leans up to this far either way (radians)
+    scatter: 0.5, // and stands up to this share of the width off the trail's line
+  },
+  nitro: {
+    length: 190, // behind the car, at full size
+    width: 38, // the widest ring's radius
+    height: 10, // exhaust height
+    widestAt: 0.22, // share of the length where the flame is widest
+    flicker: 0.16, // each layer's length jumps by up to this share every frame
+    tongues: 4, // smaller flames licking out to the sides
+    outer: 0xe8401c, // red-orange
+    // [length share, width share, colour, unlit]: painted outside in, so each shows inside the last.
+    layers: [
+      [1, 1, 0xe8401c, false],
+      [0.78, 0.74, 0xff8a1e, false],
+      [0.55, 0.5, 0xffd04a, true],
+      [0.32, 0.3, 0x5ab8ff, true], // the blue-hot core
+      [0.18, 0.16, 0xe6f6ff, true],
+    ],
+    sparks: 9, // a second
+    glow: 0xff6a2a,
+    glowAlpha: 0.65,
+  },
+  oil: {
+    size: 1.65, // drawn puddle radius, as a share of the slippery radius
+    samples: 40, // points round the outline
+    rim: 0x0b0c11,
+    body: 0x1b1d27, // dark charcoal
+    sheen: [[3, 7, 0x4d7dff, 0.6], [17, 5, 0x9a5cff, 0.5], [27, 6, 0x4d7dff, 0.45]], // [start, length, colour, alpha]
+    sheenWidth: 3,
+    drops: 3,
+  },
 };
 
 // [TUNE] TURBO: a burst of speed, far past the car's own top speed, with flames from the exhaust.
@@ -1088,6 +1285,51 @@ export const PALETTE = {
   swatDark: 0x272b32,
   swatStripe: 0xe8b93c,
   heliBody: 0x2f62d6,
+  hydrant: 0xd93a2b,
+  hydrantDark: 0x9a2219,
+  mailbox: 0x2f5fb3,
+  mailboxFlag: 0xe0412f,
+  trashcan: 0x3f7f4a,
+  trashLid: 0x2b5833,
+  hedge: 0x4f8f34,
+  fence: 0xf2eee4,
+  ramp: 0xf0b72a,
+  rampDark: 0x2a2b2e,
+  water: 0xbfe6ff,
+  wet: 0x2c3f5c,
+  // Winter, Desert and Woods (Step D).
+  ice: 0x9fd0ea,
+  iceRim: 0xe3f3fb,
+  iceShine: 0xf2faff,
+  iceLight: 0xbfe4f4, // the polished side of the ice
+  iceCrack: 0x6fa6c6,
+  dampSand: 0xb98a52, // packed, damp sand
+  sandDark: 0x9d703e,
+  pebble: 0x8a6c4c,
+  carrot: 0xf08a24,
+  coal: 0x2b2d33,
+  softSand: 0xc9944f,
+  sandRipple: 0xe7c088,
+  tumbleweed: 0xb88a4e,
+  pumpjack: 0x3e4a5c,
+  pumpjackHead: 0xe0a43a,
+  barrel: 0xb8432f,
+  barrelBand: 0x7c2a1f,
+  river: 0x3f8fb5,
+  riverDeep: 0x2d6f96,
+  riverShine: 0x8fd0ea,
+  riverBank: 0x6b5a3a,
+  bridgeDeck: 0x8a6a45,
+  bridgePlank: 0x765838,
+  railing: 0x5b4330,
+  dirt: 0x8a7445,
+  // The Woods ground.
+  grassDark: 0x7b7d34,
+  grassLight: 0xa3a54d,
+  mud: 0x7a5b3b,
+  mudDark: 0x5f4630,
+  puddle: 0x55646a,
+  skid: 0x0c0e12, // tire marks (each map can have its own)
   jetBody: 0x8d96a3, // the airstrike jet: plain grey, no markings ...
   jetDark: 0x4b525c, // ... with a darker nose and tail
   bomb: 0x2a2d33,
@@ -1123,8 +1365,6 @@ export const PALETTE = {
   statueNavy: 0x25408f,
   statueCream: 0xf6efdf,
   pulse: 0xffc64a,
-  oil: 0x121318, // SLICK puddles ...
-  oilShine: 0x34405a, // ... and the sheen on them
   emp: 0x6fc6ff, // BLACKOUT's ring and sparks
   stalled: 0x8a90a0, // a police car with a dead engine
   decoy: 0x9fe8ff, // the DECOY's hologram tint
@@ -1210,11 +1450,17 @@ export const EFFECTS = {
   scorchRadius: 62, // world units
   sirenGlowOverAlpha: 0.15, // the faint colour cast over nearby props and cars
   maxFrost: 60, // frost sparkles at once
+  maxSnow: 60, // snow kicked up by tires on Winter
+  ringFlakes: 90, // COLD SNAP: snowflakes carried out on the ring
+  ringClouds: 14, // and puffs of powder snow
+  maxGrains: 60, // sand grains and mud clods thrown by tires
+  tireBitsChance: 0.55, // share of tire puffs that throw bits too
   maxSparks: 70, // BLACKOUT's electric sparks at once
+  maxWater: 90, // a burst hydrant's drops at once
+  maxBits: 50, // leaves, paper and splinters at once
+  wetSeconds: 9, // how long the road stays wet round a burst hydrant
   maxRocks: 40, // STONEWALL's flying rocks at once
   maxIce: 14, // COLD SNAP's ice on the road
-  exhaustEveryMs: 30, // TURBO's flames: one puff this often
-  maxTrailFire: 150, // flames on the Flamer's trail at once
   frozenGlowAlpha: 0.5, // the pool of cold light under a frozen car
   firePatchAlpha: 0.75,
   maxBursts: 16, // balls of fire on screen at once

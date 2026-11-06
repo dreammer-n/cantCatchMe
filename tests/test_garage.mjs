@@ -367,7 +367,10 @@ const run = (s, seconds, steer = 0) => {
     const paint = chunks.flatMap((c) => c.paint);
     check(`${map.name}: no road paint at all`, paint.every((m) => m.track || m.color === 'plaza'));
     check(`${map.name}: tire tracks to follow`, paint.filter((m) => m.track).length > chunks.length * 100, `${paint.filter((m) => m.track).length} pieces`);
-    check(`${map.name}: the holes, props and colliders are all still there`, chunks.every((c) => c.items.length > 0) && chunks.some((c) => c.voids.length > 0));
+    // Holes are rare on open maps: look over a wider area for them.
+    const wide = [];
+    for (let cy = -4; cy <= 4; cy += 1) for (let cx = -4; cx <= 4; cx += 1) wide.push(buildChunk(cx, cy, undefined, map));
+    check(`${map.name}: the holes, props and colliders are all still there`, chunks.every((c) => c.items.length > 0) && wide.some((c) => c.voids.length > 0));
     check(`${map.name}: the ground and the garage have different colours: bright ground, dark enough behind lettering`, mapColorOf(map, 'asphalt') !== mapColorOf(map, 'uiGround'));
     check(`${map.name}: still the same on every visit`, JSON.stringify(buildChunk(1, 1, undefined, map).paint) === JSON.stringify(buildChunk(1, 1, undefined, map).paint));
   }

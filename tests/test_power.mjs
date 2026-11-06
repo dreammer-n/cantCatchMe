@@ -3,7 +3,7 @@ import { Camera, Car, CS, ChaseSimulation, SCREENS, T, fixedMap, newSim, playRun
 import { DoubleTap } from '../src/systems/InputManager.js';
 import { ThreatRadar } from '../src/systems/ThreatRadar.js';
 import * as props from '../src/render/propModels.js';
-import { propCatalogue } from '../src/systems/WorldLayout.js';
+import { buildLayout, propCatalogue } from '../src/systems/WorldLayout.js';
 
 let pass = 0;
 let fail = 0;
@@ -542,7 +542,8 @@ const lock = (p) => {
   check('items used all through real runs', items > 30 && Object.keys(kinds).length === Object.keys(POWERUP.kinds).length, JSON.stringify(kinds));
   check('numbers stay sound', badNumbers === 0);
   check('collision shapes stay bounded', mostShapes < 1200, `most ${mostShapes}`);
-  check('knocked props stay bounded', mostCones < 500, `most ${mostCones}; endings ${JSON.stringify(causes)}`);
+  // Suburbs street furniture (hydrants, mailboxes, bins, hedges, fences) adds to the breakable props in the grid.
+  check('knocked props stay bounded', mostCones < 650, `most ${mostCones}; endings ${JSON.stringify(causes)}`);
   void CS;
   void SCREENS;
 }
@@ -697,6 +698,177 @@ const lock = (p) => {
   check('and the strike comes round again later', !g.airstrike.active || g.airstrike.nextAt > g.time);
   g.reset(4);
   check('a new run starts with no strike', !g.airstrike.active && g.airstrike.nextAt === AIRSTRIKE.firstAt);
+}
+
+// ---- Suburbs: street furniture, gardens and ramps ----------------------------------------------
+{
+  const { RAMP, MAPS: maps } = T;
+  const suburbs = buildLayout(undefined, maps[0]);
+  const kinds = {};
+  let rampsByHoles = 0;
+  for (let cx = -4; cx < 4; cx += 1) {
+    for (let cy = -4; cy < 4; cy += 1) {
+      const c = suburbs.chunkAt(cx, cy);
+      for (const i of c.items) kinds[i.kind] = (kinds[i.kind] || 0) + 1;
+      for (const ramp of c.items.filter((i) => i.isRamp)) if (c.voids.some((v) => Math.hypot(v.x - ramp.x, v.y - ramp.y) < RAMP.holeClearance)) rampsByHoles += 1;
+    }
+  }
+  check('Suburbs has hydrants, mailboxes, trash cans, hedges, fences and ramps', ['hydrant', 'mailbox', 'trashcan', 'bush', 'fence', 'ramp'].every((k) => kinds[k] > 0), JSON.stringify(['hydrant', 'mailbox', 'trashcan', 'bush', 'fence', 'ramp'].map((k) => kinds[k] || 0)));
+  check('no road hole right by a ramp', rampsByHoles === 0, `${rampsByHoles}`);
+  const others = maps.slice(1).map((m) => buildLayout(undefined, m));
+  check('the other maps don\'t have them', others.every((l) => [0, 1, 2].every((cx) => l.chunkAt(cx, 1).items.every((i) => !['hydrant', 'mailbox', 'trashcan', 'ramp'].includes(i.kind)))));
+
+  // A ramp, low end first, fast enough: the car flies over a police car and a hole, then lands.
+  const ramp = { kind: 'ramp', isRamp: true, x: 3000, y: 2900, heading: 0, model: 'ramp', params: {}, collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 }, breakable: false };
+  const hole = { kind: 'void', isVoid: true, x: 3000, y: 2720, heading: 0, collider: { type: 'circle', r: 35 }, breakable: false, outline: [] };
+  const s = quiet([ramp, hole]);
+  drive(s, 3000, 3000, 0, 320);
+  const blocker = cop(s, 3000, 2790, 0);
+  blocker.handling.acceleration = 0;
+  const events = run(s, 0.45);
+  check('a ramp sends the car into the air', events.some((e) => e.type === 'jump'));
+  run(s, 0.9);
+  check('it flies over a police car and a hole, and lands', s.state === 'running' && !s.player.isFalling && s.player.y < 2680 && s.player.air === 0 && blocker.alive, `y ${s.player.y.toFixed(0)}, ${s.state}, police ${blocker.state}`);
+  const slow = quiet([ramp]);
+  drive(slow, 3000, 3000, 0, 100);
+  slow.player.handling.acceleration = 0;
+  check('too slow, it just rolls over', !run(slow, 1.2).some((e) => e.type === 'jump'));
+  const back = quiet([{ ...ramp, heading: Math.PI }]);
+  drive(back, 3000, 3000, 0, 320);
+  check('from the high end, nothing', !run(back, 0.6).some((e) => e.type === 'jump'));
+}
+
+// ---- Winter, Desert and Woods ------------------------------------------------------------------
+{
+  const { MAPS: maps, WOODS_MAP, CHUNKS, WORLD, START } = T;
+  const { buildChunk, hasRiver, riverMiddle } = await import('../src/systems/WorldLayout.js');
+  const [suburbs, winter, desert, woods] = maps;
+  const survey = (map) => {
+    const out = { kinds: {}, surfaces: {}, ponds: 0, water: 0, dirt: 0, fullest: 0, chunks: [] };
+    for (let cy = -4; cy <= 4; cy += 1) {
+      for (let cx = -4; cx <= 4; cx += 1) {
+        const c = buildChunk(cx, cy, undefined, map);
+        out.chunks.push(c);
+        out.fullest = Math.max(out.fullest, c.items.length);
+        for (const i of c.items) out.kinds[i.kind] = (out.kinds[i.kind] || 0) + 1;
+        for (const s of c.surfaces) {
+          out.surfaces[s.kind] = (out.surfaces[s.kind] || 0) + 1;
+          if (s.pond) out.ponds += 1;
+        }
+        out.water += c.voids.filter((v) => v.water).length;
+        out.dirt += c.paint.filter((m) => m.color === 'dirt').length;
+      }
+    }
+    return out;
+  };
+  const all = { suburbs: survey(suburbs), winter: survey(winter), desert: survey(desert), woods: survey(woods) };
+  const w = all.winter;
+  const d = all.desert;
+  const wd = all.woods;
+  check('Winter has ice patches, frozen ponds and snowmen', w.surfaces.ice > 0 && w.ponds > 0 && w.kinds.snowman > 0, `${w.surfaces.ice} ice, ${w.ponds} ponds, ${w.kinds.snowman} snowmen`);
+  check('Desert has soft sand, oil pumps, barrels and tumbleweeds', d.surfaces.sand > 0 && d.kinds.pumpjack > 0 && d.kinds.barrel > 0 && d.kinds.tumbleweed > 0, `${d.surfaces.sand} sand, ${d.kinds.pumpjack} pumps`);
+  check('Woods has rivers with bridges and railings, lumber stacks and thickets with a path', wd.surfaces.river > 0 && wd.water > 0 && wd.kinds.bridge > 0 && wd.kinds.railing > 0 && wd.kinds.lumber > 0 && wd.dirt > 0, `${wd.surfaces.river} river stretches, ${wd.kinds.bridge} bridges, ${wd.dirt} paths`);
+  const mine = { winter: ['snowman'], desert: ['tumbleweed', 'pumpjack', 'barrel'], woods: ['bridge', 'railing', 'lumber'] };
+  check('each map keeps its own things', Object.entries(all).every(([name, s]) => Object.entries(mine).every(([owner, kinds]) => owner === name || kinds.every((k) => !s.kinds[k]))));
+  check('only Winter has ice, only Desert soft sand, only Woods rivers', !all.suburbs.surfaces.ice && !d.surfaces.ice && !w.surfaces.sand && !wd.surfaces.sand && !w.surfaces.river && !d.surfaces.river && !all.suburbs.surfaces.river);
+  for (const [name, s] of Object.entries(all)) {
+    const map = maps.find((m) => s === all[m.id === 'suburb' ? 'suburbs' : m.id]);
+    const catalogue = new Set(propCatalogue(map).map((e) => `${e.model}:${Math.round((e.heading * 180) / Math.PI)}`));
+    const unknown = new Set(s.chunks.flatMap((c) => c.items.map((i) => `${i.model}:${Math.round((i.heading * 180) / Math.PI)}`)).filter((k) => !catalogue.has(k)));
+    check(`${name}: every prop is drawn at startup`, unknown.size === 0, [...unknown].slice(0, 4).join(' '));
+    check(`${name}: few distinct prop drawings`, catalogue.size < 130, `${catalogue.size}`);
+    check(`${name}: the prop pool covers the fullest chunks`, s.fullest * 9 <= CHUNKS.propPool, `fullest ${s.fullest}`);
+    // Nothing that blocks or swallows a car on a road (bridge decks are the road; railings stand just beside it).
+    const strip = WORLD.margin - 25;
+    const onRoad = (x, y) => {
+      const fx = ((x % WORLD.cell) + WORLD.cell) % WORLD.cell;
+      const fy = ((y % WORLD.cell) + WORLD.cell) % WORLD.cell;
+      return fx < strip || fx > WORLD.cell - strip || fy < strip || fy > WORLD.cell - strip;
+    };
+    const blocking = s.chunks.flatMap((c) => (c.preset === 'plaza' ? [] : [...c.items.filter((i) => i.collider && !i.isRamp), ...c.voids.filter((v) => v.water)].filter((i) => onRoad(i.x, i.y))));
+    check(`${name}: no prop or river on any road (road holes are meant)`, blocking.length === 0, blocking.slice(0, 3).map((i) => `${i.kind} ${i.x},${i.y}`).join(' '));
+    check(`${name}: everything inside its own chunk`, s.chunks.every((c) => [...c.items, ...c.voids, ...c.surfaces].every((i) => Math.floor(i.x / CHUNKS.size) === c.cx && Math.floor(i.y / CHUNKS.size) === c.cy)));
+  }
+  check('ice and sand stay clear of the start', [...w.chunks, ...d.chunks].every((c) => c.surfaces.every((s) => Math.hypot(s.x - START.x, s.y - START.y) > START.clearRadius)));
+
+  // The river: in every other row of chunks, never the start's; unbroken from chunk to chunk; a bridge on every road.
+  check('no river across the start', !hasRiver(Math.floor(START.y / CHUNKS.size)) && hasRiver(0) && hasRiver(2) && !hasRiver(-1));
+  const riverChunks = wd.chunks.filter((c) => c.surfaces.some((s) => s.kind === 'river'));
+  const seamOk = riverChunks.every((c) => {
+    const next = wd.chunks.find((n) => n.cx === c.cx + 1 && n.cy === c.cy);
+    if (!next) return true;
+    const a = c.surfaces.find((s) => s.kind === 'river').outline;
+    const b = next.surfaces.find((s) => s.kind === 'river').outline;
+    const half = a.length / 2;
+    // Top edge: a's last point meets b's first; bottom edge: a's first bottom point (from the east) meets b's last.
+    return Math.abs(a[half - 1].x - b[0].x) < 0.01 && Math.abs(a[half - 1].y - b[0].y) < 0.2 && Math.abs(a[half].y - b[b.length - 1].y) < 0.2;
+  });
+  check('the river runs on unbroken from one chunk to the next', riverChunks.length > 0 && seamOk);
+  check('every road over the river has a bridge, with railings on both sides', riverChunks.every((c) => {
+    const decks = c.items.filter((i) => i.kind === 'bridge').map((i) => i.x - c.x0).sort((a, b) => a - b);
+    const rails = c.items.filter((i) => i.kind === 'railing').length;
+    return JSON.stringify(decks) === JSON.stringify([0, 600, 1200, 1800]) && rails === 8;
+  }));
+  check('the water only swallows cars in the blocks, never on a road', riverChunks.every((c) => c.voids.filter((v) => v.water).every((v) => Math.abs(((v.x % WORLD.cell) + WORLD.cell) % WORLD.cell - WORLD.cell / 2) < 1 && v.collider.hl <= WORLD.cell / 2 - WORLD.margin)));
+  check('no road hole on a bridge', riverChunks.every((c) => c.voids.filter((v) => !v.water).every((v) => Math.abs(v.y - riverMiddle(c.cy)) > 200)));
+
+  // Driving on them.
+  const ice = { kind: 'ice', surface: 'ice', x: 3000, y: 2700, heading: 0, collider: { type: 'circle', r: 700 }, outline: [] };
+  const turnOn = (items) => {
+    const s = quiet(items);
+    drive(s, 3000, 3000, 0, 330);
+    let slip = 0;
+    for (let t = 0; t < 0.8; t += 1 / 60) {
+      s.step(1 / 60, { steer: 1 }, offView);
+      slip = Math.max(slip, Math.abs(s.player.slipAngle));
+    }
+    // How far the way the car is going has turned, and how far its nose has.
+    return { slip, travel: Math.atan2(s.player.vx, -s.player.vy), nose: s.player.heading, surface: s.player.surface };
+  };
+  const onIce = turnOn([ice]);
+  const onRoad = turnOn([]);
+  check('on ice the car knows it', onIce.surface === 'ice' && onRoad.surface === null);
+  const deg = (a) => ((a * 180) / Math.PI).toFixed(0);
+  check('on ice the nose turns as fast, but the car slides on: its path bends far less', Math.abs(onIce.nose - onRoad.nose) < 0.1 && onIce.travel < onRoad.travel * 0.8 && onIce.slip > onRoad.slip * 1.2, `path turned ${deg(onIce.travel)} against ${deg(onRoad.travel)} degrees`);
+  const sand = { kind: 'sand', surface: 'sand', x: 3000, y: 2500, heading: 0, collider: { type: 'circle', r: 900 }, outline: [] };
+  const straight = (items) => {
+    const s = quiet(items);
+    drive(s, 3000, 3000, 0, s.player.handling.topSpeed);
+    run(s, 2);
+    return s.player.speed;
+  };
+  const sandSpeed = straight([sand]);
+  const roadSpeed = straight([]);
+  check('soft sand drags the speed down', sandSpeed < roadSpeed * 0.7, `${sandSpeed.toFixed(0)} against ${roadSpeed.toFixed(0)}`);
+  const police = quiet([ice]);
+  drive(police, 3000, 3400, 0, 200);
+  const p = cop(police, 3000, 2900, 0);
+  run(police, 0.2);
+  check('police feel the ice too', p.model.surface === 'ice');
+
+  // The river in the real Woods layout: a bridge carries the car over; the water ends the run.
+  const woodsSim = () => {
+    const s = new ChaseSimulation({ layout: buildLayout(undefined, woods), handling });
+    s.spawner.cooldown = 1e6;
+    s.spawner.nextRoadblock = 1e6;
+    s.powerUps.timer = 1e6;
+    s.helicopter.update = () => {};
+    return s;
+  };
+  const middle = riverMiddle(0);
+  const over = woodsSim();
+  drive(over, 1200, middle + 450, 0, 320);
+  run(over, 3);
+  check('a bridge carries the car over the river', over.state === 'running' && over.player.y < middle - 300, `${over.state}, y ${over.player.y.toFixed(0)}`);
+  const into = woodsSim();
+  drive(into, 1500, middle + 300, 0, 320);
+  const events = run(into, 3);
+  check('driving into the river ends the run, like a hole', into.state === 'crashed' && into.crash.cause === 'void' && events.some((e) => e.type === 'fall'), into.state);
+  check('the car knows it went into water', into.player.fallShape && into.player.fallShape.item.water === true);
+  const railed = woodsSim();
+  drive(railed, 1200, middle + 60, Math.PI / 2, 300);
+  run(railed, 0.6);
+  check('a bridge railing is solid', railed.player.x < 1200 + WOODS_MAP.railInset && !railed.player.isFalling, `x ${railed.player.x.toFixed(0)}`);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

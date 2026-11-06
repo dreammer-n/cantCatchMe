@@ -1,10 +1,10 @@
-import { BODY_LEAN, CAR_SIZE, DEPTH, EFFECTS, FLAT_TIRE, PALETTE, RENDER, SKIDS, BURNT, TUMBLE, VOID } from '../config/tuning.js';
+import { BODY_LEAN, CAR_SIZE, DEPTH, EFFECTS, FLAT_TIRE, PALETTE, RAMP, RENDER, SKIDS, BURNT, TUMBLE, VOID } from '../config/tuning.js';
 import { degToRad } from '../utils/math.js';
 import { atlasMeta, frameFor } from '../render/carAtlas.js';
 import { LIGHT_BAR } from '../render/carModels.js';
 import * as Phaser from 'phaser';
 import { depthAt } from '../render/layers.js';
-import { Tumble, holeLipY, stepHop } from '../render/Tumble.js';
+import { Tumble, stepHop } from '../render/Tumble.js';
 import { worldShadowOutline } from '../render/lowpoly.js';
 import { projection } from '../render/projection.js';
 
@@ -14,6 +14,12 @@ const leanScreen = { x: 0, y: 0 };
 const lean = { worldX: 0, worldY: 0, rotation: 0, yaw: 0 };
 const shift = { x: 0, y: 0 };
 const CULL_MARGIN = 140; // screen units around the camera view where cars are still drawn
+
+const grey = (v) => (v << 16) | (v << 8) | v;
+function mixColor(a, b, t) {
+  const mix = (shift) => Math.round(((a >> shift) & 255) + ((((b >> shift) & 255) - ((a >> shift) & 255)) * t));
+  return (mix(16) << 16) | (mix(8) << 8) | mix(0);
+}
 
 // What a car looks like on screen. Reads the car's physics state and never changes it.
 // Used for the player, police cars and wrecks (look = { atlasKey, shadowPoints, lights }). A look with a
@@ -177,7 +183,10 @@ export class CarView {
     if (leaning) bodyLean(model, lean);
     else lean.worldX = lean.worldY = lean.rotation = lean.yaw = 0;
     const hop = leaning ? this.updateHop(time) : 0;
-    const lift = hop * projection.lift;
+    // Off a ramp: up and down in an arc (drawing only).
+    const u = model.air > 0 ? 1 - model.air / model.airTotal : 0;
+    const air = model.air > 0 ? RAMP.airHeight * 4 * u * (1 - u) : 0;
+    const lift = (hop + air) * projection.lift;
     if (this.showWheels) {
       const share = BODY_LEAN.wheelsFollow;
       frameFor(heading + lean.yaw, projection, pick, this.wheelDirections);
@@ -237,50 +246,53 @@ export class CarView {
       .setAlpha(EFFECTS.frozenGlowAlpha * this.alpha);
   }
 
-  // Over the edge: the nose tips down, it drops faster and faster into the dark, and the near lip of
-  // the hole hides it as it goes. No shadow: the ground it would land on is gone.
+  // Over the edge. Into a hole: the nose tips down and it drops, faster and faster, into the dark. Into a
+  // river: it tips nose first and sinks, taking on the colour of the water. Either way it keeps its size, and
+  // once it is below the ground it is seen only through the opening: the ground round the opening hides the
+  // rest of it (a mask cut to the hole's outline). No shadow: the ground it would land on is gone.
   drawFalling(model) {
     this.wasFalling = true;
     this.hideLights();
     const sprite = this.sprite;
     const progress = model.fallProgress;
+    const hole = model.fallShape && model.fallShape.item;
+    const water = Boolean(hole && hole.water);
     const tip = Math.min(1, progress / VOID.fallTipShare);
-    const scale = (model.scale * (1 - (1 - VOID.fallScale) * progress)) / RENDER.bakeScale;
-    const scaleY = scale * (1 - 0.3 * tip); // seen from above, a tipped car looks shorter
+    const scale = model.scale / RENDER.bakeScale;
+    const scaleY = scale * (1 - (water ? 0.2 : 0.3) * tip); // seen from above, a tipped car looks shorter
     const groundY = sprite.y;
     const parts = this.showWheels ? [sprite, this.wheels] : [sprite];
     this.softShadow.setVisible(false);
-    const y = groundY + progress * progress * VOID.fallDrop;
+    const y = groundY + (water ? progress * VOID.sinkDrop : progress * progress * VOID.fallDrop);
     // The nose goes first: turn the drawing the way the nose points across the screen.
     const across = Math.sin(projection.screenHeading(model.heading));
-    const shade = Math.round(255 * (1 - 0.9 * progress ** 1.5));
+    const tint = water ? mixColor(0xffffff, PALETTE.riverDeep, Math.min(1, progress * 1.3)) : grey(Math.round(255 * (1 - 0.9 * progress ** 1.5)));
+    const fade = water ? Math.min(1, (1 - progress) * 2.2) : Math.min(1, (1 - progress) * 8);
     for (const part of parts) {
       part
         .setPosition(sprite.x, y)
         .setScale(scale, scaleY)
-        .setRotation(part.rotation + across * tip * ((VOID.fallTiltDeg * Math.PI) / 180))
-        .setTint((shade << 16) | (shade << 8) | shade)
-        .setAlpha(this.alpha * Math.min(1, (1 - progress) * 8));
+        .setRotation(part.rotation + across * tip * (((water ? VOID.sinkTiltDeg : VOID.fallTiltDeg) * Math.PI) / 180))
+        .setTint(tint)
+        .setAlpha(this.alpha * fade);
     }
-    const outline = model.fallShape && model.fallShape.item.outline;
-    if (!outline || outline.length === 0) return;
-    // Hidden below the lip. A car that came in over the near side still has its tail over the road, so
-    // nothing above its own undercarriage line is hidden: only what has actually dropped.
-    const height = sprite.frame.cutHeight;
-    const underside = groundY + (1 - sprite.originY) * height * scaleY;
-    const lip = Math.max(holeLipY(outline, sprite.x, projection), underside);
-    for (const part of parts) {
-      const partHeight = part.frame.cutHeight;
-      const top = y - part.originY * partHeight * scaleY;
-      part.setCrop(0, 0, part.frame.cutWidth, Math.max(0, Math.min(partHeight, (lip - top) / scaleY)));
+    if (!hole || !hole.outline || hole.outline.length === 0 || progress < VOID.maskFrom) return;
+    if (!this.fallMask) {
+      this.fallMask = sprite.scene.make.graphics({ add: false });
+      this.fallGeometry = this.fallMask.createGeometryMask();
     }
+    const g = this.fallMask;
+    g.clear();
+    g.fillStyle(0xffffff, 1);
+    g.fillPoints(hole.outline.map((p) => projection.toScreen(p.x, p.y, 0, { x: 0, y: 0 })), true);
+    for (const part of parts) if (part.mask !== this.fallGeometry) part.setMask(this.fallGeometry);
   }
 
   endFall() {
     this.wasFalling = false;
     this.shownScale = 1;
     for (const part of this.wheels ? [this.sprite, this.wheels] : [this.sprite]) {
-      part.setCrop();
+      part.clearMask();
       part.clearTint();
       part.setScale(1 / RENDER.bakeScale).setAlpha(this.alpha);
     }

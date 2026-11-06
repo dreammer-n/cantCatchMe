@@ -95,9 +95,10 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
 // ---- Graphics memory -----------------------------------------------------------------------
 {
   // What the world's drawings take once they reach the graphics card, worked out from their sizes.
+  for (const map of T.MAPS) {
   let bytes = 0;
   const biggest = [];
-  for (const entry of propCatalogue()) {
+  for (const entry of propCatalogue(map)) {
     const mesh = props.propMesh(entry);
     const body = boundsOf(projectMesh(mesh, entry.heading, projection));
     const shadow = boundsOf([], projectShadow(mesh, entry.heading, projection));
@@ -107,7 +108,8 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
     biggest.push([entry.model, total]);
   }
   biggest.sort((a, b) => b[1] - a[1]);
-  check('all the prop drawings stay within a phone-friendly budget', bytes < 16e6, `${(bytes / 1e6).toFixed(1)} MB; biggest: ${biggest[0][0]} ${(biggest[0][1] / 1e6).toFixed(2)} MB`);
+  check(`${map.name}: all the prop drawings stay within a phone-friendly budget`, bytes < 16e6, `${(bytes / 1e6).toFixed(1)} MB; biggest: ${biggest[0][0]} ${(biggest[0][1] / 1e6).toFixed(2)} MB`);
+  }
 }
 
 // ---- Gardens, arrows ------------------------------------------------------------------------

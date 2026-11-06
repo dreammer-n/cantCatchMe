@@ -10,6 +10,7 @@ import { COLLISION, CURB } from '../config/tuning.js';
 //   curb      (parking islands, roundabouts): driven over, with a speed penalty and a bump on the way on.
 //   void      (sinkholes): a car whose centre is over one falls in, reported in result.voidShape.
 //   spikes    (spike strips): driven over, reported in result.spikes.
+//   surface   (ice, soft sand): driven over; the one under the car's middle is written into car.surface.
 // Results: "impact" = how fast the car was moving INTO a solid surface (units/s). A glancing scrape
 // gives a small impact, a head-on hit a big one; the crash rules compare it to thresholds.
 
@@ -45,7 +46,9 @@ export class StaticWorld {
       cos: Math.cos(item.heading),
       sin: Math.sin(item.heading),
       bound: c.type === 'circle' ? c.r : Math.hypot(c.hw, c.hl),
-      solid: !item.breakable && !item.curb && !item.isVoid && !item.isSpikes,
+      solid: !item.breakable && !item.curb && !item.isVoid && !item.isSpikes && !item.isRamp && !item.surface,
+      surface: item.surface || null,
+      isRamp: Boolean(item.isRamp),
       curb: Boolean(item.curb),
       isSpikes: Boolean(item.isSpikes),
       isVoid: Boolean(item.isVoid),
@@ -291,15 +294,26 @@ export function collideWithWorld(car, world, result, onTouch) {
   result.curbHit = false;
   result.voidShape = null;
   result.spikes = null;
+  result.ramp = null;
   let onCurb = false;
+  let surface = null;
   const r = R * car.scale;
   for (let i = 0; i < 2; i += 1) {
     carCircles(car, circles);
     const c = circles[i];
     world.forEachNear(c.x, c.y, r, (shape) => {
       if (!circleVsShape(c.x, c.y, r, shape, hit)) return;
-      // A ghost passes through everything but holes.
+      // A ghost passes through everything but holes; a car in the air (off a ramp) flies over all but solid props.
       if (car.ghost && !shape.isVoid) return;
+      if (car.air > 0 && !shape.solid) return;
+      if (shape.surface) {
+        if (circleVsShape(car.x, car.y, CENTRE_POINT, shape, hit)) surface = shape.surface;
+        return;
+      }
+      if (shape.isRamp) {
+        result.ramp = shape;
+        return;
+      }
       // Giant: holes and curbs mean nothing, and anything solid gets knocked away like a cone.
       if (car.crushing) {
         if (!shape.isVoid && !shape.curb && !shape.isSpikes && onTouch) onTouch(shape);
@@ -336,6 +350,7 @@ export function collideWithWorld(car, world, result, onTouch) {
     });
   }
   car.onCurb = onCurb;
+  car.surface = surface;
   return result.impact;
 }
 

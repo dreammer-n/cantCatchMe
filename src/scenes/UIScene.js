@@ -4,6 +4,7 @@ import { COLORS, PALETTE, POWERUP, REVIVE, UI, WARNING } from '../config/tuning.
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { Garage, Maps } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
+import { SandstormOverlay } from '../render/SandstormOverlay.js';
 import { Hud } from '../ui/Hud.js';
 import { PauseScreen, ReviveScreen, simulateAd } from '../ui/Screens.js';
 import { getPixelRatio, getSafeAreaInsets } from '../utils/screen.js';
@@ -26,6 +27,7 @@ export class UIScene extends Phaser.Scene {
     this.world = this.scene.get('GameScene');
     this.paused = false;
     this.touch = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
+    this.sandstorm = new SandstormOverlay(this); // under the warning arrows
     this.zones = this.add.graphics();
 
     this.hud = new Hud({ onPause: () => this.controls.press('pause') });
@@ -72,7 +74,7 @@ export class UIScene extends Phaser.Scene {
     this.hud.show(true);
   }
 
-  update(time) {
+  update(time, delta) {
     const command = this.controls.getCommand();
     if (this.offer) this.updateOffer(time, command);
     const running = this.world.running;
@@ -86,6 +88,8 @@ export class UIScene extends Phaser.Scene {
     const effect = running ? sim.powerUps.activeEffect() : null;
     this.hud.setPower(effect ? POWERUP.names[effect.kind] : null, effect ? effect.share : 0);
     this.drawOverlay(running && !this.paused);
+    const weather = this.world.weather;
+    this.sandstorm.update(weather ? weather.storm : 0, weather ? weather.wind : 0, this.scale.width, this.scale.height, this.paused ? 0 : delta / 1000);
     if (this.devTools) this.devTools.update(time);
   }
 

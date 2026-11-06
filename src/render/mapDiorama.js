@@ -1,7 +1,7 @@
 import { CHUNKS, EFFECTS, PALETTE, RENDER, START, WORLD } from '../config/tuning.js';
 import { chunkCoord, buildChunk } from '../systems/WorldLayout.js';
 import { carMesh } from './carModels.js';
-import { groundColor } from './groundPaint.js';
+import { groundColor, surfacePaint } from './groundPaint.js';
 import { cssColor, paintMesh, paintShadow, projectMesh, projectShadow } from './lowpoly.js';
 import { projection } from './projection.js';
 import { LAMP_REACH, propMesh } from './propModels.js';
@@ -101,7 +101,16 @@ function drawGround(ctx, chunks, map) {
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
   for (const chunk of chunks) {
+    for (const shape of surfacePaint(chunk)) {
+      ctx.globalAlpha = shape.alpha;
+      ctx.fillStyle = cssColor(shape.color);
+      polygon(ctx, shape.points.map((p) => [p.x, p.y]));
+    }
+  }
+  ctx.globalAlpha = 1;
+  for (const chunk of chunks) {
     for (const hole of chunk.voids) {
+      if (hole.water) continue;
       ctx.fillStyle = cssColor(PALETTE.voidWall);
       polygon(ctx, hole.outline.map((p) => [p.x, p.y]));
       ctx.fillStyle = cssColor(PALETTE.void);

@@ -1,4 +1,4 @@
-import { CHUNKS, COLLISION, MAPS, SCENERY, START, VOID, WORLD } from '../config/tuning.js';
+import { CHUNKS, COLLISION, DESERT_MAP, MAPS, RAMP, SCENERY, START, STREET_PROPS, VOID, WINTER_MAP, WOODS_MAP, WORLD } from '../config/tuning.js';
 import { glyphWidth } from '../render/blockFont.js';
 import { createRng, lerp } from '../utils/math.js';
 
@@ -10,14 +10,16 @@ import { createRng, lerp } from '../utils/math.js';
 // borders whichever layouts meet there. A chunk is worked out from its coordinates and a fixed
 // seed: the same chunk always comes back the same, so nothing has to be stored.
 //
-// Chunk: { cx, cy, x0, y0, seed, preset, items, paint, voids }
+// Chunk: { cx, cy, x0, y0, seed, preset, items, paint, voids, surfaces }
 // Item: { kind, name, x, y, heading (radians, 0 = north), model (drawing cache key), params,
 //         band: 'objects' | 'raised', collider: null | {type:'circle', r} | {type:'box', hw, hl},
 //         breakable, curb }
 // A box collider's hw runs along the item's local x (right), hl along its local y (forward).
 // Breakable items (cones, lamp posts, wooden crates) all get knocked away the same way.
 // Void: { kind: 'void', isVoid: true, x, y, heading, collider, outline: [{x, y}] }: a hole in the
-// ground; the outline is what gets drawn.
+// ground; the outline is what gets drawn. A river's voids have water: true (drawn as part of the river).
+// Surface: { kind: 'ice' | 'sand' | 'river', surface: 'ice' | 'sand' | null, x, y, heading, collider, outline }: ground
+// that changes the driving (SURFACES), or, with no collider, a river's water (drawing only).
 // Paint: polygons on the floor { poly: [x, y, x, y ...], color, alpha, shade? } (curbs, pavements, block ground, road
 // wear: render/groundPaint.js has their colours), rectangles { x, y, w, h, alpha, color? } (x, y = top-left corner; color 'lot' =
 // the lighter surface of a city block, 'plaza' = a paved square, otherwise white paint), or
@@ -70,9 +72,13 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   const presets = Object.entries(presetsHere);
   const preset = hasStart ? forMap.startPreset : pickWeighted(rng, presets.map(([name, def]) => [name, def.weight]));
   const def = presetsHere[preset];
-  const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [] };
-  // The ground has its own random numbers, so it never moves a prop.
+  const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [], surfaces: [] };
+  // The ground has its own random numbers, so it never moves a prop. So do each map's own features.
   const groundRng = createRng(hash + 7919);
+  const streetRng = createRng(hash + 104729);
+  const featureRng = createRng(hash + 15485863);
+  const river = forMap.rivers && hasRiver(cy);
+  let hasThicket = false;
 
   // At most one word statue per chunk, in a block picked now. Near the start it is skipped.
   const hasLandmark = rng() < WORLD.landmarkChance;
@@ -93,8 +99,12 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
       }
       // The chunk where a run starts has the gas station, in the block ahead and to the right of the start.
       const hub = hasStart && cell.x0 > START.x && cell.x0 < START.x + WORLD.cell && cell.y1 < START.y && cell.y1 > START.y - WORLD.cell;
-      const statue = !hub && hasLandmark && i === landmarkI && j === landmarkJ && addLandmark(cell, word);
-      if (hub) {
+      const riverHere = river && j === WOODS_MAP.riverBlock;
+      const statue = !hub && !riverHere && hasLandmark && i === landmarkI && j === landmarkJ && addLandmark(cell, word);
+      if (riverHere) {
+        arrangement = 'river';
+        riverBanks(cell, chunk.items, featureRng);
+      } else if (hub) {
         arrangement = 'station';
         BUILDERS.station(cell, chunk.items, chunk.paint, rng);
       } else if (!statue) {
@@ -102,18 +112,28 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
         arrangement = pickWeighted(rng, def.cells);
         if (arrangement === 'station' && (hasStart || hasStation)) arrangement = 'lawn';
         if (arrangement === 'station') hasStation = true;
+        // One thicket to a chunk at most: they hold a lot of trees.
+        if (arrangement === 'thicket' && hasThicket) arrangement = 'grove';
+        if (arrangement === 'thicket') hasThicket = true;
         BUILDERS[arrangement](cell, chunk.items, chunk.paint, rng);
       }
+      if (forMap.streets) addStreetFurniture(cell, chunk.items, streetRng);
+      if (forMap.ice && !riverHere) addSnowmen(cell, chunk.items, featureRng);
+      if (forMap.sand && !riverHere) addTumbleweeds(cell, chunk.items, featureRng);
       // The block's ground goes under everything its arrangement painted.
       chunk.paint.splice(groundAt, 0, ...blockGround(cell, groundRng, arrangement));
       if (rng() < WORLD.crosswalkChance) addCrosswalk(cell, chunk.paint, rng, i, j);
     }
   }
   if (forMap.streets) addRoadWear(chunk, groundRng);
+  if (forMap.ice) addPatches(chunk, featureRng, 'ice', WINTER_MAP.icePatches, WINTER_MAP.iceRadius, WINTER_MAP.iceOnRoad);
+  if (forMap.sand) addPatches(chunk, featureRng, 'sand', DESERT_MAP.sandPatches, DESERT_MAP.sandRadius, DESERT_MAP.sandOnRoad);
+  if (river) addRiver(chunk, featureRng);
   if (preset === 'plaza') addPlaza(chunk);
   addLaneLines(chunk);
   addRoadArrows(chunk, rng);
-  if (rng() < def.holeChance) addRoadHoles(chunk, def.roadHoles, rng);
+  if (forMap.wild) addWildRoads(chunk);
+  if (rng() < def.holeChance) addRoadHoles(chunk, def.roadHoles, rng, river);
   if (forMap.open) {
     // Open ground: no road paint, only paved aprons, and tire tracks where the roads run.
     chunk.paint = chunk.paint.filter((mark) => mark.color === 'plaza');
@@ -166,6 +186,26 @@ export function propCatalogue(forMap = MAPS[0]) {
   for (const deg of WORLD.benchTurnsDeg) push('bench', 'bench', deg);
   for (const size of WORLD.boulderSizes) push('boulder', boulderModel(size), 0, { size });
   for (const deg of [0, 270]) push('billboard', 'billboard', deg); // its board faces the camera either way
+  if (forMap.streets) {
+    push('hydrant', 'hydrant', 0);
+    for (const deg of STREET_PROPS.mailboxTurnsDeg) push('mailbox', 'mailbox', deg);
+    push('trashcan', 'trashcan', 0);
+    for (const size of STREET_PROPS.bushSizes) push('bush', `bush${size}`, 0, { size });
+    for (const deg of [0, 90]) push('fence', 'fence', deg);
+    for (const deg of [0, 180]) push('ramp', 'ramp', deg);
+  }
+  if (forMap.ice) push('snowman', 'snowman', 0);
+  if (forMap.sand) {
+    push('tumbleweed', 'tumbleweed', 0);
+    for (const deg of [0, 90]) push('pumpjack', 'pumpjack', deg);
+    push('barrel', 'barrel', 0);
+  }
+  if (forMap.rivers) {
+    push('bridge', 'bridge', 0);
+    push('railing', 'railing', 90);
+    for (const deg of [0, 90]) push('lumber', 'lumber', deg);
+    if (!extras.includes('log')) for (const deg of WORLD.logTurnsDeg) push('log', 'log', deg);
+  }
   return list;
 }
 
@@ -308,6 +348,77 @@ function cone(x, y) {
     collider: { type: 'circle', r: COLLISION.coneRadius },
     breakable: true,
   };
+}
+
+function streetPiece(kind, x, y, headingDeg, collider, params = {}) {
+  const model = kind === 'bush' ? `bush${params.size}` : kind;
+  return { kind, name: named(kind), x, y, heading: headingDeg * DEG, model, params, band: 'objects', collider, breakable: true };
+}
+
+function rampAt(x, y, headingDeg) {
+  return {
+    kind: 'ramp',
+    name: named('ramp'),
+    x,
+    y,
+    heading: headingDeg * DEG,
+    model: 'ramp',
+    params: {},
+    band: 'ground',
+    isRamp: true,
+    collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 },
+    breakable: false,
+  };
+}
+
+// Hydrants, mailboxes and trash cans along a block's pavements, clear of its corners and of each other.
+function addStreetFurniture(cell, items, rng) {
+  const [fewest, most] = STREET_PROPS.perBlock;
+  const count = fewest + Math.floor(rng() * (most - fewest + 1));
+  const inset = STREET_PROPS.inset;
+  const margin = WORLD.street.cornerRadius + 40;
+  for (let n = 0; n < count; n += 1) {
+    const side = Math.floor(rng() * 4);
+    const along = margin + rng() * (cell.size - margin * 2);
+    const x = side === 1 ? cell.x1 - inset : side === 3 ? cell.x0 + inset : cell.x0 + along;
+    const y = side === 0 ? cell.y0 + inset : side === 2 ? cell.y1 - inset : cell.y0 + along;
+    if (Math.hypot(x - START.x, y - START.y) < START.clearRadius) continue;
+    if (!cell.placed.every((p) => Math.hypot(p.x - x, p.y - y) > p.r + 16)) continue;
+    const kind = pickWeighted(rng, STREET_PROPS.kinds);
+    const facing = [180, 90, 0, 270][side]; // a mailbox faces the road
+    if (kind === 'hydrant') items.push(streetPiece('hydrant', x, y, 0, { type: 'circle', r: COLLISION.hydrantRadius }));
+    else if (kind === 'mailbox') items.push(streetPiece('mailbox', x, y, facing, { type: 'circle', r: COLLISION.mailboxRadius }));
+    else items.push(streetPiece('trashcan', x, y, 0, { type: 'circle', r: COLLISION.trashRadius }));
+    cell.placed.push({ x, y, r: 16 });
+  }
+}
+
+// Hedges dotted round a lawn, and sometimes a row of picket fence along one of its sides: all of it can be
+// driven through.
+function addGarden(cell, items, rng, x, y, width, length) {
+  const [fewest, most] = STREET_PROPS.bushes;
+  const bushes = fewest + Math.floor(rng() * (most - fewest + 1));
+  for (let n = 0; n < bushes; n += 1) {
+    const size = pick(rng, STREET_PROPS.bushSizes);
+    const spot = randomSpot(cell, 22 * size, rng);
+    if (!spot) continue;
+    items.push(streetPiece('bush', spot.x, spot.y, 0, { type: 'circle', r: COLLISION.bushRadius * size }, { size }));
+    cell.placed.push({ x: spot.x, y: spot.y, r: 22 * size });
+  }
+  if (rng() >= STREET_PROPS.fenceChance) return;
+  const piece = STREET_PROPS.fenceLength;
+  const alongX = rng() < 0.5;
+  const sideOf = rng() < 0.5 ? -1 : 1;
+  const half = (alongX ? width : length) / 2 + 26;
+  const pieces = Math.floor(((alongX ? width : length) + 20) / piece);
+  for (let k = 0; k < pieces; k += 1) {
+    const offset = (k - (pieces - 1) / 2) * piece;
+    const fx = alongX ? x + offset : x + sideOf * half;
+    const fy = alongX ? y + sideOf * half : y + offset;
+    if (fx < cell.x0 + 10 || fx > cell.x1 - 10 || fy < cell.y0 + 10 || fy > cell.y1 - 10) continue;
+    if (Math.hypot(fx - START.x, fy - START.y) < START.clearRadius) continue;
+    items.push(streetPiece('fence', fx, fy, alongX ? 0 : 90, { type: 'box', hw: piece / 2, hl: 2 }));
+  }
 }
 
 // A parked car: breakable, so it gets bumped or shoved aside, never a crash.
@@ -661,6 +772,7 @@ const BUILDERS = {
     items.push(boulderAt(x + 0.45 * inW, y - 0.3 * inL, pick(rng, WORLD.boulderSizes)));
     if (rng() < 0.5) items.push(boulderAt(x - 0.45 * inW, y + 0.05 * inL, pick(rng, WORLD.boulderSizes)));
     if (rng() < 0.3) items.push(billboardAt(x, y - 0.7 * inL));
+    if (map.streets) addGarden(cell, items, rng, x, y, width, length);
   },
 
   // A repair shop facing a row of stalls, with a tree island beside it.
@@ -799,6 +911,24 @@ const BUILDERS = {
     }
   },
 
+  // A building site: barriers and cones in the block, and a ramp on the road beside it.
+  site(cell, items, paint, rng) {
+    const spot = randomSpot(cell, 120, rng);
+    if (spot) {
+      items.push(barrier(spot.x, spot.y, pick(rng, WORLD.barrierLengths), pick(rng, [0, 90])));
+      for (let i = 0; i < 4; i += 1) items.push(cone(spot.x + (i - 1.5) * 34, spot.y + 60));
+      cell.placed.push({ x: spot.x, y: spot.y, r: 120 });
+    }
+    // The road on the side of the block that is inside the chunk (never a border road).
+    const i = Math.round((cell.x0 - WORLD.margin - cell.chunk.x0) / WORLD.cell);
+    const roadX = i < CELLS_PER_CHUNK - 1 ? cell.x1 + WORLD.margin : cell.x0 - WORLD.margin;
+    const lane = rng() < 0.5 ? -1 : 1;
+    const along = (rng() < 0.5 ? -1 : 1) * RAMP.along;
+    const x = roadX + lane * RAMP.laneOffset;
+    const y = cell.midY + along;
+    if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + 200) return;
+    items.push(rampAt(x, y, lane < 0 ? 180 : 0));
+  },
   // A line of traffic cones: knocked flying when hit, never a crash.
   cones(cell, items, paint, rng) {
     const spot = randomSpot(cell, 110, rng);
@@ -868,8 +998,237 @@ const BUILDERS = {
     cell.placed.push({ x: spot.x, y: spot.y, r: r + VOID.outlineGrow * 1.5 });
   },
 
+  // Winter: a frozen pond filling the middle of the block, pines at its corners.
+  pond(cell, items, paint, rng) {
+    const r = lerp(WINTER_MAP.pondRadius[0], WINTER_MAP.pondRadius[1], rng());
+    if (Math.hypot(cell.midX - START.x, cell.midY - START.y) < START.clearRadius + r) return;
+    cell.chunk.surfaces.push(patchAt('ice', cell.midX, cell.midY, r, rng, true));
+    cell.placed.push({ x: cell.midX, y: cell.midY, r: r + 12 });
+    for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      if (rng() < 0.35) continue;
+      items.push(tree(cell.midX + u * cell.size * 0.41, cell.midY + v * cell.size * 0.41, rng));
+    }
+  },
+
+  // Desert: nodding oil pumps, with a few oil barrels lying about.
+  oilfield(cell, items, paint, rng) {
+    const [fewest, most] = DESERT_MAP.pumps;
+    const pumps = fewest + Math.floor(rng() * (most - fewest + 1));
+    for (let i = 0; i < pumps; i += 1) {
+      const spot = randomSpot(cell, 62, rng);
+      if (!spot) continue;
+      const turn = rng() < 0.5 ? 0 : 90;
+      add(cell, { kind: 'pumpjack', name: named('pumpjack'), x: spot.x, y: spot.y, heading: turn * DEG, model: 'pumpjack', params: {}, band: 'objects', collider: { type: 'box', hw: 16, hl: 40 }, breakable: false }, 62);
+    }
+    const spot = randomSpot(cell, 50, rng);
+    if (!spot) return;
+    const [few, many] = DESERT_MAP.barrels;
+    const barrels = few + Math.floor(rng() * (many - few + 1));
+    for (let i = 0; i < barrels; i += 1) {
+      const x = spot.x + ((i % 3) - 1) * 25 + (rng() - 0.5) * 6;
+      const y = spot.y + (Math.floor(i / 3) - 0.5) * 25 + (rng() - 0.5) * 6;
+      items.push({ kind: 'barrel', name: named('barrel'), x, y, heading: 0, model: 'barrel', params: {}, band: 'objects', collider: { type: 'circle', r: COLLISION.barrelRadius }, breakable: true });
+    }
+    cell.placed.push({ x: spot.x, y: spot.y, r: 50 });
+  },
+
+  // Woods: stacks of sawn lumber (solid) and a loose log or two.
+  lumber(cell, items, paint, rng) {
+    const [fewest, most] = WOODS_MAP.lumberStacks;
+    const stacks = fewest + Math.floor(rng() * (most - fewest + 1));
+    for (let i = 0; i < stacks; i += 1) {
+      const spot = randomSpot(cell, 66, rng);
+      if (!spot) continue;
+      const turn = rng() < 0.5 ? 0 : 90;
+      add(cell, { kind: 'lumber', name: named('lumber'), x: spot.x, y: spot.y, heading: turn * DEG, model: 'lumber', params: {}, band: 'objects', collider: { type: 'box', hw: 30, hl: 48 }, breakable: false }, 66);
+    }
+    const logs = 1 + Math.floor(rng() * 2);
+    for (let i = 0; i < logs; i += 1) {
+      const spot = randomSpot(cell, 50, rng);
+      if (spot) add(cell, { kind: 'log', name: named('log'), x: spot.x, y: spot.y, heading: pick(rng, WORLD.logTurnsDeg) * DEG, model: 'log', params: {}, band: 'objects', collider: { type: 'box', hw: 9, hl: 34 }, breakable: true }, 50);
+    }
+  },
+
+  // Woods: the block is thick with trees, and one narrow dirt path wanders through from road to road.
+  thicket(cell, items, paint, rng) {
+    if (Math.hypot(cell.midX - START.x, cell.midY - START.y) < START.clearRadius + cell.size * 0.75) {
+      BUILDERS.grove(cell, items, paint, rng);
+      return;
+    }
+    const { thicketSpacing: step, thicketJitter: jitter, pathWidth, pathWander } = WOODS_MAP;
+    const northSouth = rng() < 0.5;
+    const phase = rng() * Math.PI * 2;
+    // The path's middle, across the block, at a point along it.
+    const middleAt = (along) => pathWander * Math.sin(((along - (northSouth ? cell.y0 : cell.x0)) / cell.size) * Math.PI * 1.5 + phase);
+    const across0 = northSouth ? cell.midX : cell.midY;
+    for (let a = cell.x0 + 22; a <= cell.x1 - 22; a += step) {
+      for (let b = cell.y0 + 22; b <= cell.y1 - 22; b += step) {
+        const x = a + (rng() - 0.5) * 2 * jitter;
+        const y = b + (rng() - 0.5) * 2 * jitter;
+        const along = northSouth ? y : x;
+        const across = northSouth ? x : y;
+        if (Math.abs(across - (across0 + middleAt(along))) < pathWidth / 2 + 18) continue;
+        if (x < cell.x0 + 14 || x > cell.x1 - 14 || y < cell.y0 + 14 || y > cell.y1 - 14) continue;
+        items.push(tree(x, y, rng));
+      }
+    }
+    // The dirt of the path, a little narrower than the gap in the trees.
+    const half = pathWidth * 0.36;
+    const edge = (side) => Array.from({ length: 13 }, (_, k) => {
+      const along = (northSouth ? cell.y0 : cell.x0) + (k / 12) * cell.size;
+      const across = across0 + middleAt(along) + side * half;
+      return northSouth ? [round1(across), round1(along)] : [round1(along), round1(across)];
+    });
+    const poly = [...edge(-1), ...edge(1).reverse()].flat();
+    paint.push({ poly, color: 'dirt', alpha: 0.9 });
+    cell.placed.push({ x: cell.midX, y: cell.midY, r: cell.size });
+  },
+
   open() {},
 };
+
+// ---- Winter, Desert and Woods (Step D) ----
+
+// A patch of ice or soft sand: a rounded shape with a wandering edge. The part that changes the driving is a
+// circle a little inside the drawn edge. A pond is a big one.
+function patchAt(kind, x, y, r, rng, pond = false) {
+  const outline = [];
+  const sides = pond ? 18 : 12;
+  const spin = rng() * Math.PI * 2;
+  for (let i = 0; i < sides; i += 1) {
+    const angle = spin + (i / sides) * Math.PI * 2;
+    const reach = r * lerp(1.02, 1.22, rng());
+    outline.push({ x: round1(x + Math.cos(angle) * reach), y: round1(y + Math.sin(angle) * reach) });
+  }
+  return { kind, surface: kind, pond, name: named(kind), x, y, heading: 0, collider: { type: 'circle', r }, outline };
+}
+
+// Ice or soft sand dotted over a chunk: most on the roads, where the cars are, the rest in the blocks.
+function addPatches(chunk, rng, kind, [fewest, most], [small, big], onRoadShare) {
+  const count = fewest + Math.floor(rng() * (most - fewest + 1));
+  for (let n = 0; n < count; n += 1) {
+    const r = lerp(small, big, rng());
+    let x;
+    let y;
+    if (rng() < onRoadShare) {
+      // On one of the chunk's inner roads, anywhere along it.
+      const northSouth = rng() < 0.5;
+      const across = (1 + Math.floor(rng() * (CELLS_PER_CHUNK - 1))) * WORLD.cell;
+      const along = r + 40 + rng() * (CHUNKS.size - (r + 40) * 2);
+      x = chunk.x0 + (northSouth ? across : along);
+      y = chunk.y0 + (northSouth ? along : across);
+    } else {
+      x = chunk.x0 + r + 60 + rng() * (CHUNKS.size - (r + 60) * 2);
+      y = chunk.y0 + r + 60 + rng() * (CHUNKS.size - (r + 60) * 2);
+    }
+    if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + r) continue;
+    if (chunk.surfaces.some((s) => s.collider && Math.hypot(s.x - x, s.y - y) < s.collider.r + r + 30)) continue;
+    chunk.surfaces.push(patchAt(kind, x, y, r, rng));
+  }
+}
+
+// Snowmen standing about in a block: they burst into snow when hit.
+function addSnowmen(cell, items, rng) {
+  const [fewest, most] = WINTER_MAP.snowmen;
+  const count = fewest + Math.floor(rng() * (most - fewest + 1));
+  for (let n = 0; n < count; n += 1) {
+    const spot = randomSpot(cell, 24, rng, 6);
+    if (!spot) continue;
+    items.push({ kind: 'snowman', name: named('snowman'), x: spot.x, y: spot.y, heading: 0, model: 'snowman', params: {}, band: 'objects', collider: { type: 'circle', r: COLLISION.snowmanRadius }, breakable: true });
+    cell.placed.push({ x: spot.x, y: spot.y, r: 24 });
+  }
+}
+
+// Tumbleweeds caught in a block, waiting for a car.
+function addTumbleweeds(cell, items, rng) {
+  const [fewest, most] = DESERT_MAP.tumbleweeds;
+  const count = fewest + Math.floor(rng() * (most - fewest + 1));
+  for (let n = 0; n < count; n += 1) {
+    const spot = randomSpot(cell, 22, rng, 6);
+    if (!spot) continue;
+    items.push({ kind: 'tumbleweed', name: named('tumbleweed'), x: spot.x, y: spot.y, heading: 0, model: 'tumbleweed', params: {}, band: 'objects', collider: { type: 'circle', r: COLLISION.tumbleweedRadius }, breakable: true });
+    cell.placed.push({ x: spot.x, y: spot.y, r: 22 });
+  }
+}
+
+// Does this row of chunks have a river (Woods)?
+export function hasRiver(cy) {
+  const { riverEvery, riverRowOffset } = WOODS_MAP;
+  return (((cy - riverRowOffset) % riverEvery) + riverEvery) % riverEvery === 0;
+}
+
+// The middle line of the river in a row of chunks, and how far its drawn banks reach at a point along it: they
+// wander with the world x, so a river runs on unbroken from one chunk into the next.
+export function riverMiddle(cy) {
+  return cy * CHUNKS.size + WOODS_MAP.riverBlock * WORLD.cell + WORLD.cell / 2;
+}
+function bankReach(x, cy, side) {
+  const phase = cy * 1.7 + side * 2.3;
+  const wobble = 0.5 + 0.3 * Math.sin(x * 0.0061 + phase) + 0.2 * Math.sin(x * 0.0173 + phase * 2);
+  return WOODS_MAP.riverHalfWidth + WOODS_MAP.bankWobble * wobble;
+}
+function riverOutline(cy, x0, x1) {
+  const middle = riverMiddle(cy);
+  const steps = Math.max(2, Math.round((x1 - x0) / 40));
+  const outline = [];
+  for (let k = 0; k <= steps; k += 1) {
+    const x = x0 + ((x1 - x0) * k) / steps;
+    outline.push({ x: round1(x), y: round1(middle - bankReach(x, cy, -1)) });
+  }
+  for (let k = steps; k >= 0; k -= 1) {
+    const x = x0 + ((x1 - x0) * k) / steps;
+    outline.push({ x: round1(x), y: round1(middle + bankReach(x, cy, 1)) });
+  }
+  return outline;
+}
+
+// A tree or two on each bank of the river.
+function riverBanks(cell, items, rng) {
+  const middle = riverMiddle(cell.chunk.cy);
+  // Halfway between the furthest the water reaches and the edge of the block.
+  const reach = (WOODS_MAP.riverHalfWidth + WOODS_MAP.bankWobble + cell.size / 2) / 2;
+  for (const side of [-1, 1]) {
+    const y = middle + side * reach;
+    const count = 1 + Math.floor(rng() * 2);
+    for (let n = 0; n < count; n += 1) {
+      const x = cell.x0 + 30 + rng() * (cell.size - 60);
+      if (Math.hypot(x - START.x, y - START.y) > START.clearRadius) items.push(tree(x, y, rng));
+    }
+  }
+}
+
+// The river across the whole chunk: its water (drawing), a hole the length of each block it runs through, and a
+// bridge with railings over every road it crosses. The railings on a border road are shared: each chunk puts up
+// the one on its own side.
+function addRiver(chunk, rng) {
+  const middle = riverMiddle(chunk.cy);
+  chunk.surfaces.push({ kind: 'river', surface: null, name: named('river'), x: chunk.x0 + CHUNKS.size / 2, y: middle, heading: 0, collider: null, outline: riverOutline(chunk.cy, chunk.x0, chunk.x0 + CHUNKS.size), seed: Math.floor(rng() * 1e6) });
+  const half = WORLD.cell / 2 - WORLD.margin;
+  for (let i = 0; i < CELLS_PER_CHUNK; i += 1) {
+    const x = chunk.x0 + i * WORLD.cell + WORLD.cell / 2;
+    chunk.voids.push({
+      kind: 'void',
+      isVoid: true,
+      water: true,
+      name: named('void'),
+      x,
+      y: middle,
+      heading: 90 * DEG,
+      collider: { type: 'box', hw: WOODS_MAP.riverHalfWidth, hl: half },
+      breakable: false,
+      outline: riverOutline(chunk.cy, x - half, x + half),
+    });
+  }
+  const length = WOODS_MAP.deckLength;
+  for (let k = 0; k <= CELLS_PER_CHUNK; k += 1) {
+    const x = chunk.x0 + k * WORLD.cell;
+    if (k < CELLS_PER_CHUNK) chunk.items.push({ kind: 'bridge', name: named('bridge'), x, y: middle, heading: 0, model: 'bridge', params: {}, band: 'raised', collider: null, breakable: false });
+    for (const side of [-1, 1]) {
+      if ((k === 0 && side < 0) || (k === CELLS_PER_CHUNK && side > 0)) continue;
+      chunk.items.push({ kind: 'railing', name: named('railing'), x: x + side * WOODS_MAP.railInset, y: middle, heading: 90 * DEG, model: 'railing', params: {}, band: 'objects', collider: { type: 'box', hw: length / 2, hl: 4 }, breakable: false });
+    }
+  }
+}
 
 // The paved square in the middle of a plaza chunk: a roundabout with a monument and trees, on the
 // crossing of the chunk's two middle roads. Traffic can still ride over the roundabout's curb.
@@ -914,7 +1273,7 @@ function addPlaza(chunk) {
 
 // Holes in the roads inside the chunk, midway between crossings. The chunk's border roads stay
 // whole, so there is always a way around every chunk and the road network never breaks.
-function addRoadHoles(chunk, [fewest, most], rng) {
+function addRoadHoles(chunk, [fewest, most], rng, river = false) {
   const count = fewest + Math.floor(rng() * (most - fewest + 1));
   const used = new Set();
   for (let n = 0; n < count; n += 1) {
@@ -923,12 +1282,14 @@ function addRoadHoles(chunk, [fewest, most], rng) {
     const segment = Math.floor(rng() * CELLS_PER_CHUNK);
     const key = `${northSouth}:${line}:${segment}`;
     if (used.has(key)) continue;
+    if (river && northSouth && segment === WOODS_MAP.riverBlock) continue; // that stretch is a bridge
     used.add(key);
     const across = line * WORLD.cell;
     const along = (segment + 0.5) * WORLD.cell;
     const x = chunk.x0 + (northSouth ? across : along);
     const y = chunk.y0 + (northSouth ? along : across);
     if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + 150) continue;
+    if (chunk.items.some((item) => item.isRamp && Math.hypot(item.x - x, item.y - y) < RAMP.holeClearance)) continue;
     if (rng() < VOID.gapChance) {
       const hl = lerp(VOID.gapHalfLength[0], VOID.gapHalfLength[1], rng());
       chunk.voids.push(gapVoid(x, y, VOID.gapHalfWidth, hl, northSouth ? 0 : 90, rng));
@@ -1065,6 +1426,7 @@ function crack(paint, rng, x, y, angle) {
 // A block's ground: a curb, a pavement inside it and the block itself, all with rounded corners. An asphalt block
 // has driveways through its curb, and sometimes a crack. Maps without streets keep a plain square.
 function blockGround(cell, rng, arrangement) {
+  if (map.wild) return wildGround(cell, rng);
   if (!map.streets) return [{ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' }];
   const st = WORLD.street;
   const edge = st.curb + st.sidewalk;
@@ -1105,6 +1467,210 @@ function blockGround(cell, rng, arrangement) {
 }
 
 // Wear on the chunk's roads: patches where the road was mended, cracks, and manholes in the lanes.
+// ---- Woods ground (drawing only) ----
+
+// A small lumpy shape, as a flat polygon.
+function lump(rng, x, y, r, sides = 7, squash = 1) {
+  const spin = rng() * Math.PI * 2;
+  const poly = [];
+  for (let i = 0; i < sides; i += 1) {
+    const a = spin + (i / sides) * Math.PI * 2;
+    const reach = r * (0.7 + rng() * 0.6);
+    poly.push(round1(x + Math.cos(a) * reach), round1(y + Math.sin(a) * reach * squash));
+  }
+  return poly;
+}
+
+// A block of wild grass: darker and lighter patches, a bare spot now and then, and tufts.
+function wildGround(cell, rng) {
+  const marks = [{ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' }];
+  const spot = (r) => ({ x: cell.x0 + r + rng() * (cell.size - r * 2), y: cell.y0 + r + rng() * (cell.size - r * 2) });
+  for (let k = 0; k < WOODS_MAP.grassPatches; k += 1) {
+    const r = 35 + rng() * 55;
+    const p = spot(r);
+    marks.push({ poly: lump(rng, p.x, p.y, r, 9, 0.75), color: k % 2 ? 'grassLight' : 'grassDark', alpha: 0.45 });
+  }
+  if (rng() < 0.5) {
+    const p = spot(40);
+    marks.push({ poly: lump(rng, p.x, p.y, 22 + rng() * 18, 8, 0.7), color: 'mud', alpha: 0.55 });
+  }
+  for (let k = 0; k < WOODS_MAP.tufts; k += 1) {
+    const p = spot(12);
+    const s = 5 + rng() * 4;
+    // Three blades: a little W.
+    marks.push({ poly: [p.x - s, p.y, p.x - s * 0.55, p.y - s * 1.3, p.x - s * 0.2, p.y - s * 0.2, p.x, p.y - s * 1.6, p.x + s * 0.2, p.y - s * 0.2, p.x + s * 0.55, p.y - s * 1.3, p.x + s, p.y].map(round1), color: 'grassDark', alpha: 0.9 });
+  }
+  return marks;
+}
+
+// What a stretch of Woods road is made of, from its place in the world (northSouth, the line it runs along and
+// which stretch of it), so the chunks on both sides of a border agree. Its shapes come from the same numbers.
+function stretchRng(northSouth, line, stretch) {
+  return createRng((Math.imul(line, 73856093) ^ Math.imul(stretch, 19349663) ^ (northSouth ? 0x5bd1e995 : 0x27d4eb2f)) >>> 0);
+}
+function wildRoadType(northSouth, line, stretch) {
+  return pickWeighted(stretchRng(northSouth, line, stretch), WOODS_MAP.roads);
+}
+
+// The Woods roads. Each stretch between crossings is one of:
+//   asphalt: the old road, its lane lines still there, grass eating into its edges and potholes in it;
+//   grass:   the road is gone: grass over it, a faint worn track, the odd broken piece of asphalt;
+//   mud:     the road is gone: uneven mud spilling over onto the grass, ruts and puddles.
+// Crossings soften their corners if all their roads are asphalt; otherwise they go to grass or mud too.
+function addWildRoads(chunk) {
+  const { cell, margin } = WORLD;
+  const W = WOODS_MAP;
+  const typeAt = (northSouth, k, j) => wildRoadType(northSouth, (northSouth ? chunk.cx : chunk.cy) * CELLS_PER_CHUNK + k, (northSouth ? chunk.cy : chunk.cx) * CELLS_PER_CHUNK + j);
+  // Lane lines and arrows only on the asphalt.
+  chunk.paint = chunk.paint.filter((mark) => {
+    if (mark.color || mark.poly || mark.ring) return true;
+    const x = mark.arrow ? mark.x : mark.x + mark.w / 2;
+    const y = mark.arrow ? mark.y : mark.y + mark.h / 2;
+    const northSouth = Math.abs(x - Math.round(x / cell) * cell) < Math.abs(y - Math.round(y / cell) * cell);
+    const k = Math.round((northSouth ? x - chunk.x0 : y - chunk.y0) / cell);
+    const j = Math.floor((northSouth ? y - chunk.y0 : x - chunk.x0) / cell);
+    return typeAt(northSouth, k, Math.max(0, Math.min(CELLS_PER_CHUNK - 1, j))) === 'asphalt';
+  });
+  const paint = (poly, color, alpha = 1) => chunk.paint.push({ poly, color, alpha });
+  for (const northSouth of [true, false]) {
+    for (let k = 0; k <= CELLS_PER_CHUNK; k += 1) {
+      for (let j = 0; j < CELLS_PER_CHUNK; j += 1) {
+        const lineId = (northSouth ? chunk.cx : chunk.cy) * CELLS_PER_CHUNK + k;
+        const stretchId = (northSouth ? chunk.cy : chunk.cx) * CELLS_PER_CHUNK + j;
+        const rng = stretchRng(northSouth, lineId, stretchId);
+        const type = pickWeighted(rng, W.roads);
+        const across = (northSouth ? chunk.x0 : chunk.y0) + k * cell;
+        const from = (northSouth ? chunk.y0 : chunk.x0) + j * cell + margin;
+        const to = from + cell - margin * 2;
+        // A point on this stretch: t along it (0..1), off across it from the middle line.
+        const at = (t, off) => {
+          const along = from + (to - from) * t;
+          return northSouth ? { x: across + off, y: along } : { x: along, y: across + off };
+        };
+        if (type === 'asphalt') {
+          // Grass bites out of both edges, and a pothole or two.
+          for (const side of [-1, 1]) {
+            for (let t = rng() * 0.15; t < 1; t += 0.12 + rng() * 0.12) {
+              const p = at(t, side * (margin + 4 - rng() * 22));
+              paint(lump(rng, p.x, p.y, 12 + rng() * 26, 8, 0.8), 'lot');
+            }
+          }
+          for (let n = Math.floor(rng() * 3); n > 0; n -= 1) {
+            const p = at(0.1 + rng() * 0.8, (rng() - 0.5) * margin);
+            paint(lump(rng, p.x, p.y, 8 + rng() * 10, 7, 0.75), 'puddle', 0.75);
+          }
+          continue;
+        }
+        // The road is gone: grass over the whole stretch, with wandering edges.
+        const half = margin + 6;
+        const cover = northSouth ? [across - half, from - 4, across + half, to + 4] : [from - 4, across - half, to + 4, across + half];
+        paint(wanderingRect(rng, ...cover, northSouth, 4), 'lot');
+        if (type === 'grass') {
+          for (let n = 0; n < 3; n += 1) {
+            const p = at(rng(), (rng() - 0.5) * margin * 1.6);
+            paint(lump(rng, p.x, p.y, 30 + rng() * 40, 9, 0.7), n % 2 ? 'grassLight' : 'grassDark', 0.45);
+          }
+          // A faint track where wheels still go.
+          for (const side of [-1, 1]) {
+            const line = [];
+            const phase = rng() * 6;
+            for (let i = 0; i <= 10; i += 1) line.push(at(i / 10, side * W.ruts + 10 * Math.sin(i * 0.7 + phase)));
+            paint(stripPoly(line, 14), 'mud', 0.35);
+          }
+          if (rng() < 0.5) {
+            const p = at(0.2 + rng() * 0.6, (rng() - 0.5) * margin);
+            paint(lump(rng, p.x, p.y, 10 + rng() * 14, 5, 0.8), 'asphalt', 0.9);
+          }
+        } else {
+          // Mud: blobs along the stretch, wandering from side to side and spilling onto the grass.
+          for (let t = 0; t <= 1.001; t += 0.14 + rng() * 0.06) {
+            const p = at(t, (rng() - 0.5) * 60);
+            paint(lump(rng, p.x, p.y, 62 + rng() * 40, 9, 0.85), 'mud');
+          }
+          for (let n = 0; n < 3; n += 1) {
+            const p = at(rng(), (rng() - 0.5) * margin);
+            paint(lump(rng, p.x, p.y, 20 + rng() * 26, 8, 0.7), 'mudDark', 0.6);
+          }
+          for (const side of [-1, 1]) {
+            const line = [];
+            const phase = rng() * 6;
+            for (let i = 0; i <= 10; i += 1) line.push(at(i / 10, side * W.ruts * 0.8 + 12 * Math.sin(i * 0.8 + phase)));
+            paint(stripPoly(line, 10), 'mudDark', 0.55);
+          }
+          for (let n = 1 + Math.floor(rng() * 2); n > 0; n -= 1) {
+            const p = at(0.1 + rng() * 0.8, (rng() - 0.5) * margin);
+            paint(lump(rng, p.x, p.y, 14 + rng() * 16, 9, 0.6), 'puddle', 0.85);
+          }
+        }
+      }
+    }
+  }
+  // Crossings.
+  for (let i = 0; i <= CELLS_PER_CHUNK; i += 1) {
+    for (let j = 0; j <= CELLS_PER_CHUNK; j += 1) {
+      const meeting = [];
+      if (j > 0) meeting.push(typeAt(true, i, j - 1));
+      if (j < CELLS_PER_CHUNK) meeting.push(typeAt(true, i, j));
+      if (i > 0) meeting.push(typeAt(false, j, i - 1));
+      if (i < CELLS_PER_CHUNK) meeting.push(typeAt(false, j, i));
+      const x = chunk.x0 + i * cell;
+      const y = chunk.y0 + j * cell;
+      const rng = createRng((Math.imul(chunk.cx * CELLS_PER_CHUNK + i, 2654435761) ^ Math.imul(chunk.cy * CELLS_PER_CHUNK + j, 40503)) >>> 0);
+      if (meeting.every((t) => t === 'asphalt')) {
+        // Round off the blocks' corners, so the crossing isn't a square.
+        for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) paint(lump(rng, x + dx * (margin + 4), y + dy * (margin + 4), 26 + rng() * 10, 8, 1), 'asphalt');
+        continue;
+      }
+      paint(lump(rng, x, y, margin * 1.15, 12, 1), 'lot');
+      if (meeting.includes('mud')) {
+        for (let n = 0; n < 3; n += 1) paint(lump(rng, x + (rng() - 0.5) * 80, y + (rng() - 0.5) * 80, 55 + rng() * 35, 9, 0.85), 'mud');
+        if (rng() < 0.6) paint(lump(rng, x + (rng() - 0.5) * 60, y + (rng() - 0.5) * 60, 16 + rng() * 14, 9, 0.6), 'puddle', 0.85);
+      } else {
+        paint(lump(rng, x, y, 40 + rng() * 25, 9, 0.7), 'grassDark', 0.4);
+      }
+    }
+  }
+}
+
+// A rectangle whose two long sides wander a little, as a flat polygon. northSouth: it runs along y.
+function wanderingRect(rng, x0, y0, x1, y1, northSouth, wobble) {
+  const left = [];
+  const right = [];
+  const length = northSouth ? y1 - y0 : x1 - x0;
+  const steps = Math.max(2, Math.round(length / 45));
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    const a = (rng() - 0.5) * 2 * wobble;
+    const b = (rng() - 0.5) * 2 * wobble;
+    if (northSouth) {
+      const y = y0 + length * t;
+      left.push(round1(x0 + a), round1(y));
+      right.unshift(round1(x1 + b), round1(y));
+    } else {
+      const x = x0 + length * t;
+      left.push(round1(x), round1(y0 + a));
+      right.unshift(round1(x), round1(y1 + b));
+    }
+  }
+  return [...left, ...right];
+}
+
+// A band along a line of points, `width` wide, as a flat polygon.
+function stripPoly(points, width) {
+  const left = [];
+  const right = [];
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(points.length - 1, i + 1)];
+    const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const nx = (-(b.y - a.y) / length) * (width / 2);
+    const ny = ((b.x - a.x) / length) * (width / 2);
+    left.push(round1(points[i].x + nx), round1(points[i].y + ny));
+    right.unshift(round1(points[i].x - nx), round1(points[i].y - ny));
+  }
+  return [...left, ...right];
+}
+
 function addRoadWear(chunk, rng) {
   const st = WORLD.street;
   const { cell, margin } = WORLD;

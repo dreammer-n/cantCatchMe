@@ -1,4 +1,4 @@
-import { COLLISION, PALETTE, PILLARS, RENDER, ROADBLOCK, SCENERY, WORLD } from '../config/tuning.js';
+import { COLLISION, PALETTE, PILLARS, RAMP, RENDER, ROADBLOCK, SCENERY, WOODS_MAP, WORLD } from '../config/tuning.js';
 import { glyphBars, glyphWidth } from './blockFont.js';
 import { box, decal, faceted, frustum, glowing, ngon, rect, shadeColor, shell } from './lowpoly.js';
 import { sedan } from './playerCars.js';
@@ -252,6 +252,216 @@ export function lampPost() {
   ];
 }
 
+// ---- Suburbs street furniture ----
+
+// A fire hydrant: squat and red, with nozzles on its sides and a domed cap.
+export function hydrant() {
+  return [
+    ngon({ sides: 8, r0: 7, r1: 7, z0: 0, z1: 3, color: PALETTE.hydrantDark, layer: 0 }),
+    ngon({ sides: 8, r0: 5.4, r1: 5, z0: 3, z1: 17, color: PALETTE.hydrant, layer: 1 }),
+    box(-8, 8, -2.2, 2.2, 9.5, 13.5, PALETTE.hydrantDark, 2),
+    ngon({ sides: 8, r0: 5.6, r1: 2, z0: 17, z1: 22, color: PALETTE.hydrant, layer: 3 }),
+  ];
+}
+
+// A mailbox on a post, with a little red flag. Faces local +y.
+export function mailbox() {
+  const body = shell({ hw: 6, y0: -9, y1: 9, z0: 22, z1: 32, color: PALETTE.mailbox, cut: 1.5, bevel: 2.5, layer: 1 });
+  decal(body, 'front', 0.2, 0.8, 0.15, 0.7, shadeColor(PALETTE.mailbox, 0.7));
+  return [box(-1.5, 1.5, -1.5, 1.5, 0, 22, PALETTE.pole, 0), body, box(6, 7.5, -4, -2, 26, 36, PALETTE.mailboxFlag, 2)];
+}
+
+// A wheelie bin with a lid.
+export function trashCan() {
+  return [
+    ngon({ sides: 10, r0: 9.5, r1: 11, z0: 0, z1: 24, color: PALETTE.trashcan, layer: 0 }),
+    ngon({ sides: 10, r0: 12, r1: 11, z0: 24, z1: 27, color: PALETTE.trashLid, layer: 1 }),
+  ];
+}
+
+// A round garden hedge.
+export function bush(size = 1) {
+  return [faceted({ z0: 0, z1: 24 * size, radius: 18 * size, color: PALETTE.hedge, sides: 7, layer: 0, rings: [[0, 0.8], [0.35, 1], [0.75, 0.75], [1, 0]] })];
+}
+
+// One piece of white picket fence, along local x.
+export function picketFence() {
+  const c = PALETTE.fence;
+  const parts = [box(-22, 22, -1, 1, 7, 9, c, 0), box(-22, 22, -1, 1, 14, 16, c, 0)];
+  for (let x = -20; x <= 20; x += 8) parts.push(box(x - 1.6, x + 1.6, -1.4, 1.4, 0, 20, c, 1));
+  return parts;
+}
+
+// A ramp: low at the back, high at the front (local +y), in site yellow with black chevrons.
+export function jumpRamp() {
+  const hw = RAMP.width / 2;
+  const hl = RAMP.length / 2;
+  const h = RAMP.height;
+  const part = { ...frustum({ x0: -hw, x1: hw, y0: -hl, y1: hl }, { x0: -hw, x1: hw, y0: -hl, y1: hl }, 0, [0.6, 0.6, h, h], { sides: PALETTE.rampDark, top: PALETTE.ramp }, 0) };
+  for (const v of [0.18, 0.46, 0.74]) decal(part, 'top', 0.08, 0.92, v, v + 0.1, PALETTE.rampDark);
+  return [part];
+}
+
+// ---- Winter, Desert and Woods ----
+
+// Moves a part sideways (along local x).
+function shiftX(part, dx) {
+  for (const v of part.verts) v[0] += dx;
+  for (const face of part.faces) if (face.quad) for (const v of face.quad) v[0] += dx;
+  if (part.minX !== undefined) {
+    part.minX += dx;
+    part.maxX += dx;
+  }
+  return part;
+}
+
+const BALL = [[0, 0.62], [0.28, 1], [0.66, 0.9], [1, 0]];
+
+// A snowman: three balls of snow, a coal hat and eyes, a carrot nose and twig arms. It faces the camera (local -y).
+export function snowman() {
+  const c = PALETTE.snow;
+  return [
+    faceted({ z0: 0, z1: 26, radius: 14, color: c, sides: 8, layer: 0, rings: BALL }),
+    faceted({ z0: 20, z1: 39, radius: 10, color: c, sides: 8, layer: 1, rings: BALL }),
+    box(-21, -9, -1, 1, 29, 31, PALETTE.trunk, 2),
+    box(9, 21, -1, 1, 29, 31, PALETTE.trunk, 2),
+    box(-1.3, 1.3, -10.5, -8.5, 27, 29.5, PALETTE.coal, 2),
+    faceted({ z0: 35, z1: 49, radius: 7.5, color: c, sides: 8, layer: 3, rings: BALL }),
+    box(-1.4, 1.4, -13, -6, 41, 43.5, PALETTE.carrot, 4),
+    box(-3.4, -1.6, -7.2, -5.8, 44, 46, PALETTE.coal, 4),
+    box(1.6, 3.4, -7.2, -5.8, 44, 46, PALETTE.coal, 4),
+    ngon({ sides: 8, r0: 7, r1: 7, z0: 47, z1: 48.5, color: PALETTE.coal, layer: 5 }),
+    ngon({ sides: 8, r0: 4.6, r1: 4.4, z0: 48.5, z1: 56, color: PALETTE.coal, layer: 6 }),
+  ];
+}
+
+// A thin straight twig from point a to point b ([x, y, z]), `t` thick: a long box turned to lie along the line.
+function twig(a, b, t, color, layer) {
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const length = Math.hypot(...d) || 1;
+  const n = d.map((k) => k / length);
+  // Two directions square to the twig, each t/2 long.
+  const helper = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  const cross = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+  const norm = (p) => {
+    const l = Math.hypot(...p) || 1;
+    return p.map((k) => (k / l) * (t / 2));
+  };
+  const u = norm(cross(n, helper));
+  const v = norm(cross(n, u));
+  const corner = (p, su, sv) => [p[0] + u[0] * su + v[0] * sv, p[1] + u[1] * su + v[1] * sv, p[2] + u[2] * su + v[2] * sv];
+  const verts = [];
+  for (const p of [a, b]) for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) verts.push(corner(p, su, sv));
+  const faces = [
+    [0, 1, 5, 4],
+    [1, 2, 6, 5],
+    [2, 3, 7, 6],
+    [3, 0, 4, 7],
+    [3, 2, 1, 0],
+    [4, 5, 6, 7],
+  ].map((v2) => ({ v: v2, color, decals: [] }));
+  return { verts, faces, layer };
+}
+
+// A tumbleweed: a round, bulky ball of dry twigs. A dark tangled middle, twigs criss-crossing all over it, and
+// rings of twig running round it so its outline is round from every side.
+export function tumbleweed() {
+  const r = 21;
+  const middle = [0, 0, r];
+  const colors = [PALETTE.tumbleweed, shadeColor(PALETTE.tumbleweed, 0.7), shadeColor(PALETTE.tumbleweed, 1.15)];
+  const parts = [faceted({ z0: 3, z1: r * 2 - 4, radius: r * 0.72, color: shadeColor(PALETTE.tumbleweed, 0.6), sides: 7, layer: 0, rings: [[0, 0.55], [0.2, 0.9], [0.5, 1], [0.8, 0.85], [1, 0]] })];
+  // Points spread over the ball (a fixed spiral, so every tumbleweed is the same drawing).
+  const count = 30;
+  const points = Array.from({ length: count }, (_, i) => {
+    const z = 1 - (2 * (i + 0.5)) / count;
+    const ring = Math.sqrt(1 - z * z);
+    const a = i * 2.39996;
+    const reach = r * (0.9 + 0.1 * Math.sin(i * 5.3));
+    return [Math.cos(a) * ring * reach, Math.sin(a) * ring * reach, r + z * reach];
+  });
+  for (let i = 0; i < count; i += 1) parts.push(twig(points[i], points[(i * 7 + 5) % count], 1.8, colors[i % 3], 1 + (i % 2)));
+  // Three rings round it, each turned a different way.
+  for (const [tilt, turn] of [[0.3, 0], [1.25, 0.9], [1.0, 2.1]]) {
+    const ringPoint = (a) => {
+      let x = Math.cos(a) * r;
+      let y = Math.sin(a) * r;
+      let z = 0;
+      [y, z] = [y * Math.cos(tilt), y * Math.sin(tilt)];
+      [x, y] = [x * Math.cos(turn) - y * Math.sin(turn), x * Math.sin(turn) + y * Math.cos(turn)];
+      return [x, y, r + z];
+    };
+    for (let k = 0; k < 10; k += 1) parts.push(twig(ringPoint((k / 10) * Math.PI * 2), ringPoint(((k + 1) / 10) * Math.PI * 2), 2, colors[(k + 1) % 3], 2));
+  }
+  for (let i = 0; i < 5; i += 1) parts.push(twig(points[i * 6], middle, 1.5, colors[(i + 1) % 3], 1));
+  return parts;
+}
+
+// An oil pump: a beam nodding on an A-frame, a horse head at the front (local +y) over the well, the motor and
+// its counterweights at the back.
+export function pumpjack() {
+  const c = PALETTE.pumpjack;
+  const dark = shadeColor(c, 0.7);
+  return [
+    box(-15, 15, -40, 40, 0, 4, dark, 0),
+    box(-9, 9, -38, -22, 4, 18, c, 1),
+    box(-13, -9, -30, -20, 8, 28, PALETTE.pumpjackHead, 1),
+    box(9, 13, -30, -20, 8, 28, PALETTE.pumpjackHead, 1),
+    box(-11, -6, -5, 5, 4, 42, c, 1),
+    box(6, 11, -5, 5, 4, 42, c, 1),
+    ngon({ x: 0, y: 34, sides: 6, r0: 5, r1: 4, z0: 4, z1: 10, color: dark, layer: 1 }),
+    box(-0.8, 0.8, 33.2, 34.8, 10, 30, PALETTE.pole, 2),
+    box(-3.5, 3.5, -30, 30, 42, 48, c, 3),
+    box(-4.5, 4.5, 26, 38, 28, 52, PALETTE.pumpjackHead, 4),
+  ];
+}
+
+// An oil barrel, with two bands round it.
+export function oilBarrel() {
+  const c = PALETTE.barrel;
+  const band = PALETTE.barrelBand;
+  return [
+    ngon({ sides: 10, r0: 9, r1: 9, z0: 0, z1: 8, color: c, layer: 0 }),
+    ngon({ sides: 10, r0: 9.4, r1: 9.4, z0: 8, z1: 10, color: band, layer: 1 }),
+    ngon({ sides: 10, r0: 9, r1: 9, z0: 10, z1: 17, color: c, layer: 2 }),
+    ngon({ sides: 10, r0: 9.4, r1: 9.4, z0: 17, z1: 19, color: band, layer: 3 }),
+    ngon({ sides: 10, r0: 9, r1: 8.6, z0: 19, z1: 26, color: c, topColor: band, layer: 4 }),
+  ];
+}
+
+// A stack of sawn logs along local y: four at the bottom, then three, then two, their ends pale.
+export function lumberStack() {
+  const wood = shadeColor(PALETTE.log, 0.92);
+  const parts = [];
+  const log = (x, z, layer) => {
+    const part = shell({ hw: 7.5, y0: -48, y1: 48, z0: z, z1: z + 15, color: wood, cut: 3, bevel: 2.5, layer });
+    decal(part, 'front', 0.15, 0.85, 0.15, 0.85, PALETTE.logEnd);
+    decal(part, 'back', 0.15, 0.85, 0.15, 0.85, PALETTE.logEnd);
+    parts.push(shiftX(part, x));
+  };
+  for (const x of [-22.5, -7.5, 7.5, 22.5]) log(x, 0, 0);
+  for (const x of [-15, 0, 15]) log(x, 13, 1);
+  for (const x of [-7.5, 7.5]) log(x, 26, 2);
+  return parts;
+}
+
+// A plank deck over the river, as wide as the road and running along local y.
+export function bridgeDeck() {
+  const half = WOODS_MAP.deckLength / 2;
+  const hw = WORLD.margin;
+  const deck = box(-hw, hw, -half, half, 0, 5, PALETTE.bridgeDeck, 0);
+  for (let v = 0.04; v < 0.98; v += 0.08) decal(deck, 'top', 0, 1, v, v + 0.025, PALETTE.bridgePlank);
+  return [deck, box(-hw, -hw + 8, -half, half, 5, 8, PALETTE.railing, 1), box(hw - 8, hw, -half, half, 5, 8, PALETTE.railing, 1)];
+}
+
+// A wooden railing along local x: posts and two rails.
+export function railing() {
+  const half = WOODS_MAP.deckLength / 2;
+  const c = PALETTE.railing;
+  const parts = [box(-half, half, -1.5, 1.5, 9, 12, c, 1), box(-half, half, -1.5, 1.5, 17, 20, c, 1)];
+  for (let x = -half + 2; x <= half - 2; x += 37) parts.push(box(x - 2.2, x + 2.2, -2.2, 2.2, 0, 22, shadeColor(c, 0.85), 0));
+  return parts;
+}
+
 export function trafficCone() {
   return [
     box(-8, 8, -8, 8, 0, 2, PALETTE.cone, 0),
@@ -453,6 +663,32 @@ export function propMesh(item) {
       return boulder(p.size);
     case 'billboard':
       return billboard();
+    case 'hydrant':
+      return hydrant();
+    case 'mailbox':
+      return mailbox();
+    case 'trashcan':
+      return trashCan();
+    case 'bush':
+      return bush(p.size);
+    case 'fence':
+      return picketFence();
+    case 'ramp':
+      return jumpRamp();
+    case 'snowman':
+      return snowman();
+    case 'tumbleweed':
+      return tumbleweed();
+    case 'pumpjack':
+      return pumpjack();
+    case 'barrel':
+      return oilBarrel();
+    case 'lumber':
+      return lumberStack();
+    case 'bridge':
+      return bridgeDeck();
+    case 'railing':
+      return railing();
     default:
       throw new Error(`No model for ${item.kind}`);
   }
@@ -460,5 +696,5 @@ export function propMesh(item) {
 
 // Pixels per world unit to draw an item at.
 export function propBakeScale(item) {
-  return ['island', 'roundabout', 'canopy', 'shop', 'cabin', 'mesa'].includes(item.kind) ? RENDER.flatBakeScale : RENDER.bakeScale;
+  return ['island', 'roundabout', 'canopy', 'shop', 'cabin', 'mesa', 'bridge'].includes(item.kind) ? RENDER.flatBakeScale : RENDER.bakeScale;
 }

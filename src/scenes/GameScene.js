@@ -24,6 +24,7 @@ import {
   RENDER,
   REVIVE,
   HAPTICS,
+  STREET_PROPS,
   BLACKOUT,
   PHANTOM,
   TRAUMA,
@@ -39,6 +40,8 @@ import { CameraRig } from '../render/CameraRig.js';
 import { ensureCarAtlas, releaseCarSheets } from '../render/carAtlas.js';
 import { BEARCAT_LIGHTS, carPaint, carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
+import { MapWeather, TUMBLEWEED_BITS } from '../render/MapWeather.js';
+import { PowerFx } from '../render/PowerFx.js';
 import { HelicopterView } from '../render/HelicopterView.js';
 import { JetView } from '../render/JetView.js';
 import { createLayers, depthAt } from '../render/layers.js';
@@ -91,12 +94,13 @@ export class GameScene extends Phaser.Scene {
     // Drawn as light: a glowing blue hologram over the road, not a second solid car.
     this.decoyView.sprite.setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.decoy);
     if (this.decoyView.wheels) this.decoyView.wheels.setBlendMode(Phaser.BlendModes.ADD).setTint(PALETTE.decoy);
-    this.exhaustClock = 0;
-    this.trailClock = 0;
     this.ghostShown = false;
     this.freeViews = [];
     this.skids = new SkidMarks(this, this.layers.ground);
     this.effects = new Effects(this, this.layers);
+    this.effects.setGround(Maps.current());
+    this.weather = new MapWeather(this, this.layers, this.effects);
+    this.powerFx = new PowerFx(this, this.layers);
     this.createCrate();
     this.absorb = null; // the die sinking into the car after a pickup
 
@@ -161,6 +165,7 @@ export class GameScene extends Phaser.Scene {
     if (map.id === this.mapId) return;
     this.mapId = map.id;
     applyMapPalette(map);
+    this.effects.setGround(map);
     this.showGroundColour();
     this.sim.chunks.setLayout(buildLayout(WORLD.seed, map));
     this.scenery.reload(map);
@@ -307,6 +312,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.skids.clear();
     this.effects.clear();
+    this.powerFx.clear();
+    this.weather.reset(this.mode === 'playing' ? Maps.current() : null);
     this.smokeClock.clear();
     this.absorb = null;
     this.crateBody.setScale(this.crateBodyScale).setAlpha(1).setRotation(0);
@@ -361,12 +368,12 @@ export class GameScene extends Phaser.Scene {
     this.scenery.syncSpikes(this.sim.spikeStrips);
     this.helicopterView.update(this.sim.helicopter, time);
     this.jetView.update(this.sim.airstrike, time);
-    this.effects.syncPatches(this.sim.powerUps.patches, gameDt);
-    this.effects.syncPuddles(this.sim.powerUps.puddles);
+    this.effects.syncPatches(this.sim.powerUps.patches);
     this.drawPowerExtras(time, dt);
     if (this.sim.player.crushing) this.rig.trauma = Math.max(this.rig.trauma, TRAUMA.giantRumble);
     this.scenery.cull(this.view);
     this.effects.update(gameDt);
+    this.weather.update(this.sim, gameDt, this.mode === 'playing' && !this.turntable);
     this.updateAudio(dt);
   }
 
@@ -378,14 +385,14 @@ export class GameScene extends Phaser.Scene {
           this.acquireView(e.police, this.lookFor(e.police));
           break;
         case 'wreck':
-          if (e.cause === 'void') this.crumbleBehind(e.police.model);
+          if (e.cause === 'void') this.intoHole(e.police.model);
           if (e.police.view && e.cause !== 'void') {
             e.police.view.setLook(this.wreckLookFor(e.police));
             e.police.view.startTumble();
           }
           break;
         case 'fall':
-          this.crumbleBehind(player);
+          this.intoHole(player);
           this.audio.play('bump', 0.6);
           this.rig.addTrauma(TRAUMA.fall);
           break;
@@ -435,7 +442,7 @@ export class GameScene extends Phaser.Scene {
           break;
         }
         case 'decoyGone':
-          this.effects.shimmer(e.x, e.y, 12);
+          this.effects.softPop(e.x, e.y);
           break;
         case 'spinOut':
           this.effects.smokePuff(e.x, e.y, 6);
@@ -532,14 +539,30 @@ export class GameScene extends Phaser.Scene {
         case 'cone':
           if (e.cone.item.kind === 'civilian' || e.cone.wasSolid) this.onParkedCarHit(e);
           else {
-            this.audio.play('cone', 0.8);
+            this.audio.play(['bush', 'snowman', 'tumbleweed'].includes(e.cone.item.kind) ? 'bump' : 'cone', 0.8);
             if (e.player) this.rig.addTrauma(TRAUMA.knock);
+            this.onStreetPieceHit(e.cone.item.kind, e.x, e.y);
           }
+          break;
+        case 'jump':
+          this.audio.play('bump', 0.4);
+          break;
+        case 'land':
+          this.effects.landing(e.x, e.y);
+          this.playerView.bump(180);
+          this.audio.play('bump', 0.7);
+          this.rig.addTrauma(TRAUMA.knock);
           break;
         default:
           break;
       }
     }
+  }
+
+  // A car going over the edge: into a river it splashes; into a hole the road crumbles behind it.
+  intoHole(car) {
+    if (car.fallShape && car.fallShape.item.water) this.effects.splash(car.x, car.y);
+    else this.crumbleBehind(car);
   }
 
   // A car going over the edge of a hole: the road crumbles, and dust is left at the edge behind it.
@@ -574,37 +597,39 @@ export class GameScene extends Phaser.Scene {
       }
       this.rig.addTrauma(TRAUMA.pillars);
     } else if (e.kind === 'turbo') {
-      this.effects.shimmer(e.x, e.y, 6);
+      this.effects.softPop(e.x, e.y, 0x4fb4ff);
       this.rig.addTrauma(TRAUMA.pulse * 0.6);
     } else if (e.kind === 'decoy' || e.kind === 'phantom') {
-      this.effects.shimmer(e.x, e.y);
+      this.effects.softPop(e.x, e.y);
     } else if (e.kind === 'blackout') {
       this.effects.empBlast(e.x, e.y, BLACKOUT.radius);
       this.rig.addTrauma(TRAUMA.pulse);
     }
   }
 
-  // Every frame: TURBO's flames, PHANTOM's see-through car and sparkle trail, BLACKOUT's sparks on dead police,
-  // and the DECOY's hologram.
+  // Suburbs street furniture knocked flying: the hydrant bursts, the rest scatter bits.
+  onStreetPieceHit(kind, x, y) {
+    if (kind === 'hydrant') this.effects.hydrantBurst(x, y, STREET_PROPS.sprayFor);
+    else if (kind === 'bush') this.effects.bitsBurst(x, y, [PALETTE.hedge, 0x6fb046, 0x3d7429], 12);
+    else if (kind === 'trashcan') this.effects.bitsBurst(x, y, [0xe8e4da, 0xb8b2a6, PALETTE.trashcan], 10);
+    else if (kind === 'mailbox') this.effects.bitsBurst(x, y, [0xffffff, 0xf2eee4], 8);
+    else if (kind === 'fence') this.effects.bitsBurst(x, y, [PALETTE.fence], 8);
+    else if (kind === 'snowman') {
+      this.effects.bitsBurst(x, y, [PALETTE.snow, 0xdde7f0, PALETTE.carrot], 14);
+      this.effects.dustRing(x, y, 22, 6);
+    } else if (kind === 'tumbleweed') this.effects.bitsBurst(x, y, TUMBLEWEED_BITS, 14);
+    else if (kind === 'barrel') this.effects.bitsBurst(x, y, [PALETTE.barrel, PALETTE.barrelBand], 8);
+  }
+
+  // Every frame: SCORCHER's fire, TURBO's afterburner and SLICK's oil (PowerFx), PHANTOM's see-through car,
+  // BLACKOUT's sparks on dead police, and the DECOY's hologram.
   drawPowerExtras(time, dt) {
     const player = this.sim.player;
     const live = this.mode === 'playing';
-    if (live && player.boost > 1) {
-      this.exhaustClock -= dt * 1000;
-      if (this.exhaustClock <= 0) {
-        this.exhaustClock = EFFECTS.exhaustEveryMs;
-        const back = CAR_SIZE.length * 0.55 * player.scale;
-        this.effects.exhaust(player.x - Math.sin(player.heading) * back, player.y + Math.cos(player.heading) * back);
-      }
-    }
+    this.powerFx.update(this.sim, time, dt, live);
     if (player.ghost) {
       this.ghostShown = true;
       this.playerView.setAlpha(PHANTOM.alpha + 0.12 * Math.sin(time / 70));
-      this.trailClock -= dt * 1000;
-      if (this.trailClock <= 0) {
-        this.trailClock = 90;
-        this.effects.ghostTrail(player.x, player.y);
-      }
     } else if (this.ghostShown) {
       this.ghostShown = false;
       this.playerView.setAlpha(1);
@@ -619,7 +644,6 @@ export class GameScene extends Phaser.Scene {
     if (decoy.active) {
       this.decoyView.update(decoy.car, this.view, time, dt);
       this.decoyView.setAlpha(0.75 + 0.2 * Math.sin(time / 45));
-      if (Math.random() < 0.3) this.effects.ghostTrail(decoy.car.x, decoy.car.y);
     } else if (this.decoyView.sprite.visible) {
       this.decoyView.hide();
     }
@@ -720,7 +744,7 @@ export class GameScene extends Phaser.Scene {
       const onScreen = police.view.sprite.visible;
       if (police.alive && onScreen) {
         this.tires((police.id + 1) * 2, police.model, ms);
-        if (police.burning > 0) this.burn(police.id, police.model, 0, ms);
+        if (police.burning > 0) this.burn(police.id, police.model, 0, ms, true);
       }
       else if (police.state === 'wreck' && onScreen && !police.model.isFalling) this.burn(police.id, police.model, police.wreckTime, ms);
     }
@@ -752,15 +776,16 @@ export class GameScene extends Phaser.Scene {
     if (!skidding) return;
     const clock = (this.smokeClock.get(track) || 0) + ms;
     if (clock >= EFFECTS.smokeEveryMs) {
-      this.effects.smokePuff(this.wheels[0].x, this.wheels[0].y);
-      this.effects.smokePuff(this.wheels[1].x, this.wheels[1].y);
+      this.effects.tireDust(this.wheels[0].x, this.wheels[0].y);
+      this.effects.tireDust(this.wheels[1].x, this.wheels[1].y);
       this.smokeClock.set(track, 0);
     } else {
       this.smokeClock.set(track, clock);
     }
   }
 
-  burn(id, model, age, ms) {
+  // onFire: a police car still driving while it burns (SCORCHER), whose flames PowerFx draws.
+  burn(id, model, age, ms, onFire = false) {
     if (age > WRECK.lifetime - WRECK.fadeSeconds) return;
     const key = `w${id}`;
     const clock = (this.smokeClock.get(key) || 0) + ms;
@@ -770,7 +795,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.smokeClock.set(key, 0);
     this.effects.smokePuff(model.x, model.y, 22, true);
-    if (age < 3.5) this.effects.flame(model.x, model.y);
+    if (age < 3.5 && !onFire) this.effects.flame(model.x, model.y);
   }
 
   // ------------------------------------------------------------------------------------------
