@@ -1,4 +1,4 @@
-import { BEARCAT, HEAT, HEAT_HARD, HELICOPTER, INTERCEPTOR, POLICE, ROADBLOCK, SPAWN, WORLD } from '../config/tuning.js';
+import { BEARCAT, HEAT, HEAT_HARD, HELICOPTER, INTERCEPTOR, LOOSE_SPIKES, POLICE, ROADBLOCK, SPAWN, WORLD } from '../config/tuning.js';
 import { projection } from '../render/projection.js';
 import { clamp, degToRad, lerp, tableLookup } from '../utils/math.js';
 import { nearestRoadPoint, pointOnRoad } from './WorldLayout.js';
@@ -59,6 +59,7 @@ export class SpawnDirector {
   reset(pace = NORMAL_PACE) {
     this.cooldown = 0;
     this.nextRoadblock = roadblockStart(pace);
+    this.nextSpikes = pace.hard ? LOOSE_SPIKES.hardFirstAt : LOOSE_SPIKES.firstAt;
   }
 
   update(sim, dt, view) {
@@ -67,11 +68,31 @@ export class SpawnDirector {
       const placed = sim.activeCars < POLICE.maxCars && this.tryRoadblock(sim, view);
       this.nextRoadblock = sim.time + (placed ? lerp(ROADBLOCK.everyMin, ROADBLOCK.everyMax, sim.rng()) : ROADBLOCK.retrySeconds);
     }
+    if (sim.time >= this.nextSpikes) {
+      const placed = this.tryLooseSpikes(sim, view);
+      this.nextSpikes = sim.time + (placed ? lerp(LOOSE_SPIKES.everyMin, LOOSE_SPIKES.everyMax, sim.rng()) : 1);
+    }
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
     const level = difficultyAt(sim.time, sim.pace);
     if (sim.pursuers >= level.targetPolice || sim.activeCars >= POLICE.maxCars) return;
     this.cooldown = this.trySpawn(sim, view, level) ? level.interval : 0.15;
+  }
+
+  // A spike strip on its own across a road ahead, at an odd spot and angle, out of sight.
+  tryLooseSpikes(sim, view) {
+    const player = sim.player;
+    const rng = sim.rng;
+    const dir = travelDirection(player);
+    const distance = lerp(LOOSE_SPIKES.ahead[0], LOOSE_SPIKES.ahead[1], rng());
+    const road = nearestRoadPoint(player.x + dir.x * distance, player.y + dir.y * distance, { x: 0, y: 0, northSouth: true });
+    const off = (rng() * 2 - 1) * LOOSE_SPIKES.across;
+    const x = road.x + (road.northSouth ? off : 0);
+    const y = road.y + (road.northSouth ? 0 : off);
+    if (!sim.chunks.contains(x, y) || isOnScreen(x, y, view, ROADBLOCK.screenMargin) || !sim.world.isClear(x, y, ROADBLOCK.clearance * 0.5)) return false;
+    if (sim.spikeStrips.some((s) => s.active && Math.hypot(s.x - x, s.y - y) < 300)) return false;
+    const turn = (rng() * 2 - 1) * ((LOOSE_SPIKES.angleDeg * Math.PI) / 180);
+    return sim.addSpikeStrip(x, y, (road.northSouth ? 0 : Math.PI / 2) + turn);
   }
 
   // A car already at speed, off screen, in a lane of a road leading toward the player. Chasers and
@@ -164,7 +185,7 @@ export class SpawnDirector {
           launchShare: 0,
         });
       }
-      sim.addSpikeStrip(x, y, northSouth);
+      sim.addSpikeStrip(x, y, northSouth ? 0 : Math.PI / 2);
       return true;
     }
     return false;

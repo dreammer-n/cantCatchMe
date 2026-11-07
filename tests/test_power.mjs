@@ -614,8 +614,9 @@ const lock = (p) => {
   run(g, PHANTOM.seconds);
   check('and solid again afterwards', !g.player.ghost);
   const stuck = quiet([{ ...wall, y: 3000, collider: { type: 'box', hw: 1600, hl: 1600 } }]);
-  drive(stuck, 3000, 3000, 0, 0);
-  stuck.player.halt();
+  drive(stuck, 3000, 3000, 0, 80);
+  // Creeping along, fast enough not to count as pinned, slow enough to stay inside however long PHANTOM lasts.
+  stuck.player.handling = { ...stuck.player.handling, topSpeed: 80 };
   useItem(stuck, 'phantom');
   run(stuck, PHANTOM.seconds + 0.2);
   check('it stays a ghost while it is still inside something', stuck.player.ghost);

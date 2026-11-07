@@ -122,28 +122,40 @@ export function simulateAd() {
 
 // The HARD START leaderboard, on platforms where the game draws it itself.
 export class LeaderboardScreen extends Screen {
-  constructor({ onClose }) {
+  constructor({ onClose, onHardStart }) {
     const list = el('ol', 'board-list');
     const status = dt('board-status', '');
     const mine = dt('board-mine', '');
+    // Only HARD START runs go on the board: with it off, say so and offer to turn it on.
+    const join = el('div', 'board-join', [
+      dt('board-join-text', 'TURN ON HARD START TO GET ON THE BOARD'),
+      textButton('btn-secondary', 'TURN ON HARD START', () => onHardStart(), 'Turn on hard start'),
+    ]);
     super('board', [
       el('h2', 'screen-title', [dt('', 'HARD START')]),
       dt('board-sub', 'LONGEST RUNS'),
       list,
       status,
       mine,
+      join,
       textButton('btn-primary', 'BACK', onClose, 'Back'),
     ]);
     this.list = list;
     this.status = status;
     this.mine = mine;
+    this.join = join;
   }
 
-  showLoading(best) {
+  showLoading(best, hardOn) {
     this.list.replaceChildren();
     setDisplay(this.status, 'LOADING');
     setDisplay(this.mine, best > 0 ? `YOUR BEST: ${formatClock(best)}` : 'NO HARD START RUN YET');
+    this.setHardOn(hardOn);
     this.show();
+  }
+
+  setHardOn(on) {
+    this.join.hidden = on;
   }
 
   // entries: [{ name, score, rank }] or null if they couldn't be had.

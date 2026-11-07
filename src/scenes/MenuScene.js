@@ -79,9 +79,17 @@ export class MenuScene extends Phaser.Scene {
       PlatformManager.showLeaderboard(LEADERBOARD.id);
       return;
     }
-    if (!this.boardScreen) this.boardScreen = new LeaderboardScreen({ onClose: () => this.closeBoard() });
+    if (!this.boardScreen) {
+      this.boardScreen = new LeaderboardScreen({
+        onClose: () => this.closeBoard(),
+        onHardStart: () => {
+          if (!Settings.hardStart) this.toggleHardStart();
+          this.boardScreen.setHardOn(true);
+        },
+      });
+    }
     this.screen.hide();
-    this.boardScreen.showLoading(Records.hardBest);
+    this.boardScreen.showLoading(Records.hardBest, Settings.hardStart);
     const entries = await PlatformManager.leaderboardEntries(LEADERBOARD.id);
     if (!this.boardScreen.node.hidden) this.boardScreen.showEntries(entries, LEADERBOARD.shown);
   }

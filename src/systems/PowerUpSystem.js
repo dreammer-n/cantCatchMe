@@ -1,4 +1,4 @@
-import { BLACKOUT, DECOY, FLAMER, FREEZE, GIANT, PHANTOM, PILLARS, POWERUP, SLICK, TURBO } from '../config/tuning.js';
+import { BLACKOUT, DECOY, FLAMER, FREEZE, GIANT, PHANTOM, PILLARS, POWERUP, SLICK, TURBO, HELICOPTER } from '../config/tuning.js';
 import { degToRad, headingOf, lerp } from '../utils/math.js';
 import { CAR_REACH } from './CollisionSystem.js';
 
@@ -154,6 +154,7 @@ export class PowerUps {
       this.launchDecoy(sim);
     } else if (kind === 'blackout') {
       sim.stallPolice(player.x, player.y, BLACKOUT.radius, BLACKOUT.seconds);
+      sim.helicopter.knockOut(sim, player.x, player.y, BLACKOUT.radius * HELICOPTER.blackoutReach);
     } else if (kind === 'phantom') {
       this.phantomTime = PHANTOM.seconds;
       player.ghost = true;

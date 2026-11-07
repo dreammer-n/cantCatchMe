@@ -2,7 +2,7 @@ import { Car } from '../entities/Car.js';
 import { Airstrike } from '../entities/Airstrike.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, CAR_SIZE, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK } from '../config/tuning.js';
+import { handlingFor, CAR_SIZE, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK, CHUNKS, HELICOPTER, HELICOPTER_COVER, WORLD, WOODS_MAP } from '../config/tuning.js';
 import { createRng, wrapAngle } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole, rampHeightAt, rampSurfaceAt } from './CollisionSystem.js';
@@ -36,7 +36,7 @@ export class ChaseSimulation {
     this.helicopter = new Helicopter();
     this.airstrike = new Airstrike();
     this.shattering = [];
-    this.spikeStrips = Array.from({ length: ROADBLOCK.maxSpikes }, () => ({ active: false, x: 0, y: 0, northSouth: true, time: 0, shape: null }));
+    this.spikeStrips = Array.from({ length: ROADBLOCK.maxSpikes }, () => ({ active: false, x: 0, y: 0, heading: 0, time: 0, shape: null }));
     this.stats = new RunStats();
     this.events = [];
     this.result = { impact: 0, shape: null };
@@ -638,23 +638,56 @@ export class ChaseSimulation {
 
   // ---- Spike strips, laid across roadblocks ----------------------------------------------------
 
-  addSpikeStrip(x, y, northSouth) {
+  // heading: the strip lies across a car going this way (0 = across a north-south road).
+  addSpikeStrip(x, y, heading) {
     const strip = this.spikeStrips.find((candidate) => !candidate.active);
-    if (!strip) return;
+    if (!strip) return false;
     strip.active = true;
     strip.x = x;
     strip.y = y;
-    strip.northSouth = northSouth;
+    strip.heading = heading;
     strip.time = 0;
     strip.shape = this.world.add({
       kind: 'spikes',
       isSpikes: true,
       x,
       y,
-      heading: northSouth ? 0 : Math.PI / 2,
+      heading,
       collider: { type: 'box', hw: ROADBLOCK.spikeHalfLength, hl: ROADBLOCK.spikeHalfDepth },
       breakable: false,
     });
+    return true;
+  }
+
+  // Is the player out of the helicopter's sight: under a gas station roof, on a bridge, or among thick trees?
+  playerUnderCover() {
+    const { x, y } = this.player;
+    const roof = WORLD.station;
+    let trees = 0;
+    for (const chunk of this.chunks.active.values()) {
+      if (Math.abs(chunk.data.x0 + CHUNKS.size / 2 - x) > CHUNKS.size || Math.abs(chunk.data.y0 + CHUNKS.size / 2 - y) > CHUNKS.size) continue;
+      for (const item of chunk.data.items) {
+        const dx = item.x - x;
+        const dy = item.y - y;
+        if (item.kind === 'canopy' && Math.abs(dx) < roof.roofHalfWidth && Math.abs(dy) < roof.roofHalfLength) return true;
+        if (item.kind === 'bridge' && Math.abs(dx) < WORLD.margin && Math.abs(dy) < WOODS_MAP.deckLength / 2) return true;
+        if (item.kind === 'tree' && dx * dx + dy * dy < HELICOPTER_COVER.treeReach ** 2) {
+          trees += 1;
+          if (trees >= HELICOPTER_COVER.trees) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // The helicopter comes down: a great blast where it lands, wrecking the police close by; it counts as a wreck.
+  helicopterDown(x, y) {
+    for (const police of this.police) {
+      if (police.alive && Math.hypot(police.model.x - x, police.model.y - y) < HELICOPTER.crashRadius) this.wreckPolice(police, 'helicopter');
+    }
+    const combo = this.state === 'running' ? this.stats.addWreck() : 0;
+    this.emit('helicopterDown', { x, y, combo });
+    if (combo >= 2) this.emit('combo', { count: combo, x, y });
   }
 
   removeSpikeStrip(strip) {
@@ -802,8 +835,8 @@ export class ChaseSimulation {
       this.powerUps.crumblePillar(this, shape.item.pillar);
       return;
     }
-    if (shape.item.isDrop) {
-      this.helicopter.crumble(this, shape.item.drop);
+    if (shape.item.isDropBarrel) {
+      this.helicopter.knockBarrel(this, shape.item.barrel, car);
       return;
     }
     const cone = shape.cone || this.chunks.makeBreakable(shape);

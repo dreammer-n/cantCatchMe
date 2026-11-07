@@ -9,7 +9,6 @@ import { Hud } from '../ui/Hud.js';
 import { PauseScreen, ReviveScreen, simulateAd } from '../ui/Screens.js';
 import { getPixelRatio, getSafeAreaInsets } from '../utils/screen.js';
 
-const cratePoint = { x: 0, y: 0 };
 const threatPoint = { x: 0, y: 0 };
 const edge = { x: 0, y: 0, dx: 0, dy: 0 };
 
@@ -229,7 +228,6 @@ export class UIScene extends Phaser.Scene {
     g.clear();
     if (!active) return;
     const { width, height } = this.scale;
-    this.drawCrateArrow(g, width, height);
     this.drawThreats(g, width, height);
   }
 
@@ -276,23 +274,6 @@ export class UIScene extends Phaser.Scene {
         g.lineBetween(bx, by, tipX, tipY);
       }
     }
-  }
-
-  // When the crate is off screen, a pulsing teal arrow at the screen edge points to it.
-  drawCrateArrow(g, width, height) {
-    const p = this.world.crateOnCanvas(cratePoint);
-    if (!p || !this.edgeToward(p, width, height)) return;
-    const { x, y, dx, dy } = edge;
-    const size = (13 + Math.sin(this.time.now / 160) * 2) * this.uiScale;
-    g.fillStyle(PALETTE.crateArrow, 0.95);
-    g.fillTriangle(
-      x + dx * size,
-      y + dy * size,
-      x - dx * size * 0.7 - dy * size * 0.8,
-      y - dy * size * 0.7 + dx * size * 0.8,
-      x - dx * size * 0.7 + dy * size * 0.8,
-      y - dy * size * 0.7 - dx * size * 0.8,
-    );
   }
 }
 

@@ -671,6 +671,21 @@ export function spikeStrip() {
   return parts;
 }
 
+// A road-works traffic barrel the helicopter drops: black rubber foot, orange drum with two white bands.
+export function trafficBarrel() {
+  const r = 10;
+  const c = PALETTE.trafficBarrel;
+  const band = PALETTE.trafficBand;
+  return [
+    ngon({ sides: 10, r0: r + 3, r1: r + 3, z0: 0, z1: 3, color: PALETTE.tire, layer: 0 }),
+    ngon({ sides: 10, r0: r, r1: r * 0.97, z0: 3, z1: 9, color: c, layer: 1 }),
+    ngon({ sides: 10, r0: r * 0.97, r1: r * 0.95, z0: 9, z1: 14, color: band, layer: 2 }),
+    ngon({ sides: 10, r0: r * 0.95, r1: r * 0.92, z0: 14, z1: 19, color: c, layer: 3 }),
+    ngon({ sides: 10, r0: r * 0.92, r1: r * 0.9, z0: 19, z1: 24, color: band, layer: 4 }),
+    ngon({ sides: 10, r0: r * 0.9, r1: r * 0.8, z0: 24, z1: 30, color: c, layer: 5 }),
+  ];
+}
+
 // Stepped stone base with a tapered column.
 export function monument() {
   return [

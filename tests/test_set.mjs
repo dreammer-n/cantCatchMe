@@ -177,9 +177,6 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('each roll looks different, so it seems to tumble', new Set(props.DIE_ROLLS.map((r) => r.join())).size === props.DIE_ROLLS.length);
   const lum = (c) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255);
   check('it stands out on the road', lum(PALETTE.crate) > lum(PALETTE.asphalt) * 1.75);
-  const hue = (c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
-  const [, g] = hue(PALETTE.crateArrow);
-  check('the arrow to it is amber, so it is never mistaken for a red warning', g > 120, PALETTE.crateArrow.toString(16));
   const wood = props.woodCrate();
   check('wooden crates are still brown, and different', wood[0].faces[0].color !== die[0].faces[0].color);
 }

@@ -413,6 +413,7 @@ export class GameScene extends Phaser.Scene {
     this.scenery.syncPillars(this.sim.powerUps.pillars);
     this.scenery.syncSpikes(this.sim.spikeStrips);
     this.helicopterView.update(this.sim.helicopter, time);
+    this.smokeFallingHelicopter(gameDt);
     this.jetView.update(this.sim.airstrike, time);
     this.effects.syncPatches(this.sim.powerUps.patches);
     this.drawPowerExtras(time, dt);
@@ -529,10 +530,37 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'dropLand': {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
-          this.effects.pillarDust(e.x, e.y);
-          this.effects.groundRing(e.x, e.y, EFFECTS.ringRadius);
-          this.audio.play('bump', 1 - distance / AUDIO.explosionRange);
+          const close = 1 - distance / AUDIO.explosionRange;
+          this.effects.smokePuff(e.x, e.y, 2);
+          this.effects.groundRing(e.x, e.y, EFFECTS.ringRadius * 0.6);
+          if (e.kind === 'spikes') this.effects.sparksAt(e.x, e.y, 6);
+          this.audio.play(e.kind === 'spikes' ? 'cone' : 'bump', close * 0.8);
           if (distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.dropLand * (1 - distance / EXPLOSION.shakeDistance));
+          break;
+        }
+        case 'barrelHit':
+          this.effects.bitsBurst(e.x, e.y, [PALETTE.trafficBarrel, PALETTE.trafficBand], 8);
+          this.audio.play('cone', e.player ? 0.9 : 0.5);
+          if (e.player) {
+            this.playerView.bump(90);
+            this.rig.addTrauma(TRAUMA.knock);
+          }
+          break;
+        case 'helicopterLeaves':
+          this.toast(e.reason === 'fuel' ? 'CHOPPER OUT OF FUEL' : 'LOST THE CHOPPER!', e.reason === 'fuel' ? 'near' : 'combo');
+          break;
+        case 'helicopterHit':
+          this.toast('CHOPPER HIT!', 'combo');
+          this.effects.sparksAt(e.x, e.y, 14);
+          this.audio.play('bump', 0.8);
+          break;
+        case 'helicopterDown': {
+          const distance = Math.hypot(e.x - player.x, e.y - player.y);
+          this.effects.explosion(e.x, e.y, true, PALETTE.heliBody);
+          this.audio.play('carCrash', 1 - distance / AUDIO.explosionRange);
+          this.punch(HITSTOP.wreckMs);
+          if (distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.explosion * (1 - distance / EXPLOSION.shakeDistance));
+          this.toast('CHOPPER DOWN!', 'combo');
           break;
         }
         case 'pickup':
@@ -753,6 +781,16 @@ export class GameScene extends Phaser.Scene {
     if (this.mode === 'playing') this.hitStop.trigger(ms);
   }
 
+  // Dark smoke pouring from a helicopter knocked out of the sky, all the way down.
+  smokeFallingHelicopter(dt) {
+    const heli = this.sim.helicopter;
+    if (!heli.active || heli.state !== 'falling') return;
+    this.heliSmokeClock = (this.heliSmokeClock || 0) - dt;
+    if (this.heliSmokeClock > 0) return;
+    this.heliSmokeClock = 0.05;
+    this.effects.smokePuff(heli.x, heli.y, heli.z, true);
+  }
+
   toast(text, kind) {
     this.game.events.emit('toast', text, kind);
   }
@@ -948,13 +986,6 @@ export class GameScene extends Phaser.Scene {
       .setScale(this.crateBodyScale * (1 + 0.2 * landing), this.crateBodyScale * (1 - 0.28 * landing + 0.08 * air))
       .setRotation(Math.sin(t * Math.PI * 2) * 0.16)
       .setDepth(depthAt(crate.x, crate.y));
-  }
-
-  // Crate position on the screen in canvas pixels (for the off-screen arrow), or null.
-  crateOnCanvas(out) {
-    const crate = this.sim.powerUps.crate;
-    if (!crate.active || this.mode !== 'playing') return null;
-    return this.pointOnCanvas(crate.x, crate.y, 10, out);
   }
 
   // A world position in canvas pixels. For things drawn over the world by UIScene.

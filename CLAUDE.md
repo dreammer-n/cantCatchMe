@@ -74,6 +74,8 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 
 47. **Ramps switched off (2026-11-06):** owner's call: "remove the ramp entirely, it is not working for now". No ramps are placed in the world (`RAMP.enabled` false; building sites keep their barriers and cones). The ramp's code and its tests stay, for later; nothing else changed.
 
+48. **Helicopter you can beat, loose spikes, longer power-ups (2026-11-07):** owner's requests. (a) Opening the leaderboard with HARD START off still shows the top runs, plus TURN ON HARD START TO GET ON THE BOARD and a button that turns it on. (b) TURBO 3 to 5 s, PHANTOM 3.5 to 6 s, TITAN 7 to 10 s. (c) The helicopter can be got rid of: it runs out of fuel after 35 to 50 s and flies off; it loses you after 2 s under cover (a gas station roof, a bridge, or three trees within 75 units, `playerUnderCover`), or at once when you turn PHANTOM or send a DECOY; BLACKOUT close by (1.3 times its reach) knocks it out of the sky, spinning down with dark smoke into a blast that wrecks police within 160 units and counts as a wreck (CHOPPER DOWN!). Another comes 30 to 50 s after one leaves. (d) Its drops replace the concrete block (it made no sense from a helicopter): a spike strip (55%) or a row of three orange traffic barrels across the road, which are knocked flying and cost 14% of the speed, police included, and go after 9 s. Unpredictable: 1.3 to 2.2 s ahead, in the path (40%) or 40 to 130 units to either side, turned up to 25 degrees, a flare for 0.8 to 1.4 s, sometimes two or three in quick succession; always landing at least 0.4 s before the car could reach the spot, never on it (numbers in `HELICOPTER`). (e) Loose spike strips also lie on roads ahead, out of sight, at odd spots and angles: from 60 s (30 s with HARD START), every 14 to 24 s (`LOOSE_SPIKES`); spikes still only give a flat. (f) The arrow pointing to the power-up die is gone. Bot runs (skill 1.3): median 80 s; no run ended on a spike or barrel.
+
 ## Platform facts to respect (checked 2026-10-28, re-verify before Milestone 3)
 
 - YouTube Playables: initial bundle MUST be < 30 MiB and SHOULD be < 15 MiB (measured compressed, until `gameReady`).
@@ -95,7 +97,7 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 | Scenes: boot, world, HUD/pause overlay, title, garage, maps, results | `src/scenes/BootScene.js`, `GameScene.js`, `UIScene.js`, `MenuScene.js`, `GarageScene.js`, `MapScene.js`, `GameOverScene.js` |
 | One chase as pure logic (no Phaser): steps cars, collisions, rules, events | `src/systems/ChaseSimulation.js` |
 | Shared driving model (player + police), pure maths | `src/entities/Car.js` |
-| Police helicopter, as pure logic (flying, searchlight target, dropped blocks) / its drawing | `src/entities/Helicopter.js`, `src/render/HelicopterView.js` |
+| Police helicopter, as pure logic (flying, searchlight, dropped spike strips and traffic barrels, leaving, being shot down) / its drawing | `src/entities/Helicopter.js`, `src/render/HelicopterView.js` |
 | Police car state (pooled) / pursuit steering (chasers, interceptors, Bearcats) | `src/entities/PoliceCar.js`, `src/systems/PolicePursuit.js` |
 | Which police get a warning arrow (drawn by `UIScene.drawThreats`) | `src/systems/ThreatRadar.js` |
 | Collisions (car circles, prop circles/boxes, grid) | `src/systems/CollisionSystem.js` |

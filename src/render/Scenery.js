@@ -205,7 +205,9 @@ export class Scenery {
         prop.shadow.setVisible(false);
         continue;
       }
-      const { body } = this.bakeEntry({ kind: 'spikes', model: 'spikes', heading: strip.northSouth ? 0 : Math.PI / 2, params: {} });
+      const eighth = Math.PI / 8;
+      const turn = ((Math.round(strip.heading / eighth) % 8) + 8) % 8;
+      const { body } = this.bakeEntry({ kind: 'spikes', model: 'spikes', heading: turn * eighth, params: {} });
       prop.body.setTexture(body.key).setOrigin(body.originX, body.originY).setScale(1 / body.scale);
       projection.toScreen(strip.x, strip.y, 0, screen);
       prop.body.setVisible(true).setPosition(screen.x, screen.y).setDepth(DEPTH.raised);

@@ -4,7 +4,8 @@ import { atlasMeta, ensureCarAtlas, frameFor } from './carAtlas.js';
 import { ROTOR } from './carModels.js';
 import { bakeMesh } from './lowpoly.js';
 import { projection } from './projection.js';
-import { concreteBlock } from './propModels.js';
+import { depthAt } from './layers.js';
+import { spikeStrip, trafficBarrel } from './propModels.js';
 import { makeBeamTexture } from './SirenBeams.js';
 
 const pick = { frame: 'dir0', rotation: 0 };
@@ -13,10 +14,12 @@ const ground = { x: 0, y: 0 };
 const shift = { x: 0, y: 0 };
 const BEAM_LENGTH = 256; // the size of the beam drawing (SirenBeams.js)
 const BEAM_WIDTH = 128;
+const BARREL_FLIGHT = 0.9; // a knocked barrel flies this long (drawing only) ...
+const BARREL_HOP = 34; // ... this high
 
 // Draws the helicopter: the body high up, a spinning rotor drawn fresh each frame, its shadow far off on
-// the road, a searchlight on the car, and the flares and concrete blocks it drops. Reads
-// entities/Helicopter.js and never changes it.
+// the road, a searchlight on the car while it hunts, and the flares, spike strips and traffic barrels it drops
+// (the barrels stay after it has gone). Reads entities/Helicopter.js and never changes it.
 export class HelicopterView {
   constructor(scene, layers) {
     this.scene = scene;
@@ -46,8 +49,11 @@ export class HelicopterView {
         glow,
         ring,
         flare: scene.add.image(0, 0, 'fx-star').setTint(PALETTE.flare).setVisible(false),
-        block: scene.add.image(0, 0, '__DEFAULT').setVisible(false),
-        shadow: scene.add.image(0, 0, '__DEFAULT').setAlpha(RENDER.shadowAlpha).setDepth(DEPTH.shadows).setVisible(false),
+        strip: scene.add.image(0, 0, '__DEFAULT').setVisible(false),
+        barrels: Array.from({ length: HELICOPTER.barrels }, () => ({
+          body: scene.add.image(0, 0, '__DEFAULT').setVisible(false),
+          shadow: scene.add.image(0, 0, '__DEFAULT').setAlpha(RENDER.shadowAlpha).setDepth(DEPTH.shadows).setVisible(false),
+        })),
       };
     });
     this.drawn = false; // drawn when first needed, or in the warm-up after the title (GameScene.warmUp)
@@ -60,33 +66,49 @@ export class HelicopterView {
     this.directions = atlasMeta.get(this.atlas).directions;
     const meta = atlasMeta.get(this.atlas);
     this.body.setTexture(this.atlas, 'dir0').setOrigin(meta.originX, meta.originY);
-    const half = HELICOPTER.blockHalfSize * 2;
-    const mesh = concreteBlock({ width: half, length: half, height: HELICOPTER.blockHeight });
-    const key = `prop:dropblock:${projection.key}`;
-    this.blockBody = bakeMesh(this.scene, key, mesh, 0, projection, 'body');
-    this.blockShadow = bakeMesh(this.scene, `${key}:shadow`, mesh, 0, projection, 'shadow');
+    const key = `prop:dropbarrel:${projection.key}`;
+    this.barrelBody = bakeMesh(this.scene, key, trafficBarrel(), 0, projection, 'body');
+    this.barrelShadow = bakeMesh(this.scene, `${key}:shadow`, trafficBarrel(), 0, projection, 'shadow');
+    this.stripMesh = spikeStrip();
     for (const drop of this.drops) {
-      drop.block.setTexture(this.blockBody.key).setOrigin(this.blockBody.originX, this.blockBody.originY);
-      drop.shadow.setTexture(this.blockShadow.key).setOrigin(this.blockShadow.originX, this.blockShadow.originY);
+      for (const barrel of drop.barrels) {
+        barrel.body.setTexture(this.barrelBody.key).setOrigin(this.barrelBody.originX, this.barrelBody.originY);
+        barrel.shadow.setTexture(this.barrelShadow.key).setOrigin(this.barrelShadow.originX, this.barrelShadow.originY);
+      }
     }
   }
 
   hide() {
     for (const image of [this.body, this.rotor, this.disc, this.bodyShadow, this.rotorShadow, this.beam, this.spot, this.spotOver]) image.setVisible(false);
-    for (const drop of this.drops) for (const image of [drop.glow, drop.ring, drop.flare, drop.block, drop.shadow]) image.setVisible(false);
+    for (const drop of this.drops) this.hideDrop(drop);
+  }
+
+  hideDrop(view) {
+    for (const image of [view.glow, view.ring, view.flare, view.strip]) image.setVisible(false);
+    for (const barrel of view.barrels) {
+      barrel.body.setVisible(false);
+      barrel.shadow.setVisible(false);
+    }
   }
 
   update(heli, time) {
-    if (!heli.active) {
+    const dropping = heli.drops.some((drop) => drop.active);
+    if (!heli.active && !dropping) {
       this.hide();
       return;
     }
     if (!this.drawn) this.redraw();
-    this.drawLight(heli);
+    heli.drops.forEach((drop, i) => this.drawDrop(drop, this.drops[i], time));
+    if (!heli.active) {
+      for (const image of [this.body, this.rotor, this.disc, this.bodyShadow, this.rotorShadow, this.beam, this.spot, this.spotOver]) image.setVisible(false);
+      return;
+    }
+    // The searchlight only while it is hunting the player.
+    if (heli.state === 'chasing') this.drawLight(heli);
+    else for (const image of [this.beam, this.spot, this.spotOver]) image.setVisible(false);
     this.drawBody(heli);
     this.drawRotor(heli, time);
     this.drawShadow(heli);
-    heli.drops.forEach((drop, i) => this.drawDrop(drop, this.drops[i], time));
   }
 
   drawBody(heli) {
@@ -179,42 +201,86 @@ export class HelicopterView {
 
   drawDrop(drop, view, time) {
     if (!drop.active) {
-      for (const image of [view.glow, view.ring, view.flare, view.block, view.shadow]) image.setVisible(false);
+      this.hideDrop(view);
       return;
     }
-    projection.toScreen(drop.x, drop.y, 0, screen);
-    const bodyScale = 1 / this.blockBody.scale;
-    const shadowScale = 1 / this.blockShadow.scale;
-    let height = 1;
-    let z = 0;
-    let shadowShare = 1;
-    const warning = drop.state === 'warning';
-    if (warning) {
-      // Spitting red flare and a shrinking ring: this is where the block will land.
+    const rx = Math.cos(drop.heading);
+    const ry = Math.sin(drop.heading);
+    const count = view.barrels.length;
+    const spot = (i) => (i - (count - 1) / 2) * HELICOPTER.barrelSpacing;
+    if (drop.state === 'warning') {
+      // Spitting red flare and a shrinking ring: this is where it will land.
+      projection.toScreen(drop.x, drop.y, 0, screen);
       const pulse = 0.65 + 0.35 * Math.sin(time / 70);
-      const left = 1 - drop.time / HELICOPTER.warningSeconds;
-      view.glow.setVisible(true).setPosition(drop.x, drop.y).setScale((HELICOPTER.blockHalfSize * 2.6) / 32).setAlpha(0.85 * pulse);
-      view.ring.setVisible(true).setPosition(drop.x, drop.y).setScale(((HELICOPTER.blockHalfSize + 8 + left * 70) * 2) / 116).setAlpha(0.9);
+      const left = 1 - drop.time / drop.warning;
+      const size = drop.kind === 'spikes' ? 60 : HELICOPTER.barrelSpacing * 1.6;
+      view.glow.setVisible(true).setPosition(drop.x, drop.y).setScale((size * 1.6) / 32).setAlpha(0.85 * pulse);
+      view.ring.setVisible(true).setPosition(drop.x, drop.y).setScale(((size + left * 70) * 2) / 116).setAlpha(0.9);
       view.flare.setVisible(true).setPosition(screen.x, screen.y - 6).setScale(1.1 + pulse * 0.7).setRotation(time / 120).setDepth(DEPTH.effects);
-      const falling = (drop.time - (HELICOPTER.warningSeconds - HELICOPTER.fallSeconds)) / HELICOPTER.fallSeconds;
-      if (falling <= 0) {
-        view.block.setVisible(false);
-        view.shadow.setVisible(false);
+      // Falling into view over the end of the warning.
+      const falling = (drop.time - (drop.warning - HELICOPTER.dropFallSeconds)) / HELICOPTER.dropFallSeconds;
+      const z = falling > 0 ? (1 - falling * falling) * HELICOPTER.fallHeight : 0;
+      if (drop.kind === 'spikes') {
+        for (const barrel of view.barrels) {
+          barrel.body.setVisible(false);
+          barrel.shadow.setVisible(false);
+        }
+        if (falling <= 0) {
+          view.strip.setVisible(false);
+          return;
+        }
+        // Same eight turns as the strip it becomes on the road (Scenery.syncSpikes).
+        const eighth = Math.PI / 8;
+        const turn = ((Math.round(drop.heading / eighth) % 8) + 8) % 8;
+        const strip = bakeMesh(this.scene, `prop:dropstrip:${turn}:${projection.key}`, this.stripMesh, turn * eighth, projection, 'body');
+        view.strip
+          .setTexture(strip.key)
+          .setOrigin(strip.originX, strip.originY)
+          .setScale(1 / strip.scale)
+          .setVisible(true)
+          .setPosition(screen.x, screen.y - z * projection.lift)
+          .setDepth(DEPTH.effects + 2);
         return;
       }
-      z = (1 - falling * falling) * HELICOPTER.fallHeight;
-      shadowShare = falling;
-    } else {
-      view.glow.setVisible(false);
-      view.ring.setVisible(false);
-      view.flare.setVisible(false);
-      if (drop.state === 'sinking') height = Math.max(0, 1 - drop.time / HELICOPTER.sinkSeconds);
+      view.strip.setVisible(false);
+      view.barrels.forEach((barrel, i) => {
+        if (falling <= 0) {
+          barrel.body.setVisible(false);
+          barrel.shadow.setVisible(false);
+          return;
+        }
+        const x = drop.x + rx * spot(i);
+        const y = drop.y + ry * spot(i);
+        projection.toScreen(x, y, 0, screen);
+        barrel.shadow.setVisible(true).setPosition(screen.x, screen.y).setScale(falling / this.barrelShadow.scale).setAlpha(RENDER.shadowAlpha);
+        barrel.body.setVisible(true).setPosition(screen.x, screen.y - z * projection.lift).setScale(1 / this.barrelBody.scale).setRotation(0).setAlpha(1).setDepth(DEPTH.effects + 2);
+      });
+      return;
     }
-    view.block
-      .setVisible(true)
-      .setPosition(screen.x, screen.y - z * projection.lift)
-      .setScale(bodyScale, bodyScale * height)
-      .setDepth(z > 0 ? DEPTH.effects + 2 : DEPTH.objects + projection.depthOf(drop.x, drop.y));
-    view.shadow.setVisible(true).setPosition(screen.x, screen.y).setScale(shadowScale * shadowShare * height);
+    // Barrels standing in the road, or knocked flying.
+    for (const image of [view.glow, view.ring, view.flare, view.strip]) image.setVisible(false);
+    const fading = Math.min(1, (HELICOPTER.barrelSeconds - drop.time) / 0.5);
+    drop.barrels.forEach((barrel, i) => {
+      const image = view.barrels[i];
+      if (!barrel.hit) {
+        projection.toScreen(barrel.x, barrel.y, 0, screen);
+        image.body.setVisible(true).setPosition(screen.x, screen.y).setScale(1 / this.barrelBody.scale).setRotation(0).setAlpha(fading).setDepth(depthAt(barrel.x, barrel.y));
+        image.shadow.setVisible(true).setPosition(screen.x, screen.y).setScale(1 / this.barrelShadow.scale).setAlpha(RENDER.shadowAlpha * fading);
+        return;
+      }
+      const t = barrel.hitTime;
+      if (t > BARREL_FLIGHT) {
+        image.body.setVisible(false);
+        image.shadow.setVisible(false);
+        return;
+      }
+      const x = barrel.x + barrel.vx * t * (1 - t / (2 * BARREL_FLIGHT));
+      const y = barrel.y + barrel.vy * t * (1 - t / (2 * BARREL_FLIGHT));
+      const z = 4 * BARREL_HOP * (t / BARREL_FLIGHT) * (1 - t / BARREL_FLIGHT);
+      projection.toScreen(x, y, 0, screen);
+      image.shadow.setVisible(true).setPosition(screen.x, screen.y).setAlpha(RENDER.shadowAlpha * (1 - t / BARREL_FLIGHT));
+      image.body.setVisible(true).setPosition(screen.x, screen.y - z * projection.lift).setRotation(barrel.spin * t).setAlpha(1 - t / BARREL_FLIGHT).setDepth(DEPTH.effects + 1);
+    });
   }
+
 }

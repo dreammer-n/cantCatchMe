@@ -497,7 +497,7 @@ export const ROADBLOCK = {
   spikeHalfLength: 64, // the strip, across the road (all the way across the gap) ...
   spikeHalfDepth: 13, // ... and along it
   spikeSeconds: 30, // it is taken away after this long, once out of sight
-  maxSpikes: 3,
+  maxSpikes: 8, // roadblocks', the helicopter's and loose ones together
   mass: 2.2, // shoved less than a moving car
   distances: [900, 1200, 1500, 1800, 2100, 2300], // how far ahead to look for a crossing, nearest first
   screenMargin: 90, // screen units: only placed this far outside the view
@@ -770,21 +770,46 @@ export const HELICOPTER = {
   spotOverAlpha: 0.14,
   beamWidth: 170,
   beamAlpha: 0.17,
-  // Dropping things on the road.
+  // How long it stays, and the ways to be rid of it.
+  stayMin: 35, // seconds of fuel: then it flies off ...
+  stayMax: 50,
+  returnMin: 30, // ... and another comes back this long after
+  returnMax: 50,
+  loseSeconds: 2, // under cover (a gas station roof, a bridge, thick trees: HELICOPTER_COVER) this long, it loses the player
+  coverCheckEvery: 0.2,
+  leaveSpeed: 420, // flying off
+  leaveClimb: 160,
+  leaveSeconds: 3,
+  blackoutReach: 1.3, // BLACKOUT this close (x its radius) knocks it out of the sky
+  fallSeconds: 1.4, // spinning down
+  fallSpin: 5, // radians a second
+  fallDrift: 120,
+  crashRadius: 160, // police this close where it comes down are wrecked
+  // Dropping things on the road: spike strips, or a row of traffic barrels.
   firstDropAfter: 4,
-  dropEveryMin: 6,
-  dropEveryMax: 10,
-  dropAheadSeconds: 1.7, // aims this far ahead of the car, along its path ...
-  warningSeconds: 1.2, // ... and a flare marks the spot for this long before the block lands
-  fallSeconds: 0.4, // the end of that warning, while the block is falling into view
+  dropEveryMin: 5,
+  dropEveryMax: 11,
+  burstChance: 0.3, // the next drop may start a quick run of two or three ...
+  burstGap: [0.5, 0.9], // ... this many seconds apart
+  aheadSeconds: [1.3, 2.2], // aims this far ahead of the car, along its path ...
+  centreShare: 0.4, // ... straight in its path this often; otherwise off to one side by ...
+  sideOffset: [40, 130],
+  angleJitterDeg: 25, // across the path, give or take this much
+  warningSeconds: [0.8, 1.4], // a flare marks the spot for this long before it lands
+  landsBefore: 0.4, // ... always landing at least this long before the car could reach the spot
+  dropFallSeconds: 0.4, // the end of that warning, while it falls into view
   fallHeight: 320,
   minTargetSpeed: 120,
-  safeDistance: 95, // a block never lands this close to the car
-  blockHalfSize: 30,
-  blockHeight: 52,
-  blockSeconds: 7,
-  sinkSeconds: 0.6,
-  maxDrops: 3,
+  safeDistance: 95, // nothing lands this close to the car
+  clearRadius: 50,
+  spikeShare: 0.55, // spike strips; the rest are barrels
+  barrels: 3,
+  barrelSpacing: 30,
+  barrelRadius: 11,
+  barrelSeconds: 9, // they stand this long
+  barrelKnock: 0.85, // share of the car's speed a barrel flies off with ...
+  barrelSlowdown: 0.86, // ... and the car keeps this share of its own
+  maxDrops: 4,
 };
 
 export const SPAWN = {
@@ -995,7 +1020,7 @@ export const POWERUP = {
 // [TUNE] GIANT: the car grows, and nothing can stop it.
 export const GIANT = {
   scale: 3.2,
-  seconds: 7,
+  seconds: 10,
   stiffness: 70, // the spring that sizes the car: higher = snappier
   damping: 7, // lower = more elastic bounce on the way up (the way down has no bounce)
   endScale: 1.15, // it stays unstoppable until it has shrunk to this
@@ -1100,9 +1125,24 @@ export const WRECK_KNOCK = {
   spin: 5, // radians a second, at most
 };
 
+// What hides the player from the helicopter, besides a gas station roof and a bridge: this many trees this close.
+export const HELICOPTER_COVER = { trees: 3, treeReach: 75 };
+
+// Spike strips lying on their own across a road ahead, now and then, at odd spots and angles: always laid out of
+// sight, so they are seen coming. [TUNE]
+export const LOOSE_SPIKES = {
+  firstAt: 60, // seconds into a run (HARD START: hardFirstAt)
+  hardFirstAt: 30,
+  everyMin: 14,
+  everyMax: 24,
+  ahead: [900, 1400], // how far ahead of the car, along its way
+  across: 55, // off the road's middle, up to this far
+  angleDeg: 20, // turned from straight across, up to this much
+};
+
 // [TUNE] TURBO: a burst of speed, far past the car's own top speed, with flames from the exhaust.
 export const TURBO = {
-  seconds: 3,
+  seconds: 5,
   speedShare: 1.45, // of the car's own top speed
   accelShare: 2.6, // of its acceleration: it surges, it doesn't creep
 };
@@ -1138,7 +1178,7 @@ export const BLACKOUT = {
 
 // [TUNE] PHANTOM: the car turns ghostly and passes through cars and walls. Holes still swallow it.
 export const PHANTOM = {
-  seconds: 3.5,
+  seconds: 6,
   extraSeconds: 2, // it stays a ghost a little longer if it would come back inside something solid
   alpha: 0.42, // drawing only
 };
@@ -1386,6 +1426,8 @@ export const PALETTE = {
   pumpjackHead: 0xe0a43a,
   barrel: 0xb8432f,
   barrelBand: 0x7c2a1f,
+  trafficBarrel: 0xf26a1b, // the helicopter's orange traffic drums ...
+  trafficBand: 0xf4efe6, // ... with white bands
   river: 0x3f8fb5,
   riverDeep: 0x2d6f96,
   riverShine: 0x8fd0ea,
@@ -1427,7 +1469,6 @@ export const PALETTE = {
   fireGlow: 0xff7a18,
   pillar: 0xa39c8e,
   pillarCap: 0xc2bbab,
-  crateArrow: 0xf2b632, // amber, like the die: orange would look like the red warnings
   chunkTire: 0x17191e,
   chunkTireWall: 0x33363e,
   chunkHub: 0x5a5e66,
