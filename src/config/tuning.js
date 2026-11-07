@@ -9,6 +9,15 @@ export const DISPLAY = {
   maxFrameDeltaMs: 50,
 };
 
+// The frame-rate report sent to Playgama's telemetry (performance_sample, systems/PerformanceSampler.js): measured only
+// while a run is on screen, one summary for about every 30 s of play. Counts and timings only, no player data.
+export const PERF_SAMPLE = {
+  targetFps: 60,
+  everyMs: 30000, // of active play per sample
+  maxFrames: 8192, // frame times kept for the percentiles (30 s at 240 Hz fits)
+  slowFrameMs: [50, 100, 250, 500, 1000], // frames_over_<n>ms
+};
+
 export const VIEW = {
   // [TUNE] How many world units fit across the NARROWER side of the screen.
   // Same value in portrait and landscape, so the car looks the same size on every device
@@ -205,6 +214,7 @@ export const COINS = {
   perWreck: 5,
   perCombo: 10, // for each step of the run's best combo
   hardShare: 1.5, // a run with HARD START on pays this many times as much
+  tallyMs: 700, // the count-up on the results screen (drawing only)
 };
 
 // The one leaderboard: HARD START runs, longest first, in whole seconds. Its id is the one in the Playgama console
@@ -212,7 +222,6 @@ export const COINS = {
 export const LEADERBOARD = {
   id: 'hard_best',
   shown: 10, // rows on the game's own leaderboard screen
-  tallyMs: 700, // the count-up on the results screen (drawing only)
 };
 
 // [TUNE] The cars, cheapest first, bought with coins. handling: changes from Balanced. scale: its size in play, collisions
@@ -888,7 +897,8 @@ export const REVIVE = {
   cost: 150, // coins
   offerSeconds: 5, // how long the offer waits before the results
   clearRadius: 520, // police this close are blown away
-  safeSeconds: 2, // nothing can wreck the car straight after
+  safeSeconds: 2, // nothing can wreck the car straight after (counted once the countdown is over)
+  countdownSeconds: 3, // 3, 2, 1, GO: the world holds still after a revive, so coming back from an ad never looks frozen
   speedShare: 0.6, // it starts again at this share of its top speed, along the road
   ringSeconds: 0.6, // the ring that blows the police away (drawing only)
   searchStep: 90, // how far along the road it looks for a clear spot ...

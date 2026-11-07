@@ -24,10 +24,13 @@
 //       bridge.advertisement.showRewarded(placement)
 //       bridge.advertisement.on(EVENT_NAME.REWARDED_STATE_CHANGED, state)
 //         state: loading, opened, closed, rewarded, failed. Reward ONLY on 'rewarded', never on 'closed'.
+//     Checked against wiki.playgama.com/playgama/bridge-sdk/api/analytics, 2026-11-07:
+//       bridge.analytics.send(name, data): data a flat object of strings, numbers and booleans.
 //   Local browser (no SDK): LocalStorage, page visibility for pause. On a platform neither is touched: progress is
 //   saved only through Bridge storage, and the platform's own pause event covers a hidden page.
-// Adverts: a rewarded one the player asks for, and an interstitial when a run ends. No analytics or other external
-// requests are made.
+// Adverts: a rewarded one the player asks for, and an interstitial when a run ends. The one game event sent to
+// Playgama's analytics is `performance_sample` (frame timings and error counts, systems/PerformanceSampler.js),
+// through Bridge; no other requests are made.
 
 const SDK_TIMEOUT_MS = 8000;
 const SAVE_KEY = 'cantcatchme_save'; // everything is saved as one small object
@@ -37,6 +40,7 @@ const AD_PLACEMENT = 'double_coins';
 const INTERSTITIAL_PLACEMENT = 'game_over';
 const AD_TIMEOUT_MS = 180000; // never leaves the player stuck if an ad doesn't report back
 const AD_REWARD_GRACE_MS = 800; // some platforms may report 'rewarded' just after 'closed'
+const AD_STUCK_MS = 1500; // an advert that never reported closing is let go by a tap on the game after this long
 
 const state = {
   initialized: false,
@@ -52,6 +56,9 @@ const state = {
   saveTimer: null,
   adOpen: false,
   interstitialOpen: false,
+  adOpenedAt: 0,
+  pauseFromAdvert: false, // the platform's pause / mute came with an advert (Bridge pauses and mutes while one shows)
+  muteFromAdvert: false,
   language: 'en',
   onRewardedState: null,
   pendingAd: null,
@@ -133,12 +140,14 @@ async function connectBridge() {
     if (events.AUDIO_STATE_CHANGED) {
       bridge.platform.on(events.AUDIO_STATE_CHANGED, (isEnabled) => {
         state.audioEnabled = Boolean(isEnabled);
+        state.muteFromAdvert = !state.audioEnabled && advertOpen();
         emit('audio', state.audioEnabled);
       });
     }
     if (events.PAUSE_STATE_CHANGED) {
       bridge.platform.on(events.PAUSE_STATE_CHANGED, (isPaused) => {
         state.platformPaused = Boolean(isPaused);
+        state.pauseFromAdvert = state.platformPaused && advertOpen();
         updatePaused();
       });
     }
@@ -153,12 +162,15 @@ async function connectBridge() {
     }
     if (bridge.advertisement && events.INTERSTITIAL_STATE_CHANGED) {
       const onInterstitial = (adState) => {
-        state.interstitialOpen = adState === 'opened';
+        const open = adState === 'opened';
+        if (open && !state.interstitialOpen) state.adOpenedAt = Date.now();
+        state.interstitialOpen = open;
         updatePaused();
       };
       bridge.advertisement.on(events.INTERSTITIAL_STATE_CHANGED, onInterstitial);
       onInterstitial(bridge.advertisement.interstitialState); // one may already be showing as the game starts
     }
+    watchForStuckAdverts();
   } catch (error) {
     console.warn('[platform] Bridge adverts unavailable:', error?.message || error);
   }
@@ -170,6 +182,39 @@ async function connectBridge() {
     console.warn('[platform] Bridge storage unavailable, keeping progress for this visit only:', error?.message || error);
   }
   return true;
+}
+
+// Safety net. The game sleeps while an advert is open and wakes when the platform says it has closed; if that word
+// never comes, the game would stay frozen. While an advert covers the page, taps land on the advert, so a tap that
+// lands on the game's own canvas or buttons means the advert has gone: the game carries on.
+// Bridge's own pause and mute that came with the advert are let go too; a pause or mute the platform gave for any
+// other reason is left alone.
+function advertOpen() {
+  return state.interstitialOpen || state.adOpen;
+}
+
+function watchForStuckAdverts() {
+  window.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!advertOpen() && !state.pauseFromAdvert && !state.muteFromAdvert) return;
+      if (Date.now() - state.adOpenedAt < AD_STUCK_MS) return;
+      const target = event.target;
+      if (!target || typeof target.closest !== 'function' || !target.closest('#game, #ui')) return;
+      state.interstitialOpen = false;
+      if (state.pauseFromAdvert) state.platformPaused = false;
+      state.pauseFromAdvert = false;
+      if (state.muteFromAdvert) {
+        state.audioEnabled = true;
+        state.muteFromAdvert = false;
+        emit('audio', true);
+      }
+      updatePaused();
+      // A rewarded ad: as if it had closed, so the reward still depends only on its 'rewarded' word.
+      if (state.adOpen && state.onRewardedState) state.onRewardedState('closed');
+    },
+    { capture: true, passive: true },
+  );
 }
 
 function watchPageVisibility() {
@@ -271,6 +316,18 @@ export const PlatformManager = {
     sendMessage('level_resumed');
   },
 
+  // One game event for Playgama's analytics (a stable snake_case name; data flat, no player details). Never throws;
+  // nothing happens without a platform.
+  sendEvent(name, data = {}) {
+    if (!state.bridge || state.platformId === 'mock') return;
+    try {
+      const analytics = state.bridge.analytics;
+      if (analytics && typeof analytics.send === 'function') analytics.send(name, data);
+    } catch {
+      // Telemetry must never break the game.
+    }
+  },
+
   isPaused() {
     return state.paused;
   },
@@ -329,6 +386,7 @@ export const PlatformManager = {
       };
       state.onRewardedState = (adState) => {
         if (adState === 'opened') {
+          if (!state.adOpen) state.adOpenedAt = Date.now();
           state.adOpen = true;
           updatePaused();
         } else if (adState === 'rewarded') {

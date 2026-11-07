@@ -1,4 +1,6 @@
 :root {
+  /* Says the page is dark already, so a phone's or in-app browser's dark mode leaves its colours alone. */
+  color-scheme: only dark;
   --page-bg: #1b1f24;
   --ink: #14171c;
   --cream: #f4efe6;
@@ -949,6 +951,40 @@ body {
   padding: 0 18px;
   font-size: clamp(13px, 3.2vmin, 17px);
   color: var(--amber);
+}
+
+/* 3, 2, 1, GO after a revive, big in the middle of the screen. */
+.hud-count {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 38%;
+  text-align: center;
+  font-size: clamp(64px, 22vmin, 150px);
+  color: #fff;
+  pointer-events: none;
+}
+
+.hud-count-pop {
+  animation: hud-count 0.9s ease-out forwards;
+}
+
+@keyframes hud-count {
+  0% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+  18% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.85);
+    opacity: 0.2;
+  }
 }
 
 .hud-toasts {

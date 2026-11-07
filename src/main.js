@@ -6,6 +6,7 @@ import { AudioSystem } from './systems/AudioSystem.js';
 import { Records, Garage, Maps } from './systems/ScoreSystem.js';
 import { Settings } from './systems/Settings.js';
 import { PlatformManager } from './platform/PlatformManager.js';
+import { PerformanceSampler } from './systems/PerformanceSampler.js';
 import { BootScene } from './scenes/BootScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { UIScene } from './scenes/UIScene.js';
@@ -95,6 +96,19 @@ async function start() {
   // Read all devices once per frame, before any scene runs.
   game.events.on(Phaser.Core.Events.PRE_STEP, () => input.update());
 
+  // Frame timings while a run is on screen (not paused, not crashed out to a menu), sent about every 30 s of play.
+  const sampler = new PerformanceSampler();
+  sampler.watchErrors(game.canvas);
+  game.events.on(Phaser.Core.Events.POST_STEP, () => {
+    const world = game.scene.getScene('GameScene');
+    const active = Boolean(world && world.sys.isActive() && (world.mode === 'playing' || world.mode === 'crashed'));
+    const sample = sampler.frame(performance.now(), active);
+    if (sample) PlatformManager.sendEvent('performance_sample', sample);
+  });
+  game.events.on(Phaser.Core.Events.HIDDEN, () => sampler.gap());
+  game.events.on(Phaser.Core.Events.VISIBLE, () => sampler.gap());
+  game.registry.set('sampler', sampler);
+
   // Platform pause (tab hidden, YouTube pause ...) stops the whole game loop and the sound.
   // A run in progress comes back on the pause menu, so the player is never thrown straight in.
   PlatformManager.onPause(() => {
@@ -105,6 +119,7 @@ async function start() {
   });
   PlatformManager.onResume(() => {
     audio.setPlatformPaused(false);
+    sampler.gap();
     game.loop.wake();
   });
 

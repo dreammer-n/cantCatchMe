@@ -315,6 +315,21 @@ export class GameScene extends Phaser.Scene {
     this.handleEvents(this.sim.events.splice(0));
   }
 
+  // After a revive: the world holds while the count runs, then the car drives on. It only runs while the game is awake,
+  // so after an advert the count starts when the game is back on screen.
+  stepCountdown(dt) {
+    this.countdown -= dt;
+    const shown = Math.max(0, Math.ceil(this.countdown));
+    if (shown !== this.shownCount) {
+      this.shownCount = shown;
+      this.game.events.emit('countdown', shown);
+      if (shown > 0) this.audio.play('click');
+    }
+    if (this.countdown > 0) return;
+    this.mode = 'playing';
+    this.pendingPower = false; // a double tap during the count doesn't fire the item
+  }
+
   declineRevive() {
     if (this.mode === 'offer') this.finishRun();
   }
@@ -386,6 +401,8 @@ export class GameScene extends Phaser.Scene {
       gameDt = 0; // the action holds; camera shake and starbursts carry on
     } else if (this.mode === 'attract' || this.mode === 'offer') {
       // The car waits on the title screen, still; after a crash the world holds while the second chance is offered.
+    } else if (this.mode === 'countdown') {
+      this.stepCountdown(dt);
     } else if (this.turntable) {
       this.spinInPlace(command.steer, dt);
     } else {
@@ -495,7 +512,10 @@ export class GameScene extends Phaser.Scene {
           this.effects.smokePuff(e.x, e.y, 6);
           break;
         case 'revive':
-          this.mode = 'playing';
+          // Back on the road, held still for 3, 2, 1, GO (stepCountdown).
+          this.mode = 'countdown';
+          this.countdown = REVIVE.countdownSeconds;
+          this.shownCount = null;
           this.crashClock = 0;
           this.hitStop.reset();
           this.playerView.setLook(this.looks.player);

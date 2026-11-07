@@ -340,6 +340,7 @@ const run = (s, seconds, steer = 0) => {
   const normal = coinsForRun(run);
   const hard = coinsForRun(run, true);
   check('HARD START pays half as much again', hard.total === Math.round(normal.total * T.COINS.hardShare) && hard.hard > 0 && normal.hard === 0, `${normal.total} -> ${hard.total}`);
+  check('the results tally has a length (it read NaN without one)', Number.isFinite(T.COINS.tallyMs) && T.COINS.tallyMs > 0);
 }
 
 // ---- Maps, and the stars that open them ----

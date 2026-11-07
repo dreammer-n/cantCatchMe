@@ -9,6 +9,8 @@ import { resolve } from 'node:path';
 //   1. public/playgama-bridge.js      (a copy you put there yourself; Vite copies public/ as is)
 //   2. node_modules/@playgama/bridge  (after `npm install @playgama/bridge`)
 const BRIDGE_FILE = 'playgama-bridge.js';
+// The game's version (package.json), sent with the frame-rate report so builds can be compared.
+const GAME_VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 function playgamaBridgeLocal() {
   let source = null;
@@ -50,6 +52,9 @@ export default defineConfig({
   // which host the game in a sub-folder.
   base: './',
   plugins: [playgamaBridgeLocal()],
+  define: {
+    __GAME_VERSION__: JSON.stringify(GAME_VERSION),
+  },
   server: {
     // Lets a phone on the same Wi-Fi open the dev server for testing.
     host: true,

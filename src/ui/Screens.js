@@ -92,8 +92,11 @@ function starRow(className, count = STARS.length) {
 function countUp(node, from, to, ms, format = formatCoins) {
   const start = performance.now();
   let frame = 0;
-  const step = (now) => {
-    const t = Math.min(1, (now - start) / ms);
+  // The clock is read here rather than trusted from the frame callback, and a missing or bad length shows the final
+  // number at once: the tally must never read NaN.
+  const step = () => {
+    const elapsed = performance.now() - start;
+    const t = Number.isFinite(elapsed) && ms > 0 ? Math.min(1, Math.max(0, elapsed / ms)) : 1;
     setDisplay(node, format(from + (to - from) * (1 - (1 - t) * (1 - t))));
     if (t < 1) frame = requestAnimationFrame(step);
   };

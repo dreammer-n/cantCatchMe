@@ -14,6 +14,8 @@ export class Hud {
     this.record = dt('hud-record', 'RECORD: 00:00.00');
     this.pauseButton = button('btn hud-pause', dt('', 'PAUSE'), onPause, 'Pause');
     this.toasts = el('div', 'hud-toasts');
+    this.count = dt('hud-count', '');
+    this.count.hidden = true;
     this.shields = el('div', 'hud-shields');
     // The item working now: a ring that runs down, and its name.
     this.powerRing = el('span', 'hud-power-ring');
@@ -25,6 +27,7 @@ export class Hud {
       el('div', 'hud-tele', [this.time, this.distance, this.wrecks, this.shields, this.power]),
       el('div', 'hud-right', [this.pauseButton, this.record]),
       this.toasts,
+      this.count,
     ]);
     this.node.hidden = true;
     uiRoot().append(this.node);
@@ -91,5 +94,20 @@ export class Hud {
 
   clearToasts() {
     this.toasts.replaceChildren();
+  }
+
+  // The count after a revive: 3, 2, 1, then GO! (0) for a moment. null hides it.
+  setCount(value) {
+    clearTimeout(this.countTimer);
+    if (value === null) {
+      this.count.hidden = true;
+      return;
+    }
+    setDisplay(this.count, value > 0 ? String(value) : 'GO!');
+    this.count.hidden = false;
+    this.count.classList.remove('hud-count-pop');
+    void this.count.offsetWidth; // restart the pop for each number
+    this.count.classList.add('hud-count-pop');
+    if (value === 0) this.countTimer = setTimeout(() => (this.count.hidden = true), 650);
   }
 }

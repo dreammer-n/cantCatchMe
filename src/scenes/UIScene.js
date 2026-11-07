@@ -54,6 +54,7 @@ export class UIScene extends Phaser.Scene {
     on('run-started', () => this.onRunStarted());
     on('revive-offer', (offer) => this.openOffer(offer));
     on('shields', (left, max) => this.hud.setShields(left, max));
+    on('countdown', (value) => this.hud.setCount(value));
     on('run-over', () => this.hud.show(false));
     on('platform-pause', () => {
       if (this.world.running && !this.paused) this.setPaused(true);
@@ -66,6 +67,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   onRunStarted() {
+    this.hud.setCount(null);
     this.setPaused(false);
     this.closeOffer(null);
     this.hud.clearToasts();
