@@ -13,6 +13,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   create() {
+    performance.mark && performance.mark('ccm:phaser');
     makeEffectTextures(this);
     this.registry.set('handlingPreset', 'car');
     applyMapPalette(Maps.current());

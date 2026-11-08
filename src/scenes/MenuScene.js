@@ -3,6 +3,7 @@ import { PlatformManager } from '../platform/PlatformManager.js';
 import { LEADERBOARD } from '../config/tuning.js';
 import { Garage, Records } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
+import { Tips } from '../systems/Tips.js';
 import { LeaderboardScreen, MenuScreen } from '../ui/Screens.js';
 
 // Title screen (HTML) over the world, where the player's car waits on the start ring.
@@ -26,15 +27,24 @@ export class MenuScene extends Phaser.Scene {
         onBoard: () => this.openBoard(),
       });
     }
+    const close = () => this.close();
+    this.game.events.once('run-started', close);
+    this.events.once('shutdown', () => this.game.events.off('run-started', close));
+    // A brand-new player skips the title: straight onto the road for the first drive (scenes/Coach.js).
+    if (Tips.firstDrive()) {
+      hideBootScreen();
+      PlatformManager.gameReady(); // the player can interact: the first touch starts the drive
+      performance.mark && performance.mark('ccm:title');
+      this.scene.get('GameScene').startRun(undefined, { firstDrive: true });
+      return;
+    }
     const touch = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
     const boardMode = PlatformManager.leaderboardMode();
     this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, touch, coins: Garage.coins, hardStart: Settings.hardStart, boardShown: boardMode === 'in_game' || boardMode === 'native_popup' });
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
-    const close = () => this.close();
-    this.game.events.once('run-started', close);
-    this.events.once('shutdown', () => this.game.events.off('run-started', close));
     hideBootScreen();
     PlatformManager.gameReady(); // first moment the player can interact
+    performance.mark && performance.mark('ccm:title');
   }
 
   update(time) {

@@ -1,7 +1,8 @@
 // Checks for the frame-rate report (performance_sample): only play counts, gaps are never slow frames, the summary
 // has every field Playgama's guide asks for, and its numbers are right.
 import { PerformanceSampler } from '../src/systems/PerformanceSampler.js';
-import { PERF_SAMPLE } from '../src/config/tuning.js';
+import { PERF_SAMPLE, QUALITY } from '../src/config/tuning.js';
+import { AutoQuality } from '../src/systems/AutoQuality.js';
 
 let pass = 0;
 let fail = 0;
@@ -85,6 +86,48 @@ function play(sampler, start, frames, active = true) {
   const sampler = new PerformanceSampler();
   const { samples } = play(sampler, 0, new Array(10100).fill(3)); // 333 fps: more frames than are kept
   check('very fast screens are still summed right', samples.length === 1 && samples[0].frame_count >= 10000 && samples[0].fps_avg > 330, JSON.stringify(samples.map((s) => [s.frame_count, s.fps_avg])));
+}
+
+// AutoQuality: only a slow phone steps down, one level per check, never past the last.
+function drive(q, frameMs, seconds, start = 0) {
+  const levels = [];
+  let now = start;
+  q.frame(now, true);
+  for (let t = 0; t < seconds * 1000; t += frameMs) {
+    now += frameMs;
+    const level = q.frame(now, true);
+    if (level !== null) levels.push(level);
+  }
+  return levels;
+}
+{
+  const fast = new AutoQuality(0);
+  check('a phone at 60 fps is never touched', drive(fast, 1000 / 60, 60).length === 0 && fast.level === 0);
+  const fine = new AutoQuality(0);
+  check('nor one at 50 fps', drive(fine, 20, 60).length === 0);
+  const slow = new AutoQuality(0);
+  const steps = drive(slow, 1000 / 30, 9);
+  check('at 30 fps it steps down after one check', steps.length === 1 && steps[0] === 1, JSON.stringify(steps));
+  slow.gap();
+  const more = drive(slow, 1000 / 30, 60, 1e6);
+  check('and once more if still slow, then stops at the last level', more.length === 1 && slow.level === QUALITY.levels.length - 1, JSON.stringify(more));
+  const hitches = new AutoQuality(0);
+  let now = 0;
+  hitches.frame(now, true);
+  let stepped = false;
+  for (let i = 0; i < 600; i += 1) {
+    now += i % 60 === 0 ? 900 : 1000 / 60; // a long one-off frame every second
+    if (hitches.frame(now, true) !== null) stepped = true;
+  }
+  check('one-off hitches are not taken for a slow phone', !stepped);
+  const crawling = new AutoQuality(0);
+  check('a phone crawling at 3 fps steps down too', drive(crawling, 330, 10).length === 1);
+  const menus = new AutoQuality(0);
+  menus.frame(0, true);
+  menus.frame(16, false);
+  check('menus and pauses are not measured', menus.frame(60000, true) === null && menus.ms === 0);
+  check('a saved level is kept, within range', new AutoQuality(2).level === 2 && new AutoQuality(9).level === QUALITY.levels.length - 1);
+  check('the first level is as designed', QUALITY.levels[0].pixelRatio === 2 && QUALITY.levels[0].effects === 1);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

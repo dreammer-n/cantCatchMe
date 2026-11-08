@@ -9,6 +9,18 @@ export const DISPLAY = {
   maxFrameDeltaMs: 50,
 };
 
+// Weak phones only: if play runs slower than minFps, the game steps down, one level at a time and only as far
+// as it needs (systems/AutoQuality.js). Level 0 is how every phone starts; most never leave it. The level is saved.
+export const QUALITY = {
+  minFps: 45, // judged on the typical (median) frame, so one-off hitches don't count
+  checkMs: 8000, // of play, measured before each decision
+  levels: [
+    { pixelRatio: 2, effects: 1 }, // as designed (DISPLAY.maxPixelRatio)
+    { pixelRatio: 1.5, effects: 1 }, // a little less sharp
+    { pixelRatio: 1, effects: 0.5 }, // less sharp still, half the smoke, fire and bits
+  ],
+};
+
 // The frame-rate report sent to Playgama's telemetry (performance_sample, systems/PerformanceSampler.js): measured only
 // while a run is on screen, one summary for about every 30 s of play. Counts and timings only, no player data.
 export const PERF_SAMPLE = {
@@ -124,6 +136,46 @@ export const STORAGE_KEYS = {
   best: 'bestRun', // { time, wrecks, nearMisses, combo }
   totals: 'totals', // { runs, wrecks, seconds }
   settings: 'settings', // { sound }
+  tips: 'tipsSeen', // [tip id, ...]: the lessons a player has been shown (scenes/Coach.js)
+};
+
+// The first drive and the one-time hints (scenes/Coach.js). A new player starts on the road, not the title: the car
+// waits until the first touch, which is also the steering lesson. Each hint shows once ever; the basic ones only
+// to new players (fewer than basicsRuns runs), the danger ones to everyone the first time each danger appears.
+export const TUTORIAL = {
+  basicsRuns: 5,
+  steerSeconds: 6, // the steering hint goes once both ways are tried, or after this long
+  policeAfter: 2, // seconds after the steering lesson before the first police car comes
+  tipSeconds: 3.4,
+  tipGap: 0.6, // seconds between two hints
+  slowSeconds: 0.9, // the first police car on screen: the action slows down this long ...
+  slowShare: 0.35, // ... to this share of its speed
+  markRadius: 70, // the glow on the road under what a hint is about (world units)
+  // The first drive forgives early crashes: put back on the road with OOPS! TRY AGAIN and the 3, 2, 1, with no
+  // coins, no ad and no CONTINUE? screen. The run's own second chance is still there afterwards.
+  freeRetries: 2,
+  freeRetrySeconds: 30, // only crashes this early in the run
+  // On the results of a new player's runs, one line on why the crash happened (once each, by cause).
+  crashTips: {
+    obstacle: 'TIP: STEER AROUND WALLS AND TREES',
+    wreck: 'TIP: STEER AROUND WALLS AND TREES',
+    police: 'TIP: MAKE THEM HIT THINGS BEHIND YOU',
+    pinned: "TIP: KEEP MOVING, DON'T GET BOXED IN",
+    void: 'TIP: WATCH FOR HOLES AND WATER',
+    bearcat: 'TIP: NEVER TOUCH THE SWAT TRUCK',
+    roadblock: 'TIP: LOOK FOR THE GAP IN A ROADBLOCK',
+  },
+  tips: {
+    police: { head: 'POLICE!', body: "DON'T LET THEM RAM YOU", basic: true },
+    wreck: { head: 'NICE!', body: 'MAKE THEM CRASH FOR COINS', basic: true },
+    die: { head: 'LUCKY DIE!', body: 'IT BRINGS YOU A POWER-UP', basic: true },
+    use: { head: 'POWER-UP!', body: 'WAIT AND IT GOES OFF BY ITSELF', basic: true },
+    bearcat: { head: 'SWAT TRUCK!', body: "DON'T TOUCH IT" },
+    roadblock: { head: 'ROADBLOCK!', body: 'FIND THE GAP' },
+    flat: { head: 'FLAT TIRE!', body: 'HOLD IT STRAIGHT' },
+    helicopter: { head: 'CHOPPER!', body: 'BLACKOUT DOWNS IT, OR OUTLAST IT' },
+    jets: { head: 'JETS!', body: 'KEEP OUT OF THE RED CIRCLES' },
+  },
 };
 
 // Physics is advanced in equal steps no longer than this, whatever the screen's refresh rate.

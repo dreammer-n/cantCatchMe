@@ -509,8 +509,9 @@ export class ChaseSimulation {
 
   // The second chance: the crash is undone. The car is put back on the nearest clear stretch of road, heading
   // along it, and police close by are blown away. Once a run. Returns whether it happened.
-  revivePlayer() {
-    if (this.state !== 'crashed' || this.revived) return false;
+  // free: the first drive's practice retries (scenes/Coach.js), which leave the run's own second chance unused.
+  revivePlayer({ free = false } = {}) {
+    if (this.state !== 'crashed' || (this.revived && !free)) return false;
     const player = this.player;
     const spot = this.clearRoadSpot(player.x, player.y, player.heading);
     for (const police of this.police) {
@@ -529,7 +530,7 @@ export class ChaseSimulation {
     this.chunks.update(spot.x, spot.y);
     this.state = 'running';
     this.crash = null;
-    this.revived = true;
+    if (!free) this.revived = true;
     this.safeTime = REVIVE.safeSeconds;
     this.pinnedTime = 0;
     this.emit('revive', { x: spot.x, y: spot.y, radius: REVIVE.clearRadius });

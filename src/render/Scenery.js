@@ -12,6 +12,9 @@ import { groundMarksFor, paintBlob, paintDrift } from './softShapes.js';
 const DEG = Math.PI / 180;
 const screen = { x: 0, y: 0 };
 const CULL_MARGIN = 40;
+// A prop not drawn yet is taken to reach this far around its foot on screen, which covers the biggest (a gas
+// station roof), so it is drawn before any part of it can come into view.
+const PENDING_REACH = 420;
 const CHUNK_BOX_MARGIN = 160; // lamp glows and hole edges reach a little beyond their chunk's props
 const FLOOR_SQUARES = Math.round(CHUNKS.size / SCENERY.floorChunk);
 const MAX_NEW_CHUNKS_IN_A_STEP = 5; // crossing a corner brings in 5; more means a restart or a jump
@@ -103,7 +106,7 @@ export class Scenery {
   makeProp() {
     const shadow = this.scene.add.image(0, 0, '__DEFAULT').setVisible(false);
     const body = this.scene.add.image(0, 0, '__DEFAULT').setVisible(false);
-    return { body, shadow, bounds: { x0: 0, y0: 0, x1: 0, y1: 0 }, source: null, gone: false, moved: false };
+    return { body, shadow, bounds: { x0: 0, y0: 0, x1: 0, y1: 0 }, source: null, gone: false, moved: false, pending: false };
   }
 
   // Called every frame; does nothing unless the set of loaded chunks has changed.
@@ -137,7 +140,7 @@ export class Scenery {
       const prop = this.freeProps.pop() || this.makeProp();
       prop.source = item;
       this.bySource.set(item, prop);
-      this.showProp(prop);
+      this.deferProp(prop);
       return prop;
     });
     this.loaded.set(key, { slot, props, data });
@@ -149,6 +152,7 @@ export class Scenery {
       prop.source = null;
       prop.gone = false;
       prop.moved = false;
+      prop.pending = false;
       prop.body.setVisible(false).setRotation(0).setAlpha(1);
       prop.shadow.setVisible(false);
       this.freeProps.push(prop);
@@ -161,8 +165,24 @@ export class Scenery {
     this.loaded.delete(key);
   }
 
+  // A prop is only drawn once it comes near the screen (cull), so a chunk loads without drawing what nobody sees
+  // yet; by then the warm-up has usually drawn its model already, and showing it is quick.
+  deferProp(prop) {
+    const item = prop.source;
+    prop.pending = true;
+    prop.body.setVisible(false);
+    prop.shadow.setVisible(false);
+    projection.toScreen(item.x, item.y, 0, screen);
+    const b = prop.bounds;
+    b.x0 = screen.x - PENDING_REACH;
+    b.x1 = screen.x + PENDING_REACH;
+    b.y0 = screen.y - PENDING_REACH;
+    b.y1 = screen.y + PENDING_REACH;
+  }
+
   showProp(prop) {
     const item = prop.source;
+    prop.pending = false;
     const key = propKey(item.model, item.heading);
     const body = bakeMesh(this.scene, key, this.meshFor(item), item.heading, projection, 'body', propBakeScale(item));
     const shadow = bakeMesh(this.scene, `${key}:shadow`, this.meshFor(item), item.heading, projection, 'shadow');
@@ -280,6 +300,10 @@ export class Scenery {
     for (const prop of this.items) {
       if (prop.gone) continue;
       const b = prop.bounds;
+      if (prop.pending) {
+        if (!(b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1)) continue;
+        this.showProp(prop);
+      }
       const visible = b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1;
       if (prop.body.visible !== visible) {
         prop.body.setVisible(visible);
@@ -304,6 +328,10 @@ export class Scenery {
     for (const cone of cones) {
       const prop = this.bySource.get(cone.item);
       if (!prop) continue;
+      if (prop.pending) {
+        if (cone.state === 'standing') continue;
+        this.showProp(prop); // knocked over off screen: it needs its drawing now
+      }
       const item = prop.source;
       if (cone.state === 'standing') {
         if (prop.moved) {

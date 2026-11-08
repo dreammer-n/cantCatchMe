@@ -16,6 +16,7 @@ export class PerformanceSampler {
     this.errors = 0;
     this.rejections = 0;
     this.contextLosses = 0;
+    this.quality = 0; // the AutoQuality level the phone is on
     this.startWindow(null);
   }
 
@@ -74,6 +75,7 @@ export class PerformanceSampler {
       js_error_count: this.errors,
       unhandled_rejection_count: this.rejections,
       webgl_context_loss_count: this.contextLosses,
+      quality_level: this.quality,
       game_version: VERSION,
     };
     PERF_SAMPLE.slowFrameMs.forEach((limit, i) => {

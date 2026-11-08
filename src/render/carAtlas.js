@@ -60,33 +60,96 @@ export function atlasLayout(measure) {
   return { cellW, cellH, pivotY: (measure.up + PADDING) * scale, width: COLUMNS * cellW, height: rows * cellH };
 }
 
+// Sheets made but not all drawn yet: atlas key -> { texture, views, cellW, cellH, pivotY, left: frame indices }.
+const unfinished = new Map();
+
+function paintFrame(job, i) {
+  const scale = RENDER.bakeScale;
+  const ctx = job.texture.context;
+  const x = (i % COLUMNS) * job.cellW;
+  const y = Math.floor(i / COLUMNS) * job.cellH;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, job.cellW, job.cellH);
+  ctx.clip(); // keep each view inside its own frame
+  ctx.translate(x + job.cellW / 2, y + job.pivotY);
+  ctx.scale(scale, scale);
+  paintMesh(ctx, job.views[i]);
+  ctx.restore();
+}
+
 // Builds the atlas for the current camera (once per camera setup). Returns its key.
-export function ensureCarAtlas(scene, name, proj = projection) {
+// first: 'all' draws every direction now. A heading draws only the views around it now (a car standing still on
+// the title), 'none' none at all; paintCarAtlases draws the rest a few a frame, and asking again with 'all'
+// finishes it at once. A run never starts with a sheet unfinished (GameScene.finishWarmUp).
+export function ensureCarAtlas(scene, name, proj = projection, first = 'all') {
   const key = atlasKey(name, proj);
-  if (scene.textures.exists(key)) return key;
+  if (scene.textures.exists(key)) {
+    if (first === 'all') finishAtlas(key);
+    else if (typeof first === 'number' && unfinished.has(key)) {
+      const job = unfinished.get(key);
+      const before = job.left.length;
+      paintAround(job, first);
+      if (job.left.length !== before) job.texture.refresh();
+    }
+    return key;
+  }
 
   const measure = measureCar(name, proj);
   const { cellW, cellH, pivotY, width, height } = atlasLayout(measure);
-  const scale = RENDER.bakeScale;
   const texture = scene.textures.createCanvas(key, width, height);
-  const ctx = texture.context;
-  measure.views.forEach((projected, i) => {
-    const x = (i % COLUMNS) * cellW;
-    const y = Math.floor(i / COLUMNS) * cellH;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, cellW, cellH);
-    ctx.clip(); // keep each view inside its own frame
-    ctx.translate(x + cellW / 2, y + pivotY);
-    ctx.scale(scale, scale);
-    paintMesh(ctx, projected);
-    ctx.restore();
-    texture.add(FRAME_NAMES[i], 0, x, y, cellW, cellH);
+  const job = { texture, views: measure.views, cellW, cellH, pivotY, left: [] };
+  measure.views.forEach((_, i) => {
+    texture.add(FRAME_NAMES[i], 0, (i % COLUMNS) * cellW, Math.floor(i / COLUMNS) * cellH, cellW, cellH);
+    job.left.push(i);
   });
-  texture.refresh();
-
   atlasMeta.set(key, { originX: 0.5, originY: pivotY / cellH, cellW, cellH, width, height, directions: measure.directions });
+  if (typeof first === 'number') paintAround(job, first);
+  unfinished.set(key, job);
+  if (first === 'all') finishAtlas(key);
+  else texture.refresh();
   return key;
+}
+
+// The view for a heading and its neighbours, in case it is drawn a step either way.
+function paintAround(job, heading) {
+  const n = job.views.length;
+  const index = Math.round(((((heading % TAU) + TAU) % TAU) / TAU) * n) % n;
+  for (const i of [index, (index + 1) % n, (index + n - 1) % n]) {
+    const at = job.left.indexOf(i);
+    if (at < 0) continue;
+    paintFrame(job, i);
+    job.left.splice(at, 1);
+  }
+}
+
+function finishAtlas(key) {
+  const job = unfinished.get(key);
+  if (!job) return;
+  for (const i of job.left) paintFrame(job, i);
+  job.left.length = 0;
+  job.texture.refresh();
+  unfinished.delete(key);
+}
+
+// Draws up to `count` more views of the unfinished sheets. Returns whether any are left.
+export function paintCarAtlases(count) {
+  for (const [key, job] of unfinished) {
+    while (count > 0 && job.left.length > 0) {
+      paintFrame(job, job.left.shift());
+      count -= 1;
+    }
+    if (job.left.length === 0) {
+      job.texture.refresh();
+      unfinished.delete(key);
+    }
+    if (count <= 0) break;
+  }
+  return unfinished.size > 0;
+}
+
+export function finishCarAtlases() {
+  for (const key of [...unfinished.keys()]) finishAtlas(key);
 }
 
 // There are too many cars to keep them all drawn: only the selected one has sheets, and these go when it is
@@ -96,6 +159,7 @@ export function releaseCarSheets(scene, id, proj = projection) {
     const key = atlasKey(name, proj);
     if (scene.textures.exists(key)) scene.textures.remove(key);
     atlasMeta.delete(key);
+    unfinished.delete(key);
   }
 }
 

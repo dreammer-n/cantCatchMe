@@ -1,12 +1,14 @@
 import * as Phaser from 'phaser';
-import { DISPLAY } from './config/tuning.js';
-import { getPixelRatio } from './utils/screen.js';
+import { DISPLAY, QUALITY } from './config/tuning.js';
+import { getPixelRatio, setPixelRatioCap } from './utils/screen.js';
 import { InputManager } from './systems/InputManager.js';
 import { AudioSystem } from './systems/AudioSystem.js';
 import { Records, Garage, Maps } from './systems/ScoreSystem.js';
 import { Settings } from './systems/Settings.js';
+import { Tips } from './systems/Tips.js';
 import { PlatformManager } from './platform/PlatformManager.js';
 import { PerformanceSampler } from './systems/PerformanceSampler.js';
+import { AutoQuality } from './systems/AutoQuality.js';
 import { BootScene } from './scenes/BootScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { UIScene } from './scenes/UIScene.js';
@@ -53,10 +55,19 @@ function watchWindowSize(game) {
   window.addEventListener('resize', queueFit);
 }
 
+// Loading milestones, readable in the browser's performance timeline (ccm:*): how long each step of the start takes.
+const mark = (name) => performance.mark && performance.mark(`ccm:${name}`);
+
 async function start() {
+  mark('start');
   await PlatformManager.initialize();
-  await Promise.all([Records.load(), Settings.load(), Garage.load()]);
+  mark('platform');
+  await Promise.all([Records.load(), Settings.load(), Garage.load(), Tips.load()]);
   await Maps.load(); // after the records, which older saves take their first best time from
+  mark('save');
+  // A weak phone keeps the level it stepped down to last time (AutoQuality).
+  const quality = new AutoQuality(Settings.quality);
+  setPixelRatioCap(QUALITY.levels[quality.level].pixelRatio);
 
   const input = new InputManager(container);
   const audio = new AudioSystem();
@@ -96,17 +107,35 @@ async function start() {
   // Read all devices once per frame, before any scene runs.
   game.events.on(Phaser.Core.Events.PRE_STEP, () => input.update());
 
-  // Frame timings while a run is on screen (not paused, not crashed out to a menu), sent about every 30 s of play.
+  // Frame timings while a run is on screen (not paused, not crashed out to a menu), sent about every 30 s of play;
+  // and on a weak phone, a step down in quality when play is too slow.
   const sampler = new PerformanceSampler();
   sampler.watchErrors(game.canvas);
+  sampler.quality = quality.level;
+  game.registry.set('quality', QUALITY.levels[quality.level]);
   game.events.on(Phaser.Core.Events.POST_STEP, () => {
     const world = game.scene.getScene('GameScene');
     const active = Boolean(world && world.sys.isActive() && (world.mode === 'playing' || world.mode === 'crashed'));
-    const sample = sampler.frame(performance.now(), active);
+    const now = performance.now();
+    const sample = sampler.frame(now, active);
     if (sample) PlatformManager.sendEvent('performance_sample', sample);
+    const level = quality.frame(now, active);
+    if (level !== null) {
+      Settings.setQuality(level);
+      sampler.quality = level;
+      setPixelRatioCap(QUALITY.levels[level].pixelRatio);
+      fitCanvasToWindow(game);
+      game.registry.set('quality', QUALITY.levels[level]);
+      sampler.gap(); // the resize itself is not a slow frame
+      quality.gap();
+    }
   });
-  game.events.on(Phaser.Core.Events.HIDDEN, () => sampler.gap());
-  game.events.on(Phaser.Core.Events.VISIBLE, () => sampler.gap());
+  const gap = () => {
+    sampler.gap();
+    quality.gap();
+  };
+  game.events.on(Phaser.Core.Events.HIDDEN, gap);
+  game.events.on(Phaser.Core.Events.VISIBLE, gap);
   game.registry.set('sampler', sampler);
 
   // Platform pause (tab hidden, YouTube pause ...) stops the whole game loop and the sound.
@@ -119,7 +148,7 @@ async function start() {
   });
   PlatformManager.onResume(() => {
     audio.setPlatformPaused(false);
-    sampler.gap();
+    gap();
     game.loop.wake();
   });
 

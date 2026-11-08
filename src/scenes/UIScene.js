@@ -55,6 +55,8 @@ export class UIScene extends Phaser.Scene {
     on('revive-offer', (offer) => this.openOffer(offer));
     on('shields', (left, max) => this.hud.setShields(left, max));
     on('countdown', (value) => this.hud.setCount(value));
+    on('tip', (tip) => this.hud.showTip(tip));
+    on('steer-hint', (on) => this.hud.setSteerHint(on, this.touch));
     on('run-over', () => this.hud.show(false));
     on('platform-pause', () => {
       if (this.world.running && !this.paused) this.setPaused(true);

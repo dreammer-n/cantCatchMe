@@ -886,6 +886,20 @@ check('longer power-ups: TURBO 5 s, PHANTOM 6 s, TITAN 10 s', T.TURBO.seconds ==
   check('but a run can only be revived once', !s.revivePlayer() && s.state === 'crashed');
   s.reset(5);
   check('a new run has its second chance back', !s.revived && s.safeTime === 0);
+  // The first drive's practice retries leave the run's own second chance unused.
+  drive(s, 3000, 3200);
+  run(s, 0.2);
+  s.crashPlayer('obstacle');
+  check('a practice retry puts the car back on the road', s.revivePlayer({ free: true }) && s.state === 'running' && !s.revived);
+  run(s, REVIVE.safeSeconds + 0.1);
+  s.crashPlayer('obstacle');
+  check('and the second chance is still there after it', s.revivePlayer() && s.revived);
+  // Every hint and tip is in characters the game's lettering can draw.
+  const { readFileSync } = await import('node:fs');
+  const font = readFileSync(new URL('../src/ui/displayFont.js', import.meta.url), 'utf8');
+  const drawable = (text) => [...text].every((c) => c === ' ' || /[A-Z0-9]/.test(c) || font.includes(`'${c}': [`) || font.includes(`"${c}": [`));
+  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body]), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D'];
+  check('every hint can be drawn in the game\'s lettering', texts.every(drawable), texts.filter((t) => !drawable(t)).join(' | '));
   // Fallen into a hole on the road: it comes back on the road, clear of the hole.
   const hole = { kind: 'void', isVoid: true, x: 3000, y: 3000, heading: 0, collider: { type: 'circle', r: 150 }, breakable: false, outline: [] };
   const v = quiet([hole]);

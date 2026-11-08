@@ -316,6 +316,7 @@ export class GameOverScreen extends Screen {
     const stars = starRow('over-star');
     const badge = dt('over-badge', '');
     const next = dt('over-next', '');
+    const advice = dt('over-tip', ''); // a new player's tip on why the crash happened
     const rows = el('div', 'over-rows', '');
     const earned = dt('over-coins-value', '0');
     const earnedRow = el('div', 'over-coins', [coinGlyph(), dt('over-coins-plus', '+'), earned, dt('over-coins-label', 'COINS')]);
@@ -323,7 +324,7 @@ export class GameOverScreen extends Screen {
     const double = textButton('btn-gold', '', onDouble, 'Double your coins by watching an ad', ICONS.film);
     // Two groups: stacked on a tall screen, side by side on a phone held sideways.
     super('over', [
-      el('div', 'over-group', [el('h2', 'screen-title over-title', [dt('', 'BUSTED!')]), cause, time, el('div', 'over-stars', stars), badge, next]),
+      el('div', 'over-group', [el('h2', 'screen-title over-title', [dt('', 'BUSTED!')]), cause, time, el('div', 'over-stars', stars), badge, next, advice]),
       el('div', 'over-group', [
         rows,
         earnedRow,
@@ -335,7 +336,7 @@ export class GameOverScreen extends Screen {
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, next, rows, earned, breakdown, double });
+    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double });
   }
 
   showCoins(coins) {
@@ -361,7 +362,9 @@ export class GameOverScreen extends Screen {
     this.showCoins(balance);
   }
 
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode }) {
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip }) {
+    setDisplay(this.advice, crashTip || '');
+    this.advice.hidden = !crashTip;
     this.showCoins(balance);
     this.coinTotal = coins.total;
     setDisplay(this.breakdown, `TIME +${formatCoins(coins.time)} · WRECKS +${formatCoins(coins.wrecks)} · COMBO +${formatCoins(coins.combo)}${coins.hard ? ` · HARD START +${formatCoins(coins.hard)}` : ''}`);

@@ -7,6 +7,7 @@ export const Settings = {
   sound: true,
   music: true,
   hardStart: false,
+  quality: 0, // set by the game itself on a weak phone (AutoQuality), never by the player
 
   async load() {
     const saved = await PlatformManager.getStoredValue(STORAGE_KEYS.settings, null);
@@ -14,6 +15,12 @@ export const Settings = {
     // A save from when one button did both: music follows what it said.
     if (saved) this.music = typeof saved.music === 'boolean' ? saved.music : this.sound;
     if (saved && typeof saved.hardStart === 'boolean') this.hardStart = saved.hardStart;
+    if (saved && Number.isInteger(saved.quality) && saved.quality >= 0) this.quality = saved.quality;
+  },
+
+  setQuality(level) {
+    this.quality = level;
+    this.save();
   },
 
   setHardStart(on) {
@@ -32,6 +39,6 @@ export const Settings = {
   },
 
   save() {
-    PlatformManager.setStoredValue(STORAGE_KEYS.settings, { sound: this.sound, music: this.music, hardStart: this.hardStart });
+    PlatformManager.setStoredValue(STORAGE_KEYS.settings, { sound: this.sound, music: this.music, hardStart: this.hardStart, quality: this.quality });
   },
 };

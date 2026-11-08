@@ -1,6 +1,7 @@
 import { ICONS, button, el, uiRoot } from './dom.js';
 import { dt, setDisplay } from './displayFont.js';
 import { formatClock, formatDistance } from '../systems/ScoreSystem.js';
+import { TUTORIAL } from '../config/tuning.js';
 
 const REFRESH_MS = 33; // the clock changes every frame: no need to touch the page that often
 
@@ -16,6 +17,15 @@ export class Hud {
     this.toasts = el('div', 'hud-toasts');
     this.count = dt('hud-count', '');
     this.count.hidden = true;
+    // One-time hints (scenes/Coach.js): a word in amber, a line in white, on a dark plate.
+    this.tipHead = dt('hud-tip-head', '');
+    this.tipBody = dt('hud-tip-body', '');
+    this.tip = el('div', 'hud-tip', [this.tipHead, this.tipBody]);
+    this.tip.hidden = true;
+    // The first drive's steering lesson: the two halves of the screen glow softly (touch), and a line says how.
+    this.steerText = dt('hud-steer-text', '');
+    this.steer = el('div', 'hud-steer', [el('div', 'hud-steer-side hud-steer-left'), el('div', 'hud-steer-side hud-steer-right'), this.steerText]);
+    this.steer.hidden = true;
     this.shields = el('div', 'hud-shields');
     // The item working now: a ring that runs down, and its name.
     this.powerRing = el('span', 'hud-power-ring');
@@ -28,6 +38,8 @@ export class Hud {
       el('div', 'hud-right', [this.pauseButton, this.record]),
       this.toasts,
       this.count,
+      this.steer,
+      this.tip, // right after the steering lesson, so it can sit above it (main.css)
     ]);
     this.node.hidden = true;
     uiRoot().append(this.node);
@@ -94,6 +106,30 @@ export class Hud {
 
   clearToasts() {
     this.toasts.replaceChildren();
+  }
+
+  // A one-time hint ({ head, body }) for a few seconds; null takes it away.
+  showTip(tip) {
+    clearTimeout(this.tipTimer);
+    if (!tip) {
+      this.tip.hidden = true;
+      return;
+    }
+    setDisplay(this.tipHead, tip.head);
+    setDisplay(this.tipBody, tip.body);
+    this.tip.hidden = false;
+    this.tip.classList.remove('hud-tip-pop');
+    void this.tip.offsetWidth; // restart the pop
+    this.tip.classList.add('hud-tip-pop');
+    this.tipTimer = setTimeout(() => (this.tip.hidden = true), TUTORIAL.tipSeconds * 1000);
+  }
+
+  // The first drive's steering lesson. touch: the screen is a touch screen (hold a side), otherwise keys.
+  setSteerHint(on, touch) {
+    this.steer.hidden = !on;
+    if (!on) return;
+    this.steer.classList.toggle('hud-steer-touch', touch);
+    setDisplay(this.steerText, touch ? 'HOLD LEFT OR RIGHT TO STEER' : 'STEER WITH < > OR A / D');
   }
 
   // The count after a revive: 3, 2, 1, then GO! (0) for a moment. null hides it.

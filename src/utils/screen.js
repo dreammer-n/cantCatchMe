@@ -1,7 +1,14 @@
 import { DISPLAY } from '../config/tuning.js';
 
+let ratioCap = DISPLAY.maxPixelRatio;
+
+// Weak phones draw at fewer pixels (AutoQuality); never above DISPLAY.maxPixelRatio.
+export function setPixelRatioCap(cap) {
+  ratioCap = Math.min(cap, DISPLAY.maxPixelRatio);
+}
+
 export function getPixelRatio() {
-  return Math.min(window.devicePixelRatio || 1, DISPLAY.maxPixelRatio);
+  return Math.min(window.devicePixelRatio || 1, ratioCap);
 }
 
 let safeAreaProbe = null;
