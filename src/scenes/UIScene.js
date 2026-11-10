@@ -56,6 +56,7 @@ export class UIScene extends Phaser.Scene {
     on('shields', (left, max) => this.hud.setShields(left, max));
     on('countdown', (value) => this.hud.setCount(value));
     on('tip', (tip) => this.hud.showTip(tip));
+    on('wanted', (level, call) => this.hud.setWanted(level, call));
     on('steer-hint', (on) => this.hud.setSteerHint(on, this.touch));
     on('run-over', () => this.hud.show(false));
     on('platform-pause', () => {
@@ -89,7 +90,11 @@ export class UIScene extends Phaser.Scene {
     const sim = this.world.sim;
     if (running || this.world.mode === 'crashed') this.hud.update(sim.stats.time, sim.stats.distance, sim.stats.wrecks);
     const effect = running ? sim.powerUps.activeEffect() : null;
-    this.hud.setPower(effect ? POWERUP.names[effect.kind] : null, effect ? effect.share : 0);
+    const power = sim.powerUps;
+    if (running && power.held && !effect) {
+      const how = this.touch ? 'DOUBLE TAP' : 'SPACE';
+      this.hud.setPower(`${POWERUP.names[power.kind] || 'KABOOM'}: ${how}`, 1, true);
+    } else this.hud.setPower(effect ? POWERUP.names[effect.kind] : null, effect ? effect.share : 0);
     this.drawOverlay(running && !this.paused);
     const weather = this.world.weather;
     this.sandstorm.update(weather ? weather.storm : 0, weather ? weather.wind : 0, this.scale.width, this.scale.height, this.paused ? 0 : delta / 1000);

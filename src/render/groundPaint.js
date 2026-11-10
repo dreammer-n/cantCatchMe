@@ -8,7 +8,10 @@ import { shadeColor } from './lowpoly.js';
 const COLORS = {
   lot: 'lot', // the surface of a city block
   plaza: 'plaza', // a paved square
-  curb: 'curb', // the cream edge of a block
+  curb: 'curb', // the cream edge of an island
+  leaves: 'leafLitter',
+  lawnDry: 'lawnDry',
+  lawnLush: 'lawnLush',
   sidewalk: 'sidewalk', // the pavement inside it
   grass: 'lawn', // a block of lawn
   patch: 'asphaltPatchDark', // a repaired stretch of road

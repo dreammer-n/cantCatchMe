@@ -119,7 +119,7 @@ for (let t = 0; t < T.WRECK.lifetime + 0.5; t += 1 / 60) {
   sim.player.reset(T.START.x, T.START.y, sim.player.heading);
   sim.step(1 / 60, { steer: 0 }, view);
 }
-check('wrecks disappear after their lifetime', p1.state === 'idle' && p2.state === 'idle');
+check("wrecks disappear after their lifetime (their places may already hold new police)", p1.state !== "wreck" && p2.state !== "wreck", `${p1.state} ${p2.state}`);
 
 // Police driving into a block at speed: wrecked.
 sim.reset(5);

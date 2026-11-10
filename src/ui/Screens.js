@@ -1,9 +1,11 @@
-import { COINS, MAPS, STARS, applyMapPalette, carSpecs } from '../config/tuning.js';
+import { COINS, LEVELS, MAPS, STARS, UPGRADES, carSpecs, withMapPalette } from '../config/tuning.js';
 import { carMesh } from '../render/carModels.js';
 import { paintMesh, projectMesh } from '../render/lowpoly.js';
 import { drawMapDiorama } from '../render/mapDiorama.js';
 import { projection } from '../render/projection.js';
 import { Garage, Maps, formatClock, formatDistance, starsFor } from '../systems/ScoreSystem.js';
+import { Missions } from '../systems/Missions.js';
+import { Progress } from '../systems/Progress.js';
 import { dt, setDisplay } from './displayFont.js';
 import { ICONS, button, el, uiRoot } from './dom.js';
 
@@ -45,14 +47,67 @@ class Screen {
   }
 
   show() {
+    this.stopMoving();
     this.node.hidden = false;
     this.node.classList.remove('leaving');
   }
 
   hide() {
+    this.stopMoving();
     this.node.hidden = true;
   }
+
+  // ---- The move between PLAY's steps: one camera going in (or back out) ----
+  // The screen going away keeps showing (it can't be pressed) until the new one is drawn and ready; then both move
+  // together on the same frame: going on, the old one grows and fades as the new one comes up from a little
+  // smaller; going back, the reverse. Nothing heavy runs while they move, so it stays smooth.
+
+  // Called by the screen coming in, after it has drawn itself.
+  zoom(back = false) {
+    this.stopMoving();
+    const node = this.node;
+    node.hidden = false;
+    node.classList.add('zoom-pre');
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        node.classList.remove('zoom-pre');
+        node.classList.add(back ? 'zoom-back' : 'zoom-in');
+        for (const other of [...OUTGOING]) other.runLeave();
+        this.moveTimer = setTimeout(() => node.classList.remove('zoom-in', 'zoom-back'), ZOOM_MS);
+      }),
+    );
+  }
+
+  // Called by the screen going away: it waits for the next one (or a moment, if none comes).
+  leave(back = false) {
+    if (this.node.hidden || this.leaving) return;
+    this.stopMoving();
+    this.leaving = back ? 'zoom-leave-back' : 'zoom-leave';
+    this.node.classList.add('zoom-hold');
+    OUTGOING.add(this);
+    this.fallback = setTimeout(() => this.runLeave(), LEAVE_WAIT_MS);
+  }
+
+  runLeave() {
+    if (!OUTGOING.has(this)) return;
+    OUTGOING.delete(this);
+    clearTimeout(this.fallback);
+    this.node.classList.add(this.leaving);
+    this.moveTimer = setTimeout(() => this.hide(), ZOOM_MS);
+  }
+
+  stopMoving() {
+    OUTGOING.delete(this);
+    clearTimeout(this.fallback);
+    clearTimeout(this.moveTimer);
+    this.leaving = null;
+    this.node.classList.remove('zoom-pre', 'zoom-in', 'zoom-back', 'zoom-hold', 'zoom-leave', 'zoom-leave-back');
+  }
 }
+
+const ZOOM_MS = 420; // as long as the .zoom-* animations in main.css
+const LEAVE_WAIT_MS = 300;
+const OUTGOING = new Set();
 
 const formatCoins = (n) => Math.round(n).toLocaleString('en-US');
 
@@ -86,6 +141,39 @@ function starRow(className, count = STARS.length) {
     star.innerHTML = ICONS.star;
     return star;
   });
+}
+
+// The player's level and a bar toward the next one.
+function levelBar(className) {
+  const label = dt('level-label', '');
+  const fill = el('span', 'level-fill');
+  const node = el('div', `level-bar ${className}`, [label, el('span', 'level-track', [fill])]);
+  node.set = (level, share) => {
+    setDisplay(label, `LEVEL ${level}`);
+    fill.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 100)}%`;
+  };
+  return node;
+}
+
+// The three missions: what each asks, and its reward (or how far it has got, for those that add up over runs).
+function missionList() {
+  const rows = Array.from({ length: 3 }, () => {
+    const text = dt('mission-text', '');
+    const side = dt('mission-side', '');
+    return { node: el('div', 'mission-row', [text, side]), text, side };
+  });
+  const node = el('div', 'mission-list', rows.map((row) => row.node));
+  node.set = (missions) => {
+    rows.forEach((row, i) => {
+      const m = missions[i];
+      row.node.hidden = !m;
+      if (!m) return;
+      setDisplay(row.text, Missions.describe(m));
+      const progress = Missions.progressText(m);
+      setDisplay(row.side, progress ? `${progress} · +${m.reward}` : `+${m.reward}`);
+    });
+  };
+  return node;
 }
 
 // Counts a number up on screen. Returns a function that stops it.
@@ -179,53 +267,51 @@ export class LeaderboardScreen extends Screen {
   }
 }
 
+// The title: the logo, one mission, PLAY, and small icons. PLAY leads on to the map, then the car (MapScene,
+// GarageScene), one choice per screen.
 export class MenuScreen extends Screen {
-  constructor({ onPlay, onSound, onMusic, onGarage, onMaps, onHardStart, onBoard }) {
+  constructor({ onPlay, onSound, onMusic, onBoard }) {
     const logo = el('h1', 'logo', [dt('logo-line', "CAN'T"), dt('logo-line', 'CATCH'), dt('logo-line logo-me', 'ME!')]);
     const play = textButton('btn-primary btn-play', 'PLAY', onPlay, 'Play', ICONS.play);
-    const mapName = dt('menu-map', '');
     const sound = soundButton(onSound);
     const music = musicButton(onMusic);
-    const hint = dt('menu-hint', '');
-    // HARD START: a switch. Off, it says what it would do; on, it says it is on and what it pays.
-    const hardLabel = dt('', '');
-    const hard = button('btn btn-secondary btn-hard', '', () => onHardStart(), 'Hard start on / off');
-    hard.append(hardLabel);
-    hard.setOn = (on) => {
-      setDisplay(hardLabel, on ? `HARD START: ON · COINS ×${COINS.hardShare}` : 'HARD START: OFF');
-      hard.classList.toggle('on', on);
-      hard.setAttribute('aria-pressed', String(on));
-    };
     // The leaderboard, only where there is one to show.
     const board = button('btn btn-icon btn-board', ICONS.trophy, () => onBoard(), 'Hard start leaderboard');
+    // The first mission on one line; a tap opens all three.
+    const missionLine = dt('menu-mission-line', '');
+    const missions = missionList();
+    missions.hidden = true;
+    const goals = button('menu-goals', '', () => {
+      missions.hidden = !missions.hidden;
+      missionLine.hidden = !missions.hidden;
+    }, 'Missions');
+    goals.append(missionLine, missions);
     super('menu', [
       el('div', 'menu-top', [logo]),
-      el('div', 'menu-bottom', [mapName, play, el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MAPS', onMaps, 'Maps'), sound, music, board]), hard, hint]),
+      el('div', 'menu-bottom', [goals, play, el('div', 'menu-row', [sound, music, board])]),
     ]);
-    this.hard = hard;
-    this.board = board;
+    // Your level: a small badge in the corner, under the stars.
+    const level = levelBar('menu-level-badge');
+    Object.assign(this, { play, board, level, missions, missionLine, sound, music });
     this.balance = coinBadge();
     this.stars = starBadge();
-    this.node.append(this.balance, this.stars);
-    this.mapName = mapName;
-    this.sound = sound;
-    this.music = music;
-    this.hint = hint;
+    this.node.append(this.balance, this.stars, level);
   }
 
   refresh(coins) {
     this.balance.setCoins(coins);
     this.stars.setStars(Maps.totalStars());
-    setDisplay(this.mapName, Maps.current().name);
+    this.level.set(Progress.level, Progress.share);
+    this.missions.set(Missions.active);
+    const first = Missions.active[0];
+    setDisplay(this.missionLine, first ? `MISSION: ${Missions.describe(first)} +${first.reward}` : '');
   }
 
-  show({ soundOn, musicOn, touch, coins, hardStart, boardShown }) {
+  show({ soundOn, musicOn, coins, boardShown }) {
     this.refresh(coins);
-    this.hard.setOn(hardStart);
     this.board.hidden = !boardShown;
     this.sound.setOn(soundOn);
     this.music.setOn(musicOn);
-    setDisplay(this.hint, touch ? 'HOLD LEFT OR RIGHT TO STEER · DOUBLE TAP: POWER-UP' : 'STEER WITH A D OR ARROWS · SPACE: POWER-UP');
     super.show();
   }
 }
@@ -318,6 +404,10 @@ export class GameOverScreen extends Screen {
     const next = dt('over-next', '');
     const advice = dt('over-tip', ''); // a new player's tip on why the crash happened
     const rows = el('div', 'over-rows', '');
+    // Missions done in this run, and the level bar filling (LEVEL UP! when it gets there).
+    const doneList = el('div', 'over-missions', '');
+    const level = levelBar('over-level');
+    const levelUp = dt('over-levelup', '');
     const earned = dt('over-coins-value', '0');
     const earnedRow = el('div', 'over-coins', [coinGlyph(), dt('over-coins-plus', '+'), earned, dt('over-coins-label', 'COINS')]);
     const breakdown = dt('over-breakdown', '');
@@ -326,6 +416,9 @@ export class GameOverScreen extends Screen {
     super('over', [
       el('div', 'over-group', [el('h2', 'screen-title over-title', [dt('', 'BUSTED!')]), cause, time, el('div', 'over-stars', stars), badge, next, advice]),
       el('div', 'over-group', [
+        doneList,
+        level,
+        levelUp,
         rows,
         earnedRow,
         breakdown,
@@ -336,7 +429,7 @@ export class GameOverScreen extends Screen {
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double });
+    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, doneList, level, levelUp });
   }
 
   showCoins(coins) {
@@ -362,12 +455,37 @@ export class GameOverScreen extends Screen {
     this.showCoins(balance);
   }
 
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip }) {
-    setDisplay(this.advice, crashTip || '');
-    this.advice.hidden = !crashTip;
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip, missions = [], progress = null }) {
+    // Kept short: one highlight line, the coins (missions folded in), the level bar, the buttons.
+    this.advice.hidden = true;
+    this.doneList.hidden = true;
+    this.levelUp.hidden = true;
+    this.next.hidden = true;
+    this.rows.hidden = true;
+    this.level.hidden = !progress;
+    let levelLine = null;
+    if (progress) {
+      // From where the bar was before the run to where it is now (empty first if a level was reached).
+      this.level.set(progress.before.level, progress.before.share);
+      clearTimeout(this.levelTimer);
+      this.levelTimer = setTimeout(() => this.level.set(progress.level, progress.share), 350);
+      const reached = progress.levelUps;
+      if (reached.length) {
+        const pay = reached.reduce((sum, lv) => sum + lv * LEVELS.coinsPerLevel, 0);
+        levelLine = `LEVEL UP! LEVEL ${reached[reached.length - 1]} · +${formatCoins(pay)} COINS`;
+      }
+    }
+    // The one highlight: a map opened, else a new record, else a level-up, else the tip on why it crashed.
+    const unlocked = (mapUnlocks || [])[0];
+    const highlight = unlocked ? `${unlocked.name} UNLOCKED!` : newBest ? 'NEW RECORD!' : levelLine || crashTip || '';
+    setDisplay(this.badge, highlight);
+    this.badge.hidden = !highlight;
+    this.badge.classList.toggle('over-badge-tip', !unlocked && !newBest && !levelLine && Boolean(crashTip));
     this.showCoins(balance);
     this.coinTotal = coins.total;
-    setDisplay(this.breakdown, `TIME +${formatCoins(coins.time)} · WRECKS +${formatCoins(coins.wrecks)} · COMBO +${formatCoins(coins.combo)}${coins.hard ? ` · HARD START +${formatCoins(coins.hard)}` : ''}`);
+    const missionCoins = missions.reduce((sum, m) => sum + m.reward, 0);
+    setDisplay(this.breakdown, missions.length ? `${missions.length} ${missions.length === 1 ? 'MISSION' : 'MISSIONS'} DONE +${formatCoins(missionCoins)}` : '');
+    this.breakdown.hidden = missions.length === 0;
     if (this.stopCount) this.stopCount();
     this.stopCount = countUp(this.earned, 0, doubled ? coins.total * 2 : coins.total, COINS.tallyMs);
     this.double.hidden = adMode === 'none' || coins.total === 0;
@@ -379,17 +497,6 @@ export class GameOverScreen extends Screen {
       star.classList.toggle('lit', i < earnedStars);
       star.style.animationDelay = `${0.15 + i * 0.16}s`;
     });
-    const news = (mapUnlocks || []).map((map) => `${map.name} UNLOCKED!`);
-    if (newBest) news.unshift('NEW RECORD!');
-    setDisplay(this.badge, news.join(' · '));
-    this.badge.hidden = news.length === 0;
-    setDisplay(this.next, nextMap ? `${nextMap.needed} MORE ${nextMap.needed === 1 ? 'STAR' : 'STARS'} TO UNLOCK ${nextMap.map.name}` : '');
-    this.next.hidden = !nextMap;
-    const row = (label, value, record) => el('div', 'over-row', [dt('over-row-label', label), dt('over-row-value', value), dt('over-row-record', `RECORD ${record}`)]);
-    this.rows.replaceChildren(
-      row('TOP DISTANCE', formatDistance(summary.distance), formatDistance(best.distance)),
-      row('CAR CRASHES', String(summary.wrecks), String(best.wrecks)),
-    );
     super.show();
   }
 }
@@ -397,6 +504,9 @@ export class GameOverScreen extends Screen {
 const SHOWN_HEADING = 0; // nose up and to the right, seen from behind and above
 const SPEC_BLOCKS = 10;
 const ZOOM_SHARE = 1 / 260; // how big a car is drawn, against the shorter side of the screen
+const BACKDROP_DIM = 'rgba(14, 15, 18, 0.22)'; // over the map behind the car
+// Pixels per world unit for the car on show, from the size of its canvas (before the car's own scale).
+const carZoom = (width, height) => Math.max(1, Math.min(1.9, Math.min(width, height) * ZOOM_SHARE * 2.2));
 const SHADOW_FAR = 4000; // the shadow's shape is drawn off the canvas; only its blur lands on it
 const footprint = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
 const screenPoint = { x: 0, y: 0 };
@@ -424,7 +534,7 @@ function arrows(onPrev, onNext) {
 // One car at a time, small and still on plain road, with its name, how to get it and how it drives. Drawn live
 // on a canvas, so no drawing sheets are needed to browse.
 export class GarageScreen extends Screen {
-  constructor({ onPrev, onNext, onAction, onBack }) {
+  constructor({ onPrev, onNext, onAction, onBack, onUpgrade, onHardStart }) {
     const canvas = el('canvas', 'garage-canvas');
     const name = dt('garage-name', '');
     const count = dt('garage-count', '');
@@ -435,13 +545,51 @@ export class GarageScreen extends Screen {
     const action = textButton('btn-primary garage-action', '', onAction, 'Buy or select this car');
     const specs = el('div', 'garage-specs', '');
     const stage = el('div', 'garage-stage', [canvas, ...arrows(onPrev, onNext)]);
-    super('garage', [el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [status, specs, action])]);
+    // Upgrades work for every car: shown instead of the car's specs when UPGRADES is pressed.
+    const level = levelBar('garage-level');
+    const upgradeRows = Object.entries(UPGRADES.kinds).map(([kind, def]) => {
+      const blocks = Array.from({ length: UPGRADES.prices.length }, () => el('span', 'spec-block'));
+      const buy = textButton('btn-secondary upgrade-buy', '', () => onUpgrade(kind), `Upgrade ${def.name}`);
+      return { kind, blocks, buy, node: el('div', 'upgrade-row', [dt('garage-spec-label', def.name), el('div', 'spec-blocks', blocks), buy]) };
+    });
+    const upgrades = el('div', 'garage-upgrades', [level, ...upgradeRows.map((row) => row.node)]);
+    upgrades.hidden = true;
+    // HARD START: a small switch by the DRIVE button, shown only on the way into a run (on, it pays more coins).
+    const hardLabel = dt('', '');
+    const hard = button('btn btn-secondary btn-hard', '', () => onHardStart(), 'Hard start on / off');
+    hard.append(hardLabel);
+    hard.setOn = (on) => {
+      setDisplay(hardLabel, on ? `HARD START: ON ×${COINS.hardShare}` : 'HARD START: OFF');
+      hard.classList.toggle('on', on);
+      hard.setAttribute('aria-pressed', String(on));
+    };
+    const carPanel = el('div', 'garage-car-panel', [status, specs, action, hard]);
+    const toggle = textButton('btn-secondary garage-toggle', 'UPGRADES', () => this.toggleUpgrades(), 'Show upgrades or cars');
+    const step = dt('step-label', '');
+    super('garage car-screen', [step, el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [toggle, carPanel, upgrades])]);
+    Object.assign(this, { upgrades, upgradeRows, level, carPanel, toggle, hard, step });
+    // The map you are about to drive, close up round the car: the same place as the map screen, nearer.
+    const backdrop = el('canvas', 'map-canvas');
+    this.node.prepend(backdrop);
+    this.backdrop = backdrop;
+    this.backdropCtx = backdrop.getContext('2d');
+    this.backdropDrawn = '';
     this.back = textButton('btn-secondary garage-back', 'BACK', onBack, 'Back');
     this.balance = coinBadge();
     this.node.append(this.back, this.balance);
     Object.assign(this, { canvas, name, count, status, statusText, lock, action, specs });
     this.ctx = canvas.getContext('2d');
     this.drawn = '';
+  }
+
+  // flow: on the way into a run (from PLAY), where the big button reads DRIVE and HARD START is offered.
+  setFlow(flow, hardOn) {
+    this.flow = flow;
+    this.hard.hidden = !flow;
+    this.hard.setOn(hardOn);
+    this.step.hidden = !flow;
+    setDisplay(this.step, 'CHOOSE YOUR CAR');
+    this.back.setText(flow ? 'MAPS' : 'BACK');
   }
 
   showCar(car, index, total) {
@@ -454,14 +602,44 @@ export class GarageScreen extends Screen {
     this.lock.hidden = owned;
     setDisplay(this.statusText, owned ? 'UNLOCKED' : `LOCKED - ${formatCoins(car.price)} COINS`);
     const action = this.action;
-    action.classList.toggle('btn-done', selected);
-    action.disabled = selected || (!owned && !Garage.canBuy(car.id));
-    if (selected) action.setText('SELECTED');
-    else if (owned) action.setText('SELECT');
-    else action.setText(`BUY FOR ${formatCoins(car.price)} COINS`);
+    if (this.flow) {
+      // On the way into a run: an owned car drives at once; a locked one is bought first.
+      action.classList.remove('btn-done');
+      action.disabled = !owned && !Garage.canBuy(car.id);
+      action.setText(owned ? 'DRIVE' : `BUY FOR ${formatCoins(car.price)} COINS`);
+    } else {
+      action.classList.toggle('btn-done', selected);
+      action.disabled = selected || (!owned && !Garage.canBuy(car.id));
+      if (selected) action.setText('SELECTED');
+      else if (owned) action.setText('SELECT');
+      else action.setText(`BUY FOR ${formatCoins(car.price)} COINS`);
+    }
     this.showSpecs(car);
+    this.showUpgrades();
     this.car = car;
     this.drawCar();
+  }
+
+  toggleUpgrades() {
+    const showing = this.upgrades.hidden;
+    this.upgrades.hidden = !showing;
+    this.carPanel.hidden = showing;
+    this.toggle.setText(showing ? 'CARS' : 'UPGRADES');
+    this.showUpgrades();
+  }
+
+  // Each upgrade's tiers, and what the next one costs or needs.
+  showUpgrades() {
+    this.level.set(Progress.level, Progress.share);
+    for (const row of this.upgradeRows) {
+      const tier = Progress.tier(row.kind);
+      row.blocks.forEach((block, i) => block.classList.toggle('lit', i < tier));
+      const next = Progress.next(row.kind);
+      if (!next) row.buy.setText('MAX');
+      else if (Progress.level < next.level) row.buy.setText(`LEVEL ${next.level}`);
+      else row.buy.setText(`${formatCoins(next.price)}`);
+      row.buy.disabled = !Progress.canUpgrade(row.kind);
+    }
   }
 
   // Blocks out of SPEC_BLOCKS, so that even the car with the least of something shows one.
@@ -484,12 +662,13 @@ export class GarageScreen extends Screen {
   drawCar() {
     const { canvas, ctx, car } = this;
     if (!car) return;
+    this.drawBackdrop();
     const key = `${car.id}:${canvas.clientWidth}:${canvas.clientHeight}`;
     if (key === this.drawn) return;
     const size = prepareCanvas(canvas, ctx);
     if (!size) return;
     this.drawn = key;
-    const zoom = Math.max(1, Math.min(1.9, Math.min(size.width, size.height) * ZOOM_SHARE * 2.2)) * car.scale;
+    const zoom = carZoom(size.width, size.height) * car.scale;
     ctx.setTransform(size.ratio * zoom, 0, 0, size.ratio * zoom, (size.width * size.ratio) / 2, (size.height * size.ratio) * 0.55);
     const mesh = carMesh(car.id);
     this.drawSoftShadow(ctx, mesh, SHOWN_HEADING, size.ratio * zoom);
@@ -498,6 +677,30 @@ export class GarageScreen extends Screen {
 
   forget() {
     this.drawn = '';
+    this.backdropDrawn = '';
+  }
+
+  // The map's own ground and props, drawn at the car's scale with its start road under the car, toned down a
+  // little so the car stands out. Only when the map or the screen's size changes.
+  drawBackdrop() {
+    const { backdrop, backdropCtx: ctx, canvas } = this;
+    const map = Maps.current();
+    const key = `${map.id}:${backdrop.clientWidth}:${backdrop.clientHeight}:${canvas.clientWidth}:${canvas.clientHeight}`;
+    if (key === this.backdropDrawn) return;
+    const size = prepareCanvas(backdrop, ctx);
+    if (!size || !canvas.clientWidth) return;
+    this.backdropDrawn = key;
+    // Measured against the screen itself, so a zoom running on it doesn't move anything.
+    const box = this.node.getBoundingClientRect();
+    const scale = box.width / (this.node.offsetWidth || box.width || 1) || 1;
+    const rect = canvas.getBoundingClientRect();
+    const focusX = ((rect.left - box.left) / scale + canvas.clientWidth / 2) * size.ratio;
+    const focusY = ((rect.top - box.top) / scale + canvas.clientHeight * 0.55) * size.ratio;
+    const zoom = carZoom(canvas.clientWidth, canvas.clientHeight) * size.ratio;
+    // In the chosen map's colours (the world behind keeps its own until the run starts).
+    withMapPalette(map, () => drawMapDiorama(ctx, map, null, backdrop.width, backdrop.height, zoom, focusX, focusY, false));
+    ctx.fillStyle = BACKDROP_DIM;
+    ctx.fillRect(0, 0, backdrop.width, backdrop.height);
   }
 
   // Blurred, so it reads as light falling softly round the car: one tight and dark right under it, one wider
@@ -557,10 +760,10 @@ export class MapScreen extends Screen {
     const statusText = dt('map-status-text', '');
     const status = el('div', 'garage-price', [lock, statusText]);
     const stars = starRow('over-star map-star');
-    const action = textButton('btn-primary map-start', 'START', onAction, 'Start');
+    const action = textButton('btn-primary map-start', 'NEXT', onAction, 'Next: choose your car');
     const stage = el('div', 'garage-stage', arrows(onPrev, onNext));
     const plate = el('div', 'map-plate', [el('div', 'over-stars', stars), status]);
-    super('garage map-screen', [el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [plate, action])]);
+    super('garage map-screen', [dt('step-label', 'CHOOSE A MAP'), el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [plate, action])]);
     this.back = textButton('btn-secondary garage-back', 'BACK', onBack, 'Back');
     this.starsTotal = starBadge();
     this.node.prepend(canvas);
@@ -595,14 +798,15 @@ export class MapScreen extends Screen {
     const size = prepareCanvas(canvas, ctx);
     if (!size) return;
     this.drawn = key;
-    // Drawn in that map's colours, whichever one the game is on.
-    applyMapPalette(map);
+    // Drawn in that map's colours; the world behind keeps its own (withMapPalette puts them back).
     const zoom = size.ratio * Math.max(0.42, Math.min(1, Math.min(size.width, size.height) * MAP_ZOOM_SHARE * 1.0));
+    // Measured against the screen itself, so a zoom running on it (Screen.zoom) doesn't move the focus.
     const stage = this.stage.getBoundingClientRect();
-    const focusX = (stage.left + stage.width / 2) * size.ratio;
-    const focusY = (stage.top + stage.height / 2) * size.ratio;
-    drawMapDiorama(ctx, map, Garage.selected, canvas.width, canvas.height, zoom, focusX, focusY);
-    applyMapPalette(Maps.current());
+    const box = this.node.getBoundingClientRect();
+    const scale = box.width / (this.node.offsetWidth || box.width || 1) || 1;
+    const focusX = ((stage.left + stage.width / 2 - box.left) / scale) * size.ratio;
+    const focusY = ((stage.top + stage.height / 2 - box.top) / scale) * size.ratio;
+    withMapPalette(map, () => drawMapDiorama(ctx, map, Garage.selected, canvas.width, canvas.height, zoom, focusX, focusY));
     if (!Maps.isUnlocked(map)) {
       ctx.fillStyle = MAP_DIM;
       ctx.fillRect(0, 0, canvas.width, canvas.height);

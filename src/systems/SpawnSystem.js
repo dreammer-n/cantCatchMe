@@ -58,12 +58,24 @@ function travelDirection(player) {
 export class SpawnDirector {
   reset(pace = NORMAL_PACE) {
     this.cooldown = 0;
+    // A lesson of the first drive (scenes/Coach.js) sets how many police there are, and how fast: { police,
+    // interval, speedFactor }. While it is set: plain police cars only, no roadblocks, no loose spikes.
+    this.lesson = null;
     this.nextRoadblock = roadblockStart(pace);
     this.nextSpikes = pace.hard ? LOOSE_SPIKES.hardFirstAt : LOOSE_SPIKES.firstAt;
   }
 
   update(sim, dt, view) {
     if (sim.time < SPAWN.firstSpawnAt) return;
+    if (this.lesson) {
+      this.cooldown -= dt;
+      if (this.cooldown > 0 || sim.pursuers >= this.lesson.police) return;
+      const level = { ...difficultyAt(sim.time, sim.pace), interceptorShare: 0, bearcatShare: 0 };
+      if (this.lesson.speedFactor) level.speedFactor = this.lesson.speedFactor;
+      if (this.lesson.aheadShare !== undefined) level.aheadShare = this.lesson.aheadShare;
+      this.cooldown = this.trySpawn(sim, view, level) ? this.lesson.interval || level.interval : 0.15;
+      return;
+    }
     if (sim.time >= this.nextRoadblock) {
       const placed = sim.activeCars < POLICE.maxCars && this.tryRoadblock(sim, view);
       this.nextRoadblock = sim.time + (placed ? lerp(ROADBLOCK.everyMin, ROADBLOCK.everyMax, sim.rng()) : ROADBLOCK.retrySeconds);
@@ -102,7 +114,7 @@ export class SpawnDirector {
     const rng = sim.rng;
     const bearcat = sim.bearcats < BEARCAT.maxActive && rng() < level.bearcatShare;
     const interceptor = !bearcat && rng() < level.interceptorShare;
-    const ahead = rng() < SPAWN.aheadShare;
+    const ahead = rng() < (level.aheadShare === undefined ? SPAWN.aheadShare : level.aheadShare);
     const side = rng() < 0.5 ? -1 : 1;
     const dir = travelDirection(player);
     const dirX = dir.x;

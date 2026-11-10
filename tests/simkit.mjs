@@ -108,7 +108,8 @@ export function playRun(sim, { seed, screen = SCREENS.portrait, maxSeconds = 240
     // The bot uses its shockwave as soon as 3 police are close.
     if (sim.powerUps.held) {
       const close = sim.police.filter((p) => p.alive && Math.hypot(p.model.x - sim.player.x, p.model.y - sim.player.y) < 250).length;
-      activatePending = close >= 3;
+      // ... or, like a player, once it has held it a few seconds (items no longer go off by themselves).
+      activatePending = close >= 3 || sim.powerUps.heldTime > 2.5;
     }
     const events = sim.step(dt, { steer, activatePowerUp: activatePending }, view);
     activatePending = false;

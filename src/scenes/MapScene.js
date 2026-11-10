@@ -3,8 +3,8 @@ import { MAPS } from '../config/tuning.js';
 import { Maps } from '../systems/ScoreSystem.js';
 import { MapScreen } from '../ui/Screens.js';
 
-// Choosing a map, from the title. Steer left and right to browse, Enter / Space / gamepad A to start, Esc to
-// go back.
+// Step one after PLAY: choosing a map. Steer left and right to browse, Enter / Space / gamepad A for NEXT
+// (choosing the car, GarageScene), P to go back to the title.
 export class MapScene extends Phaser.Scene {
   constructor() {
     super('MapScene');
@@ -24,9 +24,10 @@ export class MapScene extends Phaser.Scene {
     this.index = MAPS.findIndex((map) => map.id === Maps.selected);
     this.lastSteer = 0;
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
-    this.screen.show();
-    this.showMap();
-    this.events.once('shutdown', () => this.screen.hide());
+    this.screen.show(); // laid out (no frame is shown before zoom() takes over), so the map can be drawn
+    this.showMap(); // drawn first, then the move starts
+    this.screen.zoom();
+    this.events.once('shutdown', () => this.screen.leave(true));
   }
 
   update(time) {
@@ -50,15 +51,26 @@ export class MapScene extends Phaser.Scene {
   }
 
   start() {
+    if (this.screen.node.hidden || this.screen.leaving) return;
     const map = MAPS[this.index];
     if (!Maps.select(map.id)) return;
     this.audio.unlock();
     this.audio.play('click');
-    this.scene.stop();
-    this.scene.get('GameScene').startRun(); // emits 'run-started', which closes the title behind this
+    this.screen.leave();
+    this.scene.launch('GarageScene', { from: 'MapScene', flow: true });
+    this.scene.pause();
+  }
+
+  // Back from choosing the car.
+  onGarageClosed() {
+    this.screen.show();
+    this.showMap();
+    this.screen.zoom(true);
+    this.readyAt = this.time.now + 250;
   }
 
   close() {
+    if (this.screen.leaving) return;
     this.audio.play('click');
     this.scene.stop();
     this.scene.resume('MenuScene');

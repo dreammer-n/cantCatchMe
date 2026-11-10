@@ -6,6 +6,8 @@ import { AudioSystem } from './systems/AudioSystem.js';
 import { Records, Garage, Maps } from './systems/ScoreSystem.js';
 import { Settings } from './systems/Settings.js';
 import { Tips } from './systems/Tips.js';
+import { Missions } from './systems/Missions.js';
+import { Progress } from './systems/Progress.js';
 import { PlatformManager } from './platform/PlatformManager.js';
 import { PerformanceSampler } from './systems/PerformanceSampler.js';
 import { AutoQuality } from './systems/AutoQuality.js';
@@ -62,8 +64,9 @@ async function start() {
   mark('start');
   await PlatformManager.initialize();
   mark('platform');
-  await Promise.all([Records.load(), Settings.load(), Garage.load(), Tips.load()]);
+  await Promise.all([Records.load(), Settings.load(), Garage.load(), Tips.load(), Progress.load()]);
   await Maps.load(); // after the records, which older saves take their first best time from
+  await Missions.load(); // after the maps: a new mission may name an open map
   mark('save');
   // A weak phone keeps the level it stepped down to last time (AutoQuality).
   const quality = new AutoQuality(Settings.quality);
@@ -101,6 +104,23 @@ async function start() {
     audio: { noAudio: true }, // the game plays its own sound (AudioSystem); Phaser's would only slow the start
     scene: [BootScene, GameScene, UIScene, MenuScene, GarageScene, MapScene, GameOverScene],
   });
+
+  // Phaser asks for the next frame only after a frame has run, so one error inside a frame would stop the game for
+  // good, leaving a half-drawn picture (seen once on a phone). A frame that fails is skipped and the game goes on;
+  // the failure is counted in the frame-rate report (PerformanceSampler) and logged once to the console.
+  // game.step is wrapped before the loop starts (that waits for Phaser's own textures to load).
+  const runFrame = game.step.bind(game);
+  let frameErrors = 0;
+  game.step = (time, delta) => {
+    try {
+      runFrame(time, delta);
+    } catch (error) {
+      frameErrors += 1;
+      const sampler = game.registry.get('sampler');
+      if (sampler) sampler.errors += 1;
+      if (frameErrors === 1 || frameErrors % 600 === 0) console.error(`Frame failed (${frameErrors}):`, error);
+    }
+  };
 
   game.registry.set('input', input);
   game.registry.set('audio', audio);

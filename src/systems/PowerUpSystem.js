@@ -24,6 +24,9 @@ export class PowerUps {
     this.lastKind = null;
     this.heldTime = 0;
     this.timer = POWERUP.firstAt;
+    // The first drive's lessons (scenes/Coach.js): the next die's item is chosen, and it waits for the player.
+    this.nextKind = null;
+    this.waitToFire = false;
     this.giantTime = 0;
     this.flamerTime = 0;
     this.flamerGap = 0;
@@ -61,7 +64,8 @@ export class PowerUps {
       const distance = Math.hypot(crate.x - player.x, crate.y - player.y);
       if (distance < POWERUP.collectRadius * player.scale) {
         crate.active = false;
-        this.give(this.pickKind(sim.rng));
+        this.give(this.nextKind || this.pickKind(sim.rng));
+        this.nextKind = null;
         sim.emit('pickup', { x: crate.x, y: crate.y, kind: this.kind });
       } else {
         // It follows the car's tail until it catches up.
@@ -73,7 +77,7 @@ export class PowerUps {
     }
     if (this.held) {
       this.heldTime += dt;
-      if (this.heldTime >= POWERUP.autoSeconds) this.activate(sim);
+      if (this.heldTime >= POWERUP.autoSeconds && !this.waitToFire) this.activate(sim);
       return;
     }
     this.timer -= dt;
@@ -122,6 +126,7 @@ export class PowerUps {
   activate(sim) {
     if (!this.held) return false;
     const kind = this.kind || 'shockwave';
+    this.waitToFire = false;
     this.held = false;
     this.kind = null;
     this.heldTime = 0;

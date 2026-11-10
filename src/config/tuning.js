@@ -137,6 +137,66 @@ export const STORAGE_KEYS = {
   totals: 'totals', // { runs, wrecks, seconds }
   settings: 'settings', // { sound }
   tips: 'tipsSeen', // [tip id, ...]: the lessons a player has been shown (scenes/Coach.js)
+  missions: 'missions', // { active: [...], done } (systems/Missions.js)
+  progress: 'progress', // { xp } and the upgrades bought (systems/Progress.js)
+};
+
+// [TUNE] The WANTED level during a run: stars that fill as new kinds of trouble join the chase, with a call-out
+// each time. The times follow the pace of a run (HEAT, HEAT_HARD, AIRSTRIKE), so each star means something new.
+export const WANTED = {
+  normal: [
+    { at: 0, call: null },
+    { at: 30, call: 'MORE POLICE!' },
+    { at: 60, call: 'INTERCEPTORS!' },
+    { at: 120, call: 'SWAT AND CHOPPER!' },
+    { at: 180, call: 'AIRSTRIKE!' },
+  ],
+  hard: [
+    { at: 0, call: null },
+    { at: 15, call: 'INTERCEPTORS!' },
+    { at: 40, call: 'ROADBLOCKS!' },
+    { at: 70, call: 'SWAT AND CHOPPER!' },
+    { at: 180, call: 'AIRSTRIKE!' },
+  ],
+};
+
+// [TUNE] Missions (systems/Missions.js): three at a time, each paying coins and XP when done, then replaced by
+// a new one. They get harder as more are done (a tier for every perTier done). {n}: the target, {map}: a map.
+export const MISSIONS = {
+  active: 3,
+  perTier: 3,
+  xp: 40, // XP for each mission done, on top of its coins
+  kinds: {
+    wrecks: { text: 'WRECK {n} POLICE IN ONE RUN', run: true, targets: [3, 5, 8, 12, 16, 22], reward: [60, 100, 150, 220, 300, 420] },
+    survive: { text: 'SURVIVE {n} SECONDS', run: true, targets: [30, 45, 60, 90, 120, 180], reward: [50, 80, 120, 180, 260, 380] },
+    combo: { text: 'GET A {n}X COMBO', run: true, targets: [2, 3, 3, 4, 5, 6], reward: [60, 100, 120, 180, 260, 380] },
+    nearMiss: { text: '{n} CLOSE CALLS IN ONE RUN', run: true, targets: [3, 5, 8, 12, 16, 22], reward: [50, 80, 120, 170, 240, 340] },
+    distance: { text: 'DRIVE {n} M IN ONE RUN', run: true, targets: [300, 500, 800, 1200, 1800, 2600], reward: [50, 80, 120, 180, 260, 380] },
+    map: { text: 'SURVIVE {n} SECONDS ON {map}', run: true, targets: [20, 35, 50, 75, 100, 140], reward: [70, 110, 160, 230, 320, 450] },
+    powers: { text: 'USE {n} POWER-UPS', run: false, targets: [2, 4, 6, 10, 15, 22], reward: [60, 100, 150, 220, 300, 420] },
+    totalWrecks: { text: 'WRECK {n} POLICE IN TOTAL', run: false, targets: [15, 30, 60, 100, 160, 250], reward: [70, 120, 180, 260, 360, 500] },
+    chopper: { text: 'DOWN {n} CHOPPER', plural: 'DOWN {n} CHOPPERS', run: false, minTier: 1, targets: [1, 1, 2, 3, 4, 5], reward: [150, 150, 250, 350, 450, 600] },
+  },
+};
+
+// [TUNE] The player's level (systems/Progress.js): XP from every run (its coins, before any doubling) and from
+// missions. Each level needs a little more; a level-up pays coins and opens the next tier of upgrades.
+export const LEVELS = {
+  first: 120, // XP from level 1 to 2 ...
+  step: 60, // ... and this much more for each level after
+  coinsPerLevel: 50, // a level-up pays level x this
+};
+
+// [TUNE] Upgrades bought with coins in the garage; they work for every car. tier n costs prices[n-1] and needs
+// player level levels[n-1]. Police speed stays as it is (decision 21), so these make a run easier, a little.
+export const UPGRADES = {
+  prices: [300, 700, 1500, 3000, 6000],
+  levels: [1, 3, 5, 8, 12],
+  kinds: {
+    engine: { name: 'ENGINE', topSpeed: 0.025, acceleration: 0.04 }, // per tier
+    handling: { name: 'HANDLING', turn: 0.03, grip: 0.03 },
+    coins: { name: 'COIN BONUS', coins: 0.06 },
+  },
 };
 
 // The first drive and the one-time hints (scenes/Coach.js). A new player starts on the road, not the title: the car
@@ -153,6 +213,29 @@ export const TUTORIAL = {
   markRadius: 70, // the glow on the road under what a hint is about (world units)
   // The first drive forgives early crashes: put back on the road with OOPS! TRY AGAIN and the 3, 2, 1, with no
   // coins, no ad and no CONTINUE? screen. The run's own second chance is still there afterwards.
+  // The first drive's lessons, in order (Coach): make a police car crash, the die, KABOOM, the helicopter and
+  // BLACKOUT. Lessons a player hasn't reached carry over to their next runs (under basicsRuns).
+  // Each lesson waits for the player to act, and what happens next follows from it. While a lesson runs, the
+  // police are the lesson's own (SpawnDirector.lesson) and the player can't be wrecked in its key moments.
+  closeRange: 300, // a police car this close is close enough for TURN SHARP!
+  lessonPoliceSpeed: 1.12, // the lessons' police, x the usual police top speed, so they do catch the car
+  turnDeg: 40, // TURN SHARP!: the car has turned sharp once its heading has changed this much ...
+  turnSeconds: 2, // ... or after this long with the wheel held
+  spinSeconds: 0.9, // the police car that couldn't follow spins this long, then wrecks
+  crashLessonSeconds: 35, // no police car close in all this time and the lesson moves on anyway
+  dieAfter: 3, // seconds before the lesson's die appears (NICE! has its moment first)
+  readSeconds: 1.2, // after the die is caught, before the police close in
+  kaboomPolice: 3, // police that close in for KABOOM
+  kaboomPoliceSpeed: 1.4, // and how fast (x the usual police top speed): they arrive together, and soon
+  kaboomRange: 0.85, // they are close enough inside this share of KABOOM's blast
+  kaboomWaitSeconds: [7, 11, 16], // the prompt comes with 3 close; with 2 after 7 s, 1 after 11, anyway after 16
+  chopperAfter: 12, // seconds after KABOOM before the lesson's helicopter
+  blackoutDieAfter: 2.5,
+  tapWaitSeconds: Infinity, // a prompt holds the action until the player acts (nothing acts for them)
+  tapShare: 0.15, // the action's speed while a DOUBLE TAP! prompt waits
+  turnShare: 0.03, // and while TURN SHARP! waits: all but still, so nothing happens until the player turns
+  kaboomEase: 0.6, // the car eases off to this share of its top speed while they close in (back to full after)
+  kaboomAhead: 0.7, // share of KABOOM's police that come from ahead, so they meet the car rather than chase it
   freeRetries: 2,
   freeRetrySeconds: 30, // only crashes this early in the run
   // On the results of a new player's runs, one line on why the crash happened (once each, by cause).
@@ -167,9 +250,12 @@ export const TUTORIAL = {
   },
   tips: {
     police: { head: 'POLICE!', body: "DON'T LET THEM RAM YOU", basic: true },
-    wreck: { head: 'NICE!', body: 'MAKE THEM CRASH FOR COINS', basic: true },
+    wreck: { head: 'NICE!', body: 'THEY CRASH, YOU GET COINS', basic: true },
     die: { head: 'LUCKY DIE!', body: 'IT BRINGS YOU A POWER-UP', basic: true },
     use: { head: 'POWER-UP!', body: 'WAIT AND IT GOES OFF BY ITSELF', basic: true },
+    turn: { head: 'TURN SHARP!', body: 'HOLD LEFT OR RIGHT', keysBody: 'HOLD A OR D', basic: true },
+    kaboom: { head: 'DOUBLE TAP!', keysHead: 'PRESS SPACE!', body: 'KABOOM BLOWS THEM ALL AWAY', basic: true },
+    blackout: { head: 'DOUBLE TAP!', keysHead: 'PRESS SPACE!', body: 'BLACKOUT DOWNS THE CHOPPER', basic: true },
     bearcat: { head: 'SWAT TRUCK!', body: "DON'T TOUCH IT" },
     roadblock: { head: 'ROADBLOCK!', body: 'FIND THE GAP' },
     flat: { head: 'FLAT TIRE!', body: 'HOLD IT STRAIGHT' },
@@ -357,7 +443,7 @@ export const MAPS = [
     shop: 'shop',
     marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.6, size: [30, 85], stretch: 1.8 },
     startPreset: 'suburb',
-    tireDust: { tint: [0x5c5e63, 0x74767b], bits: null }, // grey tire smoke
+    tireDust: { tint: [0xe2e4e8, 0xc9ccd2], bits: null }, // light grey tire smoke
     presets: null, // CHUNKS.presets
   },
   {
@@ -388,7 +474,7 @@ export const MAPS = [
     ice: true, // ice patches, frozen ponds and snowmen (WINTER_MAP)
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.8, size: [110, 300], stretch: 2.2, drifts: 0.6 },
     startPreset: 'snow',
-    tireDust: { tint: [0xffffff, 0xe6f0f8], bits: 'snow' }, // powder snow and flakes
+    tireDust: { tint: [0xffffff, 0xffffff, 0xeef4fa], bits: 'snow' }, // bright powder snow and tiny flecks
     presets: {
       snow: { weight: 1, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['WINTER', 'PARK'], cells: [['parking', 30], ['lawn', 30], ['pond', 10], ['shop', 12], ['booth', 8], ['station', 6], ['barriers', 6], ['open', 4]] },
     },
@@ -423,7 +509,7 @@ export const MAPS = [
     sandstorms: true, // SANDSTORM, TUMBLEWEEDS
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.75, size: [110, 300], stretch: 2.2, drifts: 0.75 },
     startPreset: 'dunes',
-    tireDust: { tint: [0xe0bd88, 0xcaa06a], bits: 'sand' }, // sand dust and grains
+    tireDust: { tint: [0xf6e0b4, 0xe8c994], bits: 'sand' }, // sand dust and grains
     presets: {
       dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['scrub', 20], ['mesa', 24], ['grove', 18], ['oilfield', 12], ['shop', 9], ['tower', 9], ['barriers', 6], ['station', 5]] },
     },
@@ -455,7 +541,7 @@ export const MAPS = [
     patch: { perCell: 12, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.9, size: [10, 20], lotOnly: true, tuft: true },
     startPreset: 'forest',
     wild: true, // textured grass, roads of asphalt, mud and grass (WOODS_MAP.roads)
-    tireDust: { tint: [0x9a8566, 0x7d6a50], bits: 'mud' }, // dirt dust and clods
+    tireDust: { tint: [0xd8c4a0, 0xc0a985], bits: 'mud' }, // dirt dust and clods
     presets: {
       forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 30], ['logs', 22], ['thicket', 12], ['lumber', 10], ['scrub', 12], ['open', 7], ['shop', 6], ['station', 5]] },
     },
@@ -478,7 +564,7 @@ export const MAPS = [
     presets: {
       bare: { weight: 1, holeChance: 0, roadHoles: [0, 0], landmarks: [], cells: [['open', 1]] },
     },
-    tireDust: { tint: [0x5c5e63, 0x74767b], bits: null },
+    tireDust: { tint: [0xe2e4e8, 0xc9ccd2], bits: null },
     bareGround: { patches: 7, patchSize: [[70, 180], [40, 110]], patchAlpha: 0.3, cracks: 9 }, // a chunk
   },
 ];
@@ -958,8 +1044,11 @@ export const REVIVE = {
 };
 
 export const WRECK = {
-  lifetime: 3.5, // seconds a wreck stays on the map (an obstacle for other police)
-  fadeSeconds: 0.6,
+  // A wrecked car keeps its own colours (never burnt black, no smoke or flames), blinks and is gone: quick and
+  // clean. Until then it is still an obstacle for other police. [TUNE]
+  lifetime: 0.9, // seconds a wreck stays on the map
+  blinkSeconds: 0.6, // it blinks for its last this many seconds ...
+  blinkEvery: 0.07, // ... on and off this often
   friction: 2.6, // how fast a wreck slides to a stop (per second)
   spinFriction: 3,
   kick: 130, // a wrecked car is shoved this hard in a random direction (units/s), so it never just stops
@@ -1062,7 +1151,7 @@ export const POWERUP = {
   names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER', turbo: 'TURBO', slick: 'SLICK', decoy: 'DECOY', blackout: 'BLACKOUT', phantom: 'PHANTOM' },
   // See AUDIO.files. The five newer items are silent until their files arrive: nothing is made up in code.
   sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'], turbo: [], slick: [], decoy: [], blackout: [], phantom: [] },
-  autoSeconds: 2.5, // a held item fires by itself after this long, unless double tapped first
+  autoSeconds: Infinity, // a held item waits for the player's double tap (players didn't want it going off by itself)
   homingSpeed: 150, // it goes this much faster than the car, so it always catches up
   hopMs: 400, // each bounce (drawing only)
   hopHeight: 52, // world units (drawing only)
@@ -1138,7 +1227,7 @@ export const POWER_LOOK = {
     core: 0xffd84a, // bright yellow heart (unlit: it glows)
     groundGlow: 0xff6a10,
     groundGlowAlpha: 0.32,
-    smoke: [0xa4501f, 0x6e3a22, 0x3f2c26],
+    smoke: [0xffb066, 0xe08a4c, 0xc9b8aa], // warm and light, not soot
     smokePerSecond: 14,
     maxSmoke: 40,
     embersPerSecond: 26,
@@ -1306,6 +1395,7 @@ export const SKIDS = {
   slipThreshold: 70, // sideways speed (units/s) above which tires leave marks
   width: 7,
   minSegmentLength: 10,
+  maxSegmentLength: 80, // further than this in one frame is a car put somewhere else (a revive), not a skid
   lifetimeMs: 7000,
   alpha: 0.6,
   color: 0x0c0e12,
@@ -1391,6 +1481,9 @@ export const PALETTE = {
   manhole: 0x4c535f,
   lawn: 0x7ea53b, // block lawns: a little deeper than the lime of the islands, so they don't glare
   curb: 0xece5d8, // warm cream rim of islands and roundabouts ...
+  leafLitter: 0x8c6a33, // dry leaves blown against the kerbs
+  lawnDry: 0x93a447, // worn, sunburnt patches in a lawn
+  lawnLush: 0x6b9434, // thicker, darker grass
   median: 0x98c43d, // ... around fresh lime grass
   medianTuft: 0x7fa932, // darker patches in the grass
   concrete: 0xb5aea2,
@@ -1550,8 +1643,21 @@ const DEFAULT_PALETTE = {};
 for (const map of MAPS) for (const key of Object.keys(map.palette)) DEFAULT_PALETTE[key] = PALETTE[key];
 
 // Puts a map's colours in place. Drawings made after this use them.
+let paletteMap = null;
 export function applyMapPalette(map) {
+  paletteMap = map;
   Object.assign(PALETTE, DEFAULT_PALETTE, map.palette);
+}
+
+// Draws with a map's colours, then puts back the colours in place before (the world's), whichever map is chosen.
+export function withMapPalette(map, draw) {
+  const before = paletteMap;
+  applyMapPalette(map);
+  try {
+    draw();
+  } finally {
+    if (before) applyMapPalette(before);
+  }
 }
 
 // One of a map's colours, whichever map is in place.
@@ -1601,6 +1707,14 @@ export const AUDIO = {
 // [TUNE] Visual effects budget (particles are capped so phones stay smooth).
 export const EFFECTS = {
   maxSmoke: 140,
+  // A crash's pop of smoke: a small, bright, quick burst of white and warm cream round the fireball (minimal and
+  // punchy, like the owner's PAKO reference), gone in about a second, never a screen-filling cloud. [TUNE]
+  maxBlastSmoke: 120,
+  blastSmoke: 16, // puffs in a police wreck's burst ...
+  blastSmokeBig: 24, // ... and in the player's crash
+  blastRing: 6, // puffs popping out round it
+  // Bright: mostly white, with a hint of warm yellow-orange and of light grey.
+  blastSmokeTints: [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xfff0bf, 0xffd27a, 0xffbf66, 0xe3e4e7, 0xd2d4d8],
   maxFire: 160,
   maxFireball: 120, // flame clouds on screen at once
   maxChunks: 24, // big flying pieces (tires, bumpers, panels)
@@ -1696,23 +1810,32 @@ export const WORLD = {
   seed: 1029,
   cell: 600, // block size including half the road on each side
   margin: 95, // empty road strip inside each cell edge (roads are 2 x margin wide)
-  // Streets on a map with `streets`: every block has a cream curb and a pavement round it, with rounded corners, and
-  // its own ground (asphalt in a slightly different shade, or a lawn). The roads are worn: repaired patches,
-  // cracks and manholes. All of it is ground paint only: the driving and the collisions are the same. [TUNE]
+  // Streets on a map with `streets`: every block is its own ground, asphalt in a slightly different shade or a
+  // lawn, with no kerb or outline round it: its edge fades softly into the road. The roads have repaired patches
+  // and manholes. All of it is ground paint only: the driving and the collisions are the same. [TUNE]
   street: {
-    curb: 5,
-    sidewalk: 20,
-    cornerRadius: 46,
-    lotShade: 0.07, // a block's asphalt is up to this much lighter or darker than PALETTE.lot
+    cornerRadius: 46, // keeps props clear of a block's corners
+    // A block drawn by hand, not stamped out: each corner its own roundness, the edges a little wavy and soft.
+    cornerRange: [26, 70],
+    wobble: 3.5, // how far an asphalt block's edge wanders in and out (units)
+    lawnWobble: 7, // a lawn's edge wanders more
+    edgeFade: [[0, 0.3], [5, 0.55], [10, 1]], // [inset, alpha]: a block's edge fading into the road
+    lawnPatches: [4, 7], // flat patches a shade lighter or darker in a lawn, hard-edged
+    patchRadius: [40, 95],
+    lawnTones: [0.93, 0.96, 1.05, 1.08], // how much lighter or darker a patch is than the grass
+    lawnRim: 0.86, // a lawn's edge, a little darker, so its shape reads crisply
+    lawnRimWidth: 4,
+    blades: [10, 18], // small clumps of grass blades in a lawn
+    bladeShade: 0.84,
+    tufts: [5, 10], // clumps of blades along the edge
+    leaves: [2, 5], // drifts of leaves along the edge
+    stains: [1, 4], // oil stains on an asphalt block
+    lotShade: 0.05, // a block's asphalt is up to this much lighter or darker than PALETTE.lot
     grassBlocks: ['lawn', 'garden', 'grove'], // arrangements whose block is a lawn
-    driveways: [1, 2], // gaps in the curb into an asphalt block
-    drivewayWidth: [70, 110],
     patches: 6, // per chunk, on the roads
     patchSize: [[60, 150], [40, 90]], // along and across the road
     patchAlpha: 0.45, // mended road is only a little darker
-    mowStripes: 8, // a lawn is mown in stripes, every other one a little darker
-    cracks: 12, // per chunk, on the roads; and one in half the asphalt blocks
-    crackWidth: 2.5,
+    crackWidth: 2.5, // the challenge map's cracks
     manholes: 7,
   },
   islandLengths: [360, 400, 440],

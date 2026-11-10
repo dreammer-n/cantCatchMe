@@ -27,6 +27,12 @@ export class SkidMarks {
     const dy = y - last.y;
     const length = Math.hypot(dx, dy);
     if (length < SKIDS.minSegmentLength) return;
+    // A car that was put somewhere else (a revive, a pooled police car used again): no strip across the map.
+    if (length > SKIDS.maxSegmentLength) {
+      last.x = x;
+      last.y = y;
+      return;
+    }
 
     const mark = this.takeMark();
     mark.setPosition((x + last.x) / 2, (y + last.y) / 2);

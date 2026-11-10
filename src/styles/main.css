@@ -301,7 +301,8 @@ body {
 /* Darker behind the logo, so that it reads on bright maps. */
 /* The map is dimmed all over behind the title, so the logo and the buttons stand out; a little more behind the logo. */
 .screen.menu {
-  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.62), rgba(14, 15, 18, 0.48) 34%, rgba(14, 15, 18, 0.42));
+  /* Bright: the map shows in its own colours, with a light shade only behind the logo and the buttons. */
+  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.38), rgba(14, 15, 18, 0) 30%, rgba(14, 15, 18, 0) 62%, rgba(14, 15, 18, 0.32));
 }
 
 /* Title screen: logo at the top, buttons at the bottom, the car turning in the middle. */
@@ -328,6 +329,110 @@ body {
   }
   to {
     opacity: 1;
+  }
+}
+
+/* PLAY's steps move like one camera going in: going on (title > map > car) the old screen grows and fades while
+   the new one comes up from a little smaller; going back, the reverse. Both start on the same frame, once the new
+   one is drawn (Screen.zoom, Screen.leave). Only transform and opacity change, which phones animate smoothly. */
+.screen.zoom-pre {
+  opacity: 0;
+}
+
+.screen.zoom-hold {
+  pointer-events: none;
+}
+
+.screen.zoom-in,
+.screen.zoom-back,
+.screen.zoom-leave,
+.screen.zoom-leave-back {
+  pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+.screen.zoom-in {
+  animation-name: screen-zoom-in;
+}
+
+.screen.zoom-back {
+  animation-name: screen-zoom-back;
+}
+
+.screen.zoom-leave {
+  animation-name: screen-zoom-leave;
+}
+
+.screen.zoom-leave-back {
+  animation-name: screen-zoom-leave-back;
+}
+
+@keyframes screen-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes screen-zoom-leave {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes screen-zoom-back {
+  from {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes screen-zoom-leave-back {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen.zoom-in,
+  .screen.zoom-back {
+    animation-name: screen-in;
+  }
+
+  .screen.zoom-leave,
+  .screen.zoom-leave-back {
+    animation-name: screen-out;
+  }
+}
+
+@keyframes screen-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -382,8 +487,157 @@ body {
 }
 
 .menu-hint {
-  font-size: clamp(9px, 2.3vmin, 12px);
+  font-size: clamp(11px, 2.6vmin, 14px);
   color: rgba(255, 255, 255, 0.75);
+}
+
+/* The missions on the title: one line on a dark plate above the map name; a tap opens all three. */
+.menu-goals {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: min(92vw, 420px);
+  padding: 8px 16px;
+  background: rgba(20, 23, 28, 0.8);
+  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.menu-mission-line {
+  font-size: clamp(12px, 3vmin, 15px);
+  color: #fff;
+}
+
+/* The level: a small badge under the stars in the top-left corner. */
+.menu-level-badge {
+  position: absolute;
+  top: calc(var(--safe-top) + 14px + clamp(26px, 6vmin, 34px));
+  left: calc(var(--safe-left) + 14px);
+  width: clamp(110px, 26vmin, 150px);
+  gap: 6px;
+}
+
+.menu-level-badge .level-label {
+  font-size: clamp(11px, 2.8vmin, 14px);
+}
+
+.menu-level-badge .level-track {
+  height: 5px;
+}
+
+/* A crash tip as the results' one highlight: smaller than NEW RECORD!. */
+.over-badge-tip {
+  font-size: clamp(11px, 3vmin, 15px);
+}
+
+.over-breakdown[hidden],
+.over-rows[hidden] {
+  display: none;
+}
+
+.level-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.level-label {
+  font-size: clamp(14px, 3.6vmin, 19px);
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.level-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  transform: skewX(-12deg);
+  overflow: hidden;
+}
+
+.level-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--amber);
+  transition: width 0.9s ease-out;
+}
+
+.mission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mission-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.mission-text {
+  font-size: clamp(12px, 3vmin, 15px);
+  color: #fff;
+}
+
+.mission-side {
+  font-size: clamp(12px, 3vmin, 15px);
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.mission-row.done .mission-text {
+  color: var(--amber);
+}
+
+/* On the results: missions done this run, the level bar, LEVEL UP! */
+.over-missions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(100%, 440px);
+  padding: 6px 14px;
+  background: rgba(20, 23, 28, 0.8);
+}
+
+.over-level {
+  width: min(100%, 440px);
+}
+
+.over-levelup {
+  font-size: clamp(13px, 3.4vmin, 18px);
+  color: var(--amber);
+}
+
+.over-missions[hidden],
+.over-level[hidden],
+.over-levelup[hidden] {
+  display: none;
+}
+
+/* Small phones: the results have more on them now, so the title gives up some room. */
+@media (max-height: 700px) and (orientation: portrait) {
+  .over-title {
+    font-size: clamp(34px, 10vmin, 56px);
+  }
+  .over .screen-panel {
+    gap: 5px;
+  }
+}
+
+/* Short screens (a phone held sideways): the missions sit lower down and smaller. */
+@media (max-height: 520px) {
+  .menu-goals {
+    gap: 3px;
+    padding: 6px 14px 8px;
+  }
+  .menu-top {
+    padding-top: 2vh;
+  }
 }
 
 /* Results */
@@ -444,7 +698,7 @@ body {
 }
 
 .over-next {
-  font-size: clamp(10px, 2.6vmin, 13px);
+  font-size: clamp(12px, 3vmin, 15px);
   color: #fff;
 }
 
@@ -704,6 +958,52 @@ body {
   margin-bottom: 4px;
 }
 
+/* Upgrades: the level bar, then a row for each (name, tiers, the button with the price or what it needs). */
+.garage-toggle {
+  align-self: flex-end;
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: clamp(11px, 2.8vmin, 14px);
+}
+
+.garage-car-panel,
+.garage-upgrades {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(7px, 1.8vmin, 10px);
+  width: 100%;
+}
+
+.garage-car-panel[hidden],
+.garage-upgrades[hidden] {
+  display: none;
+}
+
+.garage-level {
+  width: 100%;
+}
+
+.upgrade-row {
+  display: grid;
+  grid-template-columns: 9em 1fr 7.5em;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  font-size: clamp(11px, 2.7vmin, 14px);
+  color: #fff;
+}
+
+.upgrade-row .dt {
+  justify-content: flex-start;
+}
+
+.upgrade-buy {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: clamp(11px, 2.7vmin, 14px);
+}
+
 .garage-spec .dt {
   justify-content: flex-start;
 }
@@ -743,14 +1043,34 @@ body {
 }
 
 /* The map fills the whole screen, under everything else. */
-.map-screen .map-canvas {
+.map-screen .map-canvas,
+.car-screen .map-canvas {
   z-index: 0;
 }
 
 .map-screen .screen-panel,
 .map-screen .garage-back,
-.map-screen .star-balance {
+.map-screen .star-balance,
+.car-screen .screen-panel,
+.car-screen .garage-back,
+.car-screen .coin-balance {
   z-index: 1;
+}
+
+/* The car screen stands on the map: its name reads on any ground, and the details sit on a dark plate. */
+.car-screen .garage-count {
+  color: #fff;
+}
+
+.car-screen .garage-name {
+  text-shadow: 0 2px 0 rgba(14, 15, 18, 0.55);
+}
+
+.car-screen .garage-details {
+  box-sizing: border-box;
+  padding: 12px 14px;
+  background: var(--ink);
+  clip-path: polygon(3% 0, 100% 0, 97% 100%, 0 100%);
 }
 
 .map-screen .garage-count {
@@ -1002,6 +1322,40 @@ body {
   animation: hud-tip 3.4s ease-out forwards;
 }
 
+/* A DOUBLE TAP! prompt: pops in and stays, its word beating gently, until the item is used. */
+.hud-tip-hold {
+  animation: hud-tip-in 0.35s ease-out forwards;
+}
+
+.hud-tip-hold .hud-tip-head {
+  animation: hud-tip-beat 0.6s ease-in-out infinite;
+}
+
+@keyframes hud-tip-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes hud-tip-beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
 @keyframes hud-tip {
   0% {
     opacity: 0;
@@ -1080,6 +1434,92 @@ body {
   white-space: nowrap;
   background: rgba(20, 23, 28, 0.8);
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+}
+
+/* The WANTED level: five small stars under the record; a new one pops. */
+.hud-wanted {
+  display: flex;
+  gap: 3px;
+  padding: 5px 10px 5px 14px;
+  background: var(--panel);
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.hud-wanted-star {
+  display: block;
+  width: clamp(13px, 3.4vmin, 18px);
+  height: clamp(13px, 3.4vmin, 18px);
+  color: rgba(255, 255, 255, 0.22); /* icons take their colour from here (#ui svg) */
+}
+
+.hud-wanted-star.lit {
+  color: var(--amber);
+}
+
+.hud-wanted-new {
+  animation: hud-wanted-new 0.7s ease-out;
+}
+
+@keyframes hud-wanted-new {
+  0% {
+    transform: scale(2.2);
+  }
+  60% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* WANTED LEVEL 3! and what joins the chase, big and short, high in the middle. */
+.hud-call {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  top: calc(var(--safe-top) + 14%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 24px 10px;
+  background: rgba(20, 23, 28, 0.8);
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  pointer-events: none;
+}
+
+.hud-call-head {
+  font-size: clamp(18px, 5.4vmin, 30px);
+  color: #ff4a3d;
+}
+
+.hud-call-body {
+  font-size: clamp(13px, 3.8vmin, 20px);
+  color: #fff;
+  white-space: nowrap;
+}
+
+.hud-call-pop {
+  animation: hud-tip 2.4s ease-out forwards;
+}
+
+/* An item caught and waiting for the player: its name beats gently until it is used. */
+.hud-power-held {
+  animation: hud-power-beat 0.9s ease-in-out infinite;
+  transform-origin: left center;
+}
+
+@keyframes hud-power-beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
 }
 
 /* 3, 2, 1, GO after a revive, big in the middle of the screen. */
@@ -1249,4 +1689,39 @@ body {
 .menu-hint {
   width: fit-content;
   max-width: 100%;
+}
+
+/* ---------------------------------------------------------------- PLAY's steps: map, then car */
+/* Which step this is, small and amber at the top of the map and car screens. */
+.step-label {
+  position: absolute;
+  top: calc(var(--safe-top) + 16px);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  padding: 4px 14px;
+  font-size: clamp(12px, 3vmin, 15px);
+  color: var(--amber);
+  background: var(--panel);
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.step-label[hidden] {
+  display: none;
+}
+
+.garage-car-panel .btn-hard {
+  align-self: center;
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+/* Sideways on a phone there is no room for the mission line without covering the car. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .menu-goals {
+    display: none;
+  }
 }

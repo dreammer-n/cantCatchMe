@@ -1406,27 +1406,6 @@ function addTracks(chunk, rng) {
 
 const round1 = (v) => Math.round(v * 10) / 10;
 
-// A rectangle with rounded corners, as a polygon, pulled in from the cell's edge by inset.
-function roundedRect(cell, inset, radius) {
-  const x0 = cell.x0 + inset;
-  const y0 = cell.y0 + inset;
-  const x1 = cell.x1 - inset;
-  const y1 = cell.y1 - inset;
-  const r = Math.max(2, radius);
-  const points = [];
-  const corner = (cx, cy, start) => {
-    for (let s = 0; s <= 4; s += 1) {
-      const a = start + (s / 4) * (Math.PI / 2);
-      points.push(round1(cx + Math.cos(a) * r), round1(cy + Math.sin(a) * r));
-    }
-  };
-  corner(x1 - r, y1 - r, 0);
-  corner(x0 + r, y1 - r, Math.PI / 2);
-  corner(x0 + r, y0 + r, Math.PI);
-  corner(x1 - r, y0 + r, Math.PI * 1.5);
-  return points;
-}
-
 // A rectangle centred on (x, y), along and across, turned by angle (radians), as a polygon.
 function turnedRect(x, y, along, across, angle) {
   const c = Math.cos(angle);
@@ -1455,50 +1434,167 @@ function crack(paint, rng, x, y, angle) {
   }
 }
 
-// A block's ground: a curb, a pavement inside it and the block itself, all with rounded corners. An asphalt block
-// has driveways through its curb, and sometimes a crack. Maps without streets keep a plain square.
-function blockGround(cell, rng, arrangement) {
-  if (map.wild) return wildGround(cell, rng);
-  if (!map.streets) return [{ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' }];
+// A block outline drawn by hand: each corner its own roundness, and the edges wavy. shape: from blockShape, shared
+// by the rings of a block's soft edge, so they always nest. inset: how far in from the cell's edge.
+function blockShape(rng, wobble) {
   const st = WORLD.street;
-  const edge = st.curb + st.sidewalk;
+  const radii = [0, 1, 2, 3].map(() => lerp(st.cornerRange[0], st.cornerRange[1], rng()));
+  // Each edge wanders in and out, the same way for every ring.
+  const waves = [0, 1, 2, 3].map(() => Array.from({ length: 9 }, () => (rng() * 2 - 1) * wobble));
+  return { radii, waves };
+}
+
+function handRect(cell, inset, shape) {
+  const x0 = cell.x0 + inset;
+  const y0 = cell.y0 + inset;
+  const x1 = cell.x1 - inset;
+  const y1 = cell.y1 - inset;
+  const r = shape.radii.map((radius) => Math.max(3, radius - inset));
+  const points = [];
+  const corner = (cx, cy, start, radius) => {
+    for (let s = 0; s <= 4; s += 1) {
+      const a = start + (s / 4) * (Math.PI / 2);
+      points.push(round1(cx + Math.cos(a) * radius), round1(cy + Math.sin(a) * radius));
+    }
+  };
+  // Points along an edge from (ax, ay) to (bx, by), pushed in or out by the wave, not at the ends.
+  const edge = (ax, ay, bx, by, nx, ny, wave) => {
+    for (let k = 1; k < wave.length; k += 1) {
+      const t = k / wave.length;
+      points.push(round1(ax + (bx - ax) * t + nx * wave[k]), round1(ay + (by - ay) * t + ny * wave[k]));
+    }
+  };
+  corner(x1 - r[0], y1 - r[0], 0, r[0]);
+  edge(x1 - r[0], y1, x0 + r[1], y1, 0, 1, shape.waves[0]);
+  corner(x0 + r[1], y1 - r[1], Math.PI / 2, r[1]);
+  edge(x0, y1 - r[1], x0, y0 + r[2], -1, 0, shape.waves[1]);
+  corner(x0 + r[2], y0 + r[2], Math.PI, r[2]);
+  edge(x0 + r[2], y0, x1 - r[3], y0, 0, -1, shape.waves[2]);
+  corner(x1 - r[3], y0 + r[3], Math.PI * 1.5, r[3]);
+  edge(x1, y0 + r[3], x1, y1 - r[0], 1, 0, shape.waves[3]);
+  return points;
+}
+
+// A point on the edge of a block (at a share t along side 0..3, past the corners), with its outward direction.
+function kerbPoint(cell, side, t, inset = 0) {
+  const from = WORLD.street.cornerRange[1];
+  const along = from + t * (cell.size - from * 2);
+  if (side === 0) return { x: cell.x0 + along, y: cell.y0 + inset, nx: 0, ny: -1, angle: 0 };
+  if (side === 1) return { x: cell.x1 - inset, y: cell.y0 + along, nx: 1, ny: 0, angle: Math.PI / 2 };
+  if (side === 2) return { x: cell.x0 + along, y: cell.y1 - inset, nx: 0, ny: 1, angle: 0 };
+  return { x: cell.x0 + inset, y: cell.y0 + along, nx: -1, ny: 0, angle: Math.PI / 2 };
+}
+
+const between = (rng, [a, b]) => a + Math.floor(rng() * (b - a + 1));
+
+// A smooth, natural blob: its outline swells and dips in a few gentle waves (no sharp points), squashed and turned.
+function smoothBlob(rng, x, y, r, squash = 1) {
+  const waves = [2, 3, 5].map((lobes, k) => ({ lobes, size: [0.16, 0.1, 0.05][k] * (0.5 + rng()), phase: rng() * Math.PI * 2 }));
+  const turn = rng() * Math.PI;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  return (scale) => {
+    const poly = [];
+    for (let i = 0; i < 18; i += 1) {
+      const a = (i / 18) * Math.PI * 2;
+      let reach = 1;
+      for (const w of waves) reach += Math.sin(a * w.lobes + w.phase) * w.size;
+      const u = Math.cos(a) * r * scale * reach;
+      const v = Math.sin(a) * r * scale * reach * squash;
+      poly.push(round1(x + u * c - v * s), round1(y + u * s + v * c));
+    }
+    return poly;
+  };
+}
+
+// A clump of three blades of grass, standing up from (x, y), size units tall: one flat polygon.
+function blades(rng, x, y, size) {
+  const lean = (rng() * 2 - 1) * 0.3;
+  const points = [];
+  const tips = [[-0.55, 0.75], [0, 1], [0.6, 0.8]];
+  points.push(round1(x - size * 0.55), round1(y));
+  for (const [dx, h] of tips) {
+    points.push(round1(x + size * (dx + lean * h)), round1(y - size * h * 1.4));
+    points.push(round1(x + size * (dx + 0.28)), round1(y - size * 0.15));
+  }
+  points.push(round1(x + size * 0.85), round1(y));
+  return points;
+}
+
+// A soft patch: the same blob three times, smaller and stronger towards its middle, so it fades out at the edge.
+function softPatch(marks, rng, x, y, r, color, alpha, squash) {
+  const blob = smoothBlob(rng, x, y, r, squash);
+  marks.push({ poly: blob(1), color, alpha: alpha * 0.35 }, { poly: blob(0.78), color, alpha: alpha * 0.45 }, { poly: blob(0.52), color, alpha: alpha * 0.5 });
+}
+
+// A Suburbs block's ground, drawn as if by hand: no kerb or outline, its wavy edge fading softly into the road. A
+// lawn in soft patches of darker and drier grass with worn earth and tufts out over the edge, or asphalt in its own
+// shade with oil stains; leaves blown along the edge.
+function streetGround(cell, rng, arrangement) {
+  const st = WORLD.street;
   const grass = st.grassBlocks.includes(arrangement);
   const shade = round1(1000 * (1 + (rng() * 2 - 1) * st.lotShade)) / 1000;
-  const marks = [
-    { poly: roundedRect(cell, 0, st.cornerRadius), color: 'curb', alpha: 1 },
-    { poly: roundedRect(cell, st.curb, st.cornerRadius - st.curb), color: 'sidewalk', alpha: 1 },
-    { poly: roundedRect(cell, edge, st.cornerRadius - edge), color: grass ? 'grass' : 'lot', alpha: 1, ...(grass ? {} : { shade }) },
-  ];
+  const shape = blockShape(rng, grass ? st.lawnWobble : st.wobble);
+  // Asphalt fades into the road; a lawn has a crisp edge with a slightly darker rim, so it reads as a shape.
+  const marks = grass
+    ? [
+        { poly: handRect(cell, 0, shape), color: 'grass', alpha: 1, shade: st.lawnRim },
+        { poly: handRect(cell, st.lawnRimWidth, shape), color: 'grass', alpha: 1 },
+      ]
+    : st.edgeFade.map(([inset, alpha]) => ({ poly: handRect(cell, inset, shape), color: 'lot', alpha, shade }));
+  const edge = st.edgeFade[st.edgeFade.length - 1][0];
+  const inner = { x0: cell.x0 + edge + 40, y0: cell.y0 + edge + 40, size: cell.size - (edge + 40) * 2 };
+  const somewhere = () => [inner.x0 + rng() * inner.size, inner.y0 + rng() * inner.size];
   if (grass) {
-    // Mowing stripes, every other one darker. The first and last are left plain, which keeps them off the corners.
-    const inner = { x0: cell.x0 + edge, y0: cell.y0 + edge, size: cell.size - edge * 2 };
-    const band = inner.size / st.mowStripes;
-    const across = rng() < 0.5;
-    for (let k = 1; k < st.mowStripes - 1; k += 2) {
-      const middle = inner.size / 2;
-      const at = band * (k + 0.5);
-      const poly = across ? turnedRect(inner.x0 + middle, inner.y0 + at, inner.size, band, 0) : turnedRect(inner.x0 + at, inner.y0 + middle, band, inner.size, 0);
-      marks.push({ poly, color: 'grass', alpha: 1, shade: 0.93 });
+    // Flat patches a shade lighter or darker, with hard edges: texture, not mud.
+    for (let n = between(rng, st.lawnPatches); n > 0; n -= 1) {
+      // Kept inside the lawn: a blob reaches about 1.3 x its size, so its middle stays that far from the edge.
+      const r = lerp(st.patchRadius[0], st.patchRadius[1], rng());
+      const room = st.lawnRimWidth + 10 + r * 1.3;
+      const x = cell.x0 + room + rng() * Math.max(0, cell.size - room * 2);
+      const y = cell.y0 + room + rng() * Math.max(0, cell.size - room * 2);
+      const tone = st.lawnTones[Math.floor(rng() * st.lawnTones.length)];
+      marks.push({ poly: smoothBlob(rng, x, y, r, 0.55 + rng() * 0.4)(1), color: 'grass', alpha: 1, shade: tone });
     }
-    return marks;
+    // Little blades of grass here and there, in small clumps: a subtle finish.
+    const room = st.lawnRimWidth + 14;
+    for (let n = between(rng, st.blades); n > 0; n -= 1) {
+      const x = cell.x0 + room + rng() * (cell.size - room * 2);
+      const y = cell.y0 + room + rng() * (cell.size - room * 2);
+      marks.push({ poly: blades(rng, x, y, 4 + rng() * 3), color: 'grass', alpha: 1, shade: st.bladeShade });
+    }
+    // Tufts out over the edge.
+    for (let n = between(rng, st.tufts); n > 0; n -= 1) {
+      const p = kerbPoint(cell, Math.floor(rng() * 4), rng(), 1);
+      marks.push({ poly: blades(rng, p.x, p.y, 4 + rng() * 2), color: 'grass', alpha: 1, shade: st.lawnRim });
+    }
+  } else {
+    for (let n = between(rng, st.stains); n > 0; n -= 1) {
+      const [x, y] = somewhere();
+      softPatch(marks, rng, x, y, 10 + rng() * 22, 'crack', 0.5, 0.6 + rng() * 0.4);
+    }
   }
-  const count = st.driveways[0] + Math.floor(rng() * (st.driveways[1] - st.driveways[0] + 1));
-  const sides = [0, 1, 2, 3].sort(() => rng() - 0.5).slice(0, count);
-  for (const side of sides) {
-    const width = lerp(st.drivewayWidth[0], st.drivewayWidth[1], rng());
-    const from = st.cornerRadius + 40;
-    const along = from + rng() * (cell.size - from * 2 - width) + width / 2;
-    const depth = edge + 2;
-    const x = side === 1 ? cell.x1 - depth / 2 : side === 3 ? cell.x0 + depth / 2 : cell.x0 + along;
-    const y = side === 0 ? cell.y0 + depth / 2 : side === 2 ? cell.y1 - depth / 2 : cell.y0 + along;
-    const poly = side % 2 === 0 ? turnedRect(x, y, width, depth, 0) : turnedRect(x, y, depth, width, 0);
-    marks.push({ poly, color: 'lot', alpha: 1, shade });
+  // Leaves blown along the edge, on the road side.
+  for (let n = between(rng, st.leaves); n > 0; n -= 1) {
+    const p = kerbPoint(cell, Math.floor(rng() * 4), rng(), -6);
+    for (let k = 0; k < 4; k += 1) {
+      const along = (rng() * 2 - 1) * 26;
+      const x = p.x + (p.nx === 0 ? along : 0) + p.nx * rng() * 8;
+      const y = p.y + (p.ny === 0 ? along : 0) + p.ny * rng() * 8;
+      marks.push({ poly: lump(rng, x, y, 3 + rng() * 4, 5, 0.7), color: 'leaves', alpha: 0.75 + rng() * 0.25, shade: round1(1000 * (0.85 + rng() * 0.3)) / 1000 });
+    }
   }
-  if (rng() < 0.5) crack(marks, rng, cell.x0 + edge + 40 + rng() * (cell.size - edge * 2 - 80), cell.y0 + edge + 40 + rng() * (cell.size - edge * 2 - 80), rng() * Math.PI * 2);
   return marks;
 }
 
-// Wear on the chunk's roads: patches where the road was mended, cracks, and manholes in the lanes.
+// A block's ground. Maps without streets keep a plain square; the woods have wild grass.
+function blockGround(cell, rng, arrangement) {
+  if (map.wild) return wildGround(cell, rng);
+  if (!map.streets) return [{ x: cell.x0, y: cell.y0, w: cell.size, h: cell.size, alpha: 1, color: 'lot' }];
+  return streetGround(cell, rng, arrangement);
+}
+
+// Wear on the chunk's roads: patches where the road was mended, and manholes in the lanes.
 // The challenge map's ground: faint mended patches and cracks in the asphalt, nothing else.
 function addBareGround(chunk, rng) {
   const g = map.bareGround;
@@ -1710,10 +1806,6 @@ function addRoadWear(chunk, rng) {
     const at = onRoad(margin - across / 2 - 8);
     const angle = (at.vertical ? Math.PI / 2 : 0) + (rng() * 2 - 1) * 0.06;
     chunk.paint.push({ poly: turnedRect(at.x, at.y, along, across, angle), color: 'patch', alpha: st.patchAlpha });
-  }
-  for (let i = 0; i < st.cracks; i += 1) {
-    const at = onRoad(margin - 40);
-    crack(chunk.paint, rng, at.x, at.y, rng() * Math.PI * 2);
   }
   for (let i = 0; i < st.manholes; i += 1) {
     const at = onRoad(0);

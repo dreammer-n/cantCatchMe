@@ -99,13 +99,14 @@ export function starsFor(seconds) {
 }
 
 // What a finished run earned.
-// hard: HARD START was on, which pays COINS.hardShare times as much.
-export function coinsForRun(summary, hard = false) {
+// hard: HARD START was on, which pays COINS.hardShare times as much. upgradeShare: the coin upgrade's extra share.
+export function coinsForRun(summary, hard = false, upgradeShare = 0) {
   const time = Math.floor(summary.time * COINS.perSecond);
   const wrecks = summary.wrecks * COINS.perWreck;
   const combo = summary.combo * COINS.perCombo;
   const bonus = hard ? Math.round((time + wrecks + combo) * (COINS.hardShare - 1)) : 0;
-  return { time, wrecks, combo, hard: bonus, total: time + wrecks + combo + bonus };
+  const upgrade = Math.round((time + wrecks + combo + bonus) * upgradeShare);
+  return { time, wrecks, combo, hard: bonus, upgrade, total: time + wrecks + combo + bonus + upgrade };
 }
 
 // Which maps are open: every map's best run earns stars, and enough stars in all unlock the next map.

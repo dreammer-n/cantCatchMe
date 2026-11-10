@@ -120,8 +120,9 @@ function drawGround(ctx, chunks, map) {
 }
 
 // ctx: drawing on a canvas width x height pixels. zoom: pixels per world unit. focusX, focusY: where on the canvas
-// the car goes, so that it isn't under the buttons.
-export function drawMapDiorama(ctx, map, carId, width, height, zoom, focusX, focusY) {
+// the car goes, so that it isn't under the buttons. withCars false: the ground and props only (the garage draws
+// its own car there).
+export function drawMapDiorama(ctx, map, carId, width, height, zoom, focusX, focusY, withCars = true) {
   projection.toScreen(START.x, START.y, 0, point);
   const originX = focusX - point.x * zoom;
   const originY = focusY - point.y * zoom;
@@ -158,8 +159,10 @@ export function drawMapDiorama(ctx, map, carId, width, height, zoom, focusX, foc
       things.push({ x: item.x, y: item.y, heading: item.heading, mesh: meshes.get(item.model), band });
     }
   }
-  things.push({ x: START.x, y: START.y, heading: 0, mesh: carMesh(carId), band: 1 });
-  things.push({ x: START.x - 110, y: START.y + 210, heading: 0.35, mesh: carMesh('police'), band: 1 });
+  if (withCars) {
+    things.push({ x: START.x, y: START.y, heading: 0, mesh: carMesh(carId), band: 1 });
+    things.push({ x: START.x - 110, y: START.y + 210, heading: 0.35, mesh: carMesh('police'), band: 1 });
+  }
   for (const thing of things) thing.depth = thing.band * 1e6 + projection.depthOf(thing.x, thing.y);
   things.sort((a, b) => a.depth - b.depth);
 

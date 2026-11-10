@@ -88,14 +88,13 @@ const lock = (p) => {
   check('and reach the car within seconds', caught.some((e) => e.type === 'pickup'));
 }
 {
-  // Held for too long: it goes off by itself.
+  // A held item waits for the player, however long.
   const s = quiet();
   drive(s, 1000, 1000, 0);
   s.powerUps.give('flamer');
-  const early = run(s, POWERUP.autoSeconds - 0.3);
-  check('an item waits while the player decides', s.powerUps.held && !early.some((e) => e.type === 'power'));
-  const later = run(s, 0.5);
-  check('after 4 seconds it fires by itself', !s.powerUps.held && later.some((e) => e.type === 'power' && e.kind === 'flamer'));
+  s.safeTime = 1e6;
+  const early = run(s, 20);
+  check('an item waits for the player, never going off by itself', s.powerUps.held && !early.some((e) => e.type === 'power'));
   const e = useItem(s, 'freeze');
   check('pressing the button uses it at once', !s.powerUps.held && e.some((x) => x.type === 'power' && x.kind === 'freeze'));
   const none = s.step(1 / 60, { steer: 0, activatePowerUp: true }, offView);
@@ -947,6 +946,28 @@ const lock = (p) => {
   const chaser = cop(t, 3000, 3000, 0, { launchShare: 1, speedFactor: 1.2 });
   run(t, 1);
   check('a police car that hits a wreck is wrecked', chaser.state === 'wreck', chaser.state);
+}
+
+// The first drive's lessons: the next die's item can be chosen, and it can wait for the player.
+{
+  const s = quiet();
+  const power = s.powerUps;
+  power.nextKind = 'blackout';
+  power.waitToFire = true;
+  s.safeTime = 1e6; // nothing in the way matters here
+  Object.assign(power.crate, { active: true, x: s.player.x, y: s.player.y, age: 0 });
+  run(s, 0.1);
+  check('a chosen item comes out of the die', power.held && power.kind === 'blackout' && power.nextKind === null);
+  run(s, 6);
+  check('a waiting item does not go off by itself', power.held);
+  power.waitToFire = false;
+  s.step(1 / 60, { steer: 0, activatePowerUp: true }, offView);
+  check('once let go, the tap uses it', !power.held && !power.waitToFire);
+  Object.assign(power.crate, { active: true, x: s.player.x, y: s.player.y, age: 0 });
+  run(s, 0.1);
+  check('the die after that is random again', power.held && power.kind !== null);
+  s.reset(4);
+  check('a new run forgets the choice', power.nextKind === null && !power.waitToFire);
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

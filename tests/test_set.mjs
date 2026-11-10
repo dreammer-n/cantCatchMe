@@ -366,7 +366,7 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('it slides', Math.hypot(p.model.x - start.x, p.model.y - start.y) > 20, `${Math.hypot(p.model.x - start.x, p.model.y - start.y).toFixed(0)} units`);
   check('and turns as it goes', p.model.heading !== start.heading);
   for (let t = 0; t < 1.5; t += 1 / 60) s.step(1 / 60, { steer: 0 }, quietView);
-  check('and then it stops', p.model.speed < 5 && p.state === 'wreck', `${p.model.speed.toFixed(1)}`);
+  check('and then it is gone (it blinks out within a second)', p.state !== 'wreck', p.state);
   // Falling into a hole is no such thing.
   const q = s.spawnPolice(1200, 1000, 0, { role: 'chaser', speedFactor: 1, turnDeg: 100, aimSide: 0, launchShare: 0 });
   q.model.startFall();

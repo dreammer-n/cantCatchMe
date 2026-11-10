@@ -3,6 +3,7 @@ import { DEBUG } from '../config/debug.js';
 import {
   WORLD,
   LEADERBOARD,
+  MISSIONS,
   applyMapPalette,
   handlingFor,
   AUDIO,
@@ -56,6 +57,8 @@ import { SirenBeams } from '../render/SirenBeams.js';
 import { ChaseSimulation } from '../systems/ChaseSimulation.js';
 import { HitStop } from '../systems/HitStop.js';
 import { Records, Garage, coinsForRun, Maps } from '../systems/ScoreSystem.js';
+import { Missions } from '../systems/Missions.js';
+import { Progress, wantedAt, wantedCall } from '../systems/Progress.js';
 import { Settings } from '../systems/Settings.js';
 import { ThreatRadar } from '../systems/ThreatRadar.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
@@ -71,6 +74,15 @@ const WARM_UP_VIEWS = 4; // car views a frame
 // plays effects and sounds for the simulation's events, and runs the flow:
 //   'attract' (title screen: the car waits, still, on the start ring)
 //   'playing' -> 'crashed' (slow motion for a moment) -> results (GameOverScene)
+// A wreck's visibility age seconds after it crashed: solid, then blinking on and off, then gone; or, stay (the
+// player's own car), solid again after the blinking.
+function wreckBlink(age, stay = false) {
+  const left = WRECK.lifetime - age;
+  if (left <= 0) return stay ? 1 : 0;
+  if (left > WRECK.blinkSeconds) return 1;
+  return Math.floor(left / WRECK.blinkEvery) % 2 === 0 ? 1 : 0.15;
+}
+
 export class GameScene extends Phaser.Scene {
   constructor() {
     super('GameScene');
@@ -168,7 +180,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   currentHandling() {
-    return HANDLING_PRESETS[this.registry.get('handlingPreset')] || handlingFor(Garage.car()); // presets: debug toolbar only
+    return HANDLING_PRESETS[this.registry.get('handlingPreset')] || Progress.handling(handlingFor(Garage.car())); // presets: debug toolbar only
   }
 
   onHandlingChanged() {
@@ -183,7 +195,6 @@ export class GameScene extends Phaser.Scene {
     this.oldCarId = this.carId;
     this.carId = Garage.selected;
     this.looks.player = this.playerLook();
-    this.looks.playerWreck = this.wreckLook(this.carId);
   }
 
   // Moves to the map chosen on the map screen. Everything on the map is drawn again in its colours: that
@@ -223,10 +234,9 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  // The same car, burnt out: the player's own, or whichever police car it was. Drawn the first time it is needed
-  // (normally already done in the warm-up).
+  // A wrecked police car: the same drawing as the car, its lights off. It blinks and is gone (WRECK).
   wreckLook(name) {
-    return this.lazyLook(`${name}Wreck`, { shadowPoints: carShadowPoints(name), lights: false, burnt: true });
+    return this.lazyLook(name, { shadowPoints: carShadowPoints(name), lights: false, burnt: true });
   }
 
   // A look whose drawing sheet is only made when something first asks for it.
@@ -239,7 +249,6 @@ export class GameScene extends Phaser.Scene {
     const look = (name, lights, lightSpot) => this.lazyLook(name, { shadowPoints: carShadowPoints(name), lights, lightSpot });
     return {
       player: this.playerLook(ATTRACT_HEADING),
-      playerWreck: this.wreckLook(this.carId),
       police: look('police', true),
       interceptor: look('interceptor', true),
       bearcat: look('bearcat', true, BEARCAT_LIGHTS),
@@ -272,7 +281,7 @@ export class GameScene extends Phaser.Scene {
   // Everything the title screen doesn't show, queued to be drawn a piece a frame once the title is up, so the game
   // reaches its title as fast as it can and a run still never waits for a drawing.
   queueWarmUp() {
-    const cars = ['police', 'interceptor', 'policeWreck', `${this.carId}Wreck`, 'bearcat', 'interceptorWreck', 'bearcatWreck'];
+    const cars = ['police', 'interceptor', 'bearcat'];
     this.warmUp = [
       ...cars.map((name) => () => ensureCarAtlas(this, name, projection, 'none')),
       () => this.helicopterView.redraw(),
@@ -317,7 +326,7 @@ export class GameScene extends Phaser.Scene {
     this.crashClock = 0;
     this.finished = false;
     this.resetVisuals();
-    this.coach.reset(firstDrive);
+    this.coach.reset(firstDrive, this.sim);
     if (firstDrive) {
       this.sim.spawner.cooldown = Infinity; // no police until the steering lesson is done (Coach)
       // Only the views of the car standing at the start are needed until it moves.
@@ -326,8 +335,11 @@ export class GameScene extends Phaser.Scene {
     }
     this.snapCamera();
     this.audio.setMusic('chase');
-    PlatformManager.runStarted();
+    if (!firstDrive) PlatformManager.runStarted(); // the first drive's run starts at the first touch (beginDriving)
+    Missions.startRun(Maps.selected);
+    this.wantedLevel = 1;
     this.game.events.emit('run-started');
+    this.game.events.emit('wanted', 1, null);
     this.game.events.emit('shields', this.sim.player.armor, this.sim.maxArmor);
     this.game.events.emit('steer-hint', firstDrive);
   }
@@ -337,6 +349,25 @@ export class GameScene extends Phaser.Scene {
     ensureCarAtlas(this, `${this.carId}Body`);
     ensureCarAtlas(this, `${this.carId}Wheels`);
     this.mode = 'playing';
+    PlatformManager.runStarted();
+    PlatformManager.sendEvent('first_touch', { seconds_waiting: Math.round(this.simTime) });
+  }
+
+  // During play: missions done (paid at once), and the WANTED level rising as new trouble joins.
+  trackProgress() {
+    for (const m of Missions.check(this.sim.stats)) {
+      Garage.award(m.reward);
+      this.game.events.emit('toast', `MISSION DONE! +${m.reward}`, 'power');
+      PlatformManager.sendEvent('mission_complete', { kind: m.kind, target: m.target });
+    }
+    const level = wantedAt(this.sim.stats.time, this.sim.pace.hard);
+    if (level > this.wantedLevel) {
+      this.wantedLevel = level;
+      // During a lesson of the first drive only the star lights: its call-out would talk over the lesson.
+      const quiet = Boolean(this.coach.lesson);
+      this.game.events.emit('wanted', level, quiet ? null : wantedCall(level, this.sim.pace.hard));
+      if (!quiet) this.audio.play('police_radio');
+    }
   }
 
   get running() {
@@ -406,17 +437,38 @@ export class GameScene extends Phaser.Scene {
     const newBest = summary.time > Maps.bestTime(Maps.selected);
     const mapUnlocks = Maps.submit(summary.time);
     const nextMap = Maps.nextLocked();
-    const coins = coinsForRun(summary, this.sim.pace.hard);
+    const coins = coinsForRun(summary, this.sim.pace.hard, Progress.coinBonus());
+    const runNumber = Records.totals.runs; // this run's number (Records.submit above counted it)
     if (this.sim.pace.hard) {
       const score = Records.submitHard(summary.time);
       if (score !== null) PlatformManager.submitScore(LEADERBOARD.id, score);
     }
     Garage.award(coins.total);
+    // Missions done in this run (already paid), then XP: the run's coins plus a share for each mission.
+    const done = Missions.endRun(this.sim.stats);
+    const missions = done.map((m) => ({ text: Missions.describe(m), reward: m.reward }));
+    const xpBefore = { level: Progress.level, share: Progress.share };
+    const levelUps = Progress.addXp(coins.total + done.length * MISSIONS.xp);
+    const progress = { before: xpBefore, level: Progress.level, share: Progress.share, levelUps };
+    const cause = this.sim.crash ? this.sim.crash.cause : 'police';
+    PlatformManager.sendEvent('run_end', {
+      seconds: Math.round(summary.time),
+      cause,
+      map: Maps.selected,
+      first_drive: this.coach.firstDrive,
+      run_number: Math.min(runNumber, 50),
+      wrecks: summary.wrecks,
+      revived: this.sim.revived,
+      hard: this.sim.pace.hard,
+      wanted: this.wantedLevel,
+      missions_done: done.length,
+    });
+    for (const level of levelUps) PlatformManager.sendEvent('level_up', { level });
     PlatformManager.flush();
     this.audio.quiet();
     this.audio.setMusic(null); // no music on the results
     PlatformManager.showInterstitial(); // a natural pause: the platform decides whether an advert is due
-    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause: this.sim.crash ? this.sim.crash.cause : 'police', crashTip };
+    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause, crashTip, missions, progress };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
   }
@@ -480,6 +532,7 @@ export class GameScene extends Phaser.Scene {
       if (playing) {
         this.coach.update(dt, command, this.sim, this.simView);
         gameDt *= this.coach.timeShare; // the first police car on screen: a moment of slow motion
+        this.trackProgress();
       } else this.coach.hideMark();
       const events = this.sim.step(gameDt, { steer: playing ? command.steer : 0, activatePowerUp: playing && this.pendingPower }, this.simView);
       this.pendingPower = false;
@@ -514,6 +567,7 @@ export class GameScene extends Phaser.Scene {
     const player = this.sim.player;
     for (const e of events) {
       this.coach.onEvent(e);
+      Missions.onEvent(e);
       switch (e.type) {
         case 'spawn':
           this.acquireView(e.police, this.lookFor(e.police));
@@ -546,7 +600,6 @@ export class GameScene extends Phaser.Scene {
             this.effects.holeDust(e.x, e.y);
             this.rig.addTrauma(TRAUMA.fall);
           } else {
-            this.playerView.setLook(this.looks.playerWreck);
             this.playerView.startTumble();
             this.hitStop.trigger(HITSTOP.crashMs);
             vibrate(HAPTICS.crash);
@@ -900,19 +953,24 @@ export class GameScene extends Phaser.Scene {
 
   syncCars(time, gameDt, realDt) {
     // The player's crash plays out during the slow motion, so it runs on real time.
+    // The player's crash: the car blinks like a police wreck, but stays (not when it fell into a hole).
+    if (this.sim.state === 'crashed' && !this.sim.player.isFalling) {
+      this.playerGone = (this.playerGone || 0) + realDt;
+      this.playerView.setAlpha(wreckBlink(this.playerGone, true));
+    } else if (this.playerGone) {
+      this.playerGone = 0;
+      this.playerView.setAlpha(1);
+    }
     this.playerView.update(this.sim.player, this.view, time, realDt * TUMBLE.playerTimeScale);
     for (const police of this.sim.police) {
       if (!police.active || !police.view) continue;
       police.view.setFrozen(police.alive && police.frozen > 0);
-      if (police.state === 'wreck') {
-        const left = WRECK.lifetime - police.wreckTime;
-        police.view.setAlpha(left < WRECK.fadeSeconds ? Math.max(0, left / WRECK.fadeSeconds) : 1);
-      }
+      if (police.state === 'wreck') police.view.setAlpha(wreckBlink(police.wreckTime));
       police.view.update(police.model, this.view, time, gameDt);
     }
   }
 
-  // Skid marks and tire smoke for every sliding car on screen; smoke and flames from wrecks.
+  // Skid marks and tire smoke for every sliding car on screen; smoke from police cars on fire.
   updateTiresAndFires(ms) {
     const driving = this.mode !== 'attract' && !this.turntable;
     if (driving && this.mode === 'playing') {
@@ -929,9 +987,7 @@ export class GameScene extends Phaser.Scene {
         this.tires((police.id + 1) * 2, police.model, ms);
         if (police.burning > 0) this.burn(police.id, police.model, 0, ms, true);
       }
-      else if (police.state === 'wreck' && onScreen && !police.model.isFalling) this.burn(police.id, police.model, police.wreckTime, ms);
     }
-    if (this.sim.state === 'crashed' && !this.sim.player.isFalling) this.burn(-1, this.sim.player, this.crashClock * 2, ms);
     this.skids.update(ms);
   }
 
@@ -969,7 +1025,6 @@ export class GameScene extends Phaser.Scene {
 
   // onFire: a police car still driving while it burns (SCORCHER), whose flames PowerFx draws.
   burn(id, model, age, ms, onFire = false) {
-    if (age > WRECK.lifetime - WRECK.fadeSeconds) return;
     const key = `w${id}`;
     const clock = (this.smokeClock.get(key) || 0) + ms;
     if (clock < EFFECTS.wreckSmokeEveryMs) {
@@ -1131,7 +1186,7 @@ export class GameScene extends Phaser.Scene {
     this.layers.applyProjection();
     this.scenery.redraw();
     this.looks = this.makeLooks();
-    this.playerView.setLook(this.sim.state === 'crashed' ? this.looks.playerWreck : this.looks.player);
+    this.playerView.setLook(this.looks.player);
     for (const police of this.sim.police) {
       if (police.view) police.view.setLook(police.alive ? this.lookFor(police) : this.wreckLookFor(police));
     }

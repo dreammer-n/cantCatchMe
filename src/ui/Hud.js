@@ -13,6 +13,17 @@ export class Hud {
     this.distance = dt('hud-line', 'DIST: 0.00 M');
     this.wrecks = dt('hud-line', 'CARS: 0');
     this.record = dt('hud-record', 'RECORD: 00:00.00');
+    // The WANTED level: five stars under the record, lit as new trouble joins the chase.
+    this.wantedStars = Array.from({ length: 5 }, () => {
+      const star = el('span', 'hud-wanted-star');
+      star.innerHTML = ICONS.star;
+      return star;
+    });
+    this.wanted = el('div', 'hud-wanted', this.wantedStars);
+    this.wantedHead = dt('hud-call-head', '');
+    this.wantedBody = dt('hud-call-body', '');
+    this.call = el('div', 'hud-call', [this.wantedHead, this.wantedBody]);
+    this.call.hidden = true;
     this.pauseButton = button('btn hud-pause', dt('', 'PAUSE'), onPause, 'Pause');
     this.toasts = el('div', 'hud-toasts');
     this.count = dt('hud-count', '');
@@ -34,8 +45,9 @@ export class Hud {
     this.power.hidden = true;
     this.shownPower = null;
     this.node = el('div', 'hud', [
-      el('div', 'hud-tele', [this.time, this.distance, this.wrecks, this.shields, this.power]),
-      el('div', 'hud-right', [this.pauseButton, this.record]),
+      el('div', 'hud-tele', [this.time, this.wrecks, this.shields, this.power]), // distance: kept out, to keep it clean
+      el('div', 'hud-right', [this.pauseButton, this.record, this.wanted]),
+      this.call,
       this.toasts,
       this.count,
       this.steer,
@@ -65,7 +77,9 @@ export class Hud {
   }
 
   // name: the item working now (null: none). share: how much of its time is left, 1 to 0.
-  setPower(name, share) {
+  // held: an item caught and waiting for the player (its name beats; the ring is full), else the one working now.
+  setPower(name, share, held = false) {
+    this.power.classList.toggle('hud-power-held', held);
     this.power.hidden = !name;
     if (!name) {
       this.shownPower = null;
@@ -108,9 +122,29 @@ export class Hud {
     this.toasts.replaceChildren();
   }
 
+  // level: stars lit (1 to 5). call: what joins the chase now, shown big for a moment (null: no call-out).
+  setWanted(level, call) {
+    this.wantedStars.forEach((star, i) => star.classList.toggle('lit', i < level));
+    if (!call) return;
+    this.wantedStars[level - 1].classList.remove('hud-wanted-new');
+    void this.wantedStars[level - 1].offsetWidth;
+    this.wantedStars[level - 1].classList.add('hud-wanted-new');
+    clearTimeout(this.callTimer);
+    setDisplay(this.wantedHead, `WANTED LEVEL ${level}!`);
+    setDisplay(this.wantedBody, call);
+    this.call.hidden = false;
+    this.call.classList.remove('hud-call-pop');
+    void this.call.offsetWidth;
+    this.call.classList.add('hud-call-pop');
+    this.callTimer = setTimeout(() => (this.call.hidden = true), 2400);
+  }
+
   // A one-time hint ({ head, body }) for a few seconds; null takes it away.
   showTip(tip) {
     clearTimeout(this.tipTimer);
+    // sides: the two halves of a touch screen glow while the hint is up (TURN SHARP!: hold one).
+    this.sidesOn = Boolean(tip && tip.sides);
+    this.showSteer();
     if (!tip) {
       this.tip.hidden = true;
       return;
@@ -118,17 +152,25 @@ export class Hud {
     setDisplay(this.tipHead, tip.head);
     setDisplay(this.tipBody, tip.body);
     this.tip.hidden = false;
-    this.tip.classList.remove('hud-tip-pop');
+    this.tip.classList.remove('hud-tip-pop', 'hud-tip-hold');
     void this.tip.offsetWidth; // restart the pop
-    this.tip.classList.add('hud-tip-pop');
-    this.tipTimer = setTimeout(() => (this.tip.hidden = true), TUTORIAL.tipSeconds * 1000);
+    // hold: a DOUBLE TAP! prompt stays until it is taken away (showTip(null)).
+    this.tip.classList.add(tip.hold ? 'hud-tip-hold' : 'hud-tip-pop');
+    if (!tip.hold) this.tipTimer = setTimeout(() => (this.tip.hidden = true), TUTORIAL.tipSeconds * 1000);
+  }
+
+  // The glowing halves show for the steering lesson (with its line) or for a hint that asks for them.
+  showSteer() {
+    this.steer.hidden = !(this.steerOn || this.sidesOn);
+    this.steerText.hidden = !this.steerOn;
   }
 
   // The first drive's steering lesson. touch: the screen is a touch screen (hold a side), otherwise keys.
   setSteerHint(on, touch) {
-    this.steer.hidden = !on;
-    if (!on) return;
+    this.steerOn = on;
     this.steer.classList.toggle('hud-steer-touch', touch);
+    this.showSteer();
+    if (!on) return;
     setDisplay(this.steerText, touch ? 'HOLD LEFT OR RIGHT TO STEER' : 'STEER WITH < > OR A / D');
   }
 
