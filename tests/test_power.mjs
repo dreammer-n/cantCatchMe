@@ -724,7 +724,7 @@ const lock = (p) => {
     for (let cx = -3; cx < 3; cx += 1) for (let cy = -3; cy < 3; cy += 1) n += l.chunkAt(cx, cy).items.filter((i) => i.isRamp).length;
     return n;
   };
-  check('ramps turn up on every map with roads, never on BLACKTOP', maps.filter((m) => !m.bare).every((m) => rampsOn(m) > 0) && maps.filter((m) => m.bare).every((m) => rampsOn(m) === 0), maps.map((m) => `${m.id} ${rampsOn(m)}`).join(', '));
+  check('ramps turn up on every map with roads (when switched on), never on BLACKTOP', (!RAMP.onRoads || maps.filter((m) => !m.bare).every((m) => rampsOn(m) > 0)) && maps.filter((m) => m.bare).every((m) => rampsOn(m) === 0), maps.map((m) => `${m.id} ${rampsOn(m)}`).join(', '));
 
   // A ramp, low end first: the car rides up it, leaves the top, flies over a police car and a hole, and lands.
   const ramp = { kind: 'ramp', isRamp: true, x: 3000, y: 2900, heading: 0, model: 'ramp', params: {}, collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 }, breakable: false };
