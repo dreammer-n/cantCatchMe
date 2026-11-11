@@ -42,7 +42,8 @@ check('only KABOOM and TITAN have voices', POWERUP.sounds.shockwave.includes('ka
 check('TITAN is its voice and nothing under it', POWERUP.sounds.giant.length === 1);
 check('the engine is back, from the owner\'s own file, quiet under the music', AUDIO.files.engine_loop && AUDIO.engine.volume < AUDIO.chaseMusic && AUDIO.engine.pitch[1] > AUDIO.engine.pitch[0]);
 check('a combo makes no sound, on the owner\'s word', AUDIO.files.combo === undefined);
-check('the music dips subtly on the pause menu: a little, not a lot', AUDIO.musicDim >= 0.5 && AUDIO.musicDim < 0.85);
+check('the music is silent on the pause menu', AUDIO.musicDim === 0);
+check('sounds load in the order they are needed: the menu music and the click first', AUDIO.loadOrder[0] === 'menu' && AUDIO.loadOrder[1] === 'click' && AUDIO.loadOrder.every((name) => name === 'menu' || AUDIO.files[name]) && AUDIO.loadAtOnce >= 2);
 check('the police radio can\'t talk over itself', AUDIO.files.police_radio.cooldown >= 5);
 check('the music sits under the effects', AUDIO.chaseMusic < Math.min(...Object.values(POWERUP.sounds).flat().map((s) => AUDIO.files[s].volume)));
 const crashFile = AUDIO.files.carCrash;

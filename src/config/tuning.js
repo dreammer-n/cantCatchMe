@@ -1705,7 +1705,12 @@ export const AUDIO = {
   menuMusic: 0.8,
   chaseMusic: 0.65, // under the effects
   musicFade: 0.3, // seconds: how quickly one track gives way to the other (a time constant: about 5 x this in all)
-  musicDim: 0.65, // share of its volume the music keeps on the pause menu and the results
+  musicDim: 0, // share of its volume the music keeps on the pause menu: none (owner, 2026-11-11: pause is silent)
+  // Sounds download in this order, a few at a time, so what is heard first arrives first on a slow connection:
+  // the menu music and the button click, then the driving and crash sounds, then the rest. The chase track (the
+  // biggest file, only needed once a run starts) starts loading once these are in. Names not listed come last.
+  loadOrder: ['menu', 'click', 'carCrash', 'bump', 'engine_loop', 'tire_squeal', 'cone', 'siren', 'kaboom', 'shockwave'],
+  loadAtOnce: 3, // files downloading at the same time
   menuOverlap: 1.2, // seconds the menu track overlaps itself where it repeats
   musicLookAhead: 2, // seconds ahead that its next pass is prepared
   loopTrim: 0.06, // seconds skipped at each end of a looping effect: the silence an MP3 adds

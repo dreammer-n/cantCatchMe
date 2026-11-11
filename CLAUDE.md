@@ -110,6 +110,8 @@ Gameplay intent lives in `GAME_DESIGN.md`. This file records decisions the owner
 
 65. **No ramps (2026-11-11):** owner's call: "remove the ramp". No ramps anywhere: `RAMP.onRoads` and `onLawns` are false, as `enabled` already was. The ramp's code, physics and tests stay for later, as in decision 47. The lawn kerbs and fewer leaves of decision 64 stay. Version 1.13.1.
 
+66. **Sounds load in the order they are needed; pause is silent (2026-11-11):** owner asked why the sounds took a while. Measured on a slow phone connection (about 1.6 Mbps): all 18 files started at once and shared it, so the menu music came 4.5 s after the title. Now they download three at a time in the order they are heard (`AUDIO.loadOrder`, `loadAtOnce`): the menu music and the click, then crash, bump, engine and tire sounds, then the rest; the chase track starts loading after them, or at the first touch, whichever is first (`AudioSystem.loadChase`). Measured: the menu music 0.5 s after the title instead of 4.5. Browsers still allow no sound before the first touch. On the pause menu the music stops (`AUDIO.musicDim` 0, the chase track paused and carried on from there after), replacing decision 26's dip. Version 1.13.2.
+
 ## Platform facts to respect (checked 2026-10-28, re-verify before Milestone 3)
 
 - YouTube Playables: initial bundle MUST be < 30 MiB and SHOULD be < 15 MiB (measured compressed, until `gameReady`).

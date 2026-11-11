@@ -20,7 +20,7 @@ export class AudioSystem {
     this.soundOn = true; // in-game setting: the effects
     this.musicOn = true; // in-game setting: the music
     this.platformAllowed = true; // platform mute always wins
-    this.paused = false; // in-game pause menu: the music dips
+    this.paused = false; // in-game pause menu: the music stops
     this.platformPaused = false; // tab hidden / platform pause / an advert
     this.cooldowns = new Map();
     this.track = null; // the music wanted now: 'menu', 'chase' or null
@@ -32,22 +32,48 @@ export class AudioSystem {
     this.engine = null; // the engine loop, whose speed sets its pitch
     // Fetched and decoded while the game loads, so the music can start at the very first touch. Browsers allow no
     // sound before that touch, but an offline context can decode without one, and what it makes plays in any context.
+    // In the order they are needed (AUDIO.loadOrder), a few at a time, so on a slow connection the menu music isn't
+    // sharing it with sounds that won't be heard for minutes.
     this.downloads = new Map();
     const decoder = offlineDecoder();
-    const fetchFile = (name, path) =>
-      this.downloads.set(
-        name,
-        fetch(ASSETS + path)
+    const paths = new Map([['menu', AUDIO.music.menu], ...Object.entries(AUDIO.files).map(([name, file]) => [name, file.path])]);
+    const order = [...AUDIO.loadOrder.filter((name) => paths.has(name)), ...[...paths.keys()].filter((name) => !AUDIO.loadOrder.includes(name))];
+    const waiting = [];
+    let running = 0;
+    const next = () => {
+      while (running < AUDIO.loadAtOnce && waiting.length > 0) {
+        const job = waiting.shift();
+        running += 1;
+        fetch(ASSETS + job.path)
           .then((r) => (r.ok ? r.arrayBuffer() : null))
           .then((bytes) => (bytes && decoder ? decoder.decodeAudioData(bytes).catch(() => null) : bytes))
-          .catch(() => null),
-      );
-    fetchFile('menu', AUDIO.music.menu);
-    for (const [name, file] of Object.entries(AUDIO.files)) fetchFile(name, file.path);
-    // The chase track starts filling its buffer now too, rather than at the first touch.
-    this.chase = new Audio(ASSETS + AUDIO.music.chase);
+          .catch(() => null)
+          .then((sound) => {
+            running -= 1;
+            job.done(sound);
+            next();
+            if (running === 0 && waiting.length === 0) this.loadChase();
+          });
+      }
+    };
+    for (const name of order) {
+      this.downloads.set(name, new Promise((done) => waiting.push({ path: paths.get(name), done })));
+    }
+    next();
+    // The chase track streams from an audio element; it starts filling its buffer once the sounds above are in.
+    this.chase = new Audio();
     this.chase.loop = true;
+    this.chase.preload = 'none';
+    this.chaseLoading = false;
+  }
+
+  // Starts the chase track's download (once): after the other sounds, or when a run needs it, whichever is first.
+  loadChase() {
+    if (this.chaseLoading) return;
+    this.chaseLoading = true;
     this.chase.preload = 'auto';
+    this.chase.src = ASSETS + AUDIO.music.chase;
+    this.chase.load();
   }
 
   get audible() {
@@ -139,6 +165,7 @@ export class AudioSystem {
   // that does count, and paused again unless it is wanted.
   primeChase() {
     if (!this.ctx || this.chasePrimed || this.chasePriming) return;
+    this.loadChase();
     this.chasePriming = true;
     this.chase
       .play()
@@ -155,7 +182,10 @@ export class AudioSystem {
   // The chase track plays only while it can be heard, so a pause or mute stops it for real.
   syncChase() {
     if (!this.ctx) return;
-    if (this.track === 'chase' && this.musicOn && this.audible) this.chase.play().catch(() => {});
+    if (this.track === 'chase' && this.musicOn && this.audible && !this.paused) {
+      this.loadChase();
+      this.chase.play().catch(() => {});
+    }
     else this.chase.pause();
   }
 
@@ -219,6 +249,7 @@ export class AudioSystem {
     if (!this.ctx) return;
     if (paused) this.quiet();
     this.applyMusicLevels();
+    this.syncChase(); // the chase track stops while paused (AUDIO.musicDim 0), and goes on from there after
   }
 
   setPlatformPaused(paused) {
