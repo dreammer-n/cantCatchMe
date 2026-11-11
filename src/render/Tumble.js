@@ -21,6 +21,7 @@ export class Tumble {
     this.tiltSide = 1;
     this.hop = 0;
     this.bounce = 0;
+    this.flipping = false;
   }
 
   // random: returns 0..1.
@@ -33,9 +34,33 @@ export class Tumble {
     this.tiltSide = random() < 0.5 ? -1 : 1;
   }
 
+  // A flip: thrown up high, turning right over (drawn as a full turn on screen) and slammed down; no bounce,
+  // since the crash that follows has its own (flipSeconds, then the wreck).
+  flip(random) {
+    this.reset();
+    this.active = true;
+    this.flipping = true;
+    this.hop = TUMBLE.flipHop;
+    this.targetSpin = (random() < 0.5 ? -1 : 1) * TUMBLE.flipSpin;
+    this.tiltSide = random() < 0.5 ? -1 : 1;
+  }
+
   update(dt) {
     if (!this.active) return;
     this.time += dt;
+    if (this.flipping) {
+      const t = Math.min(1, this.time / TUMBLE.flipSeconds);
+      this.spin = this.targetSpin * t;
+      this.z = this.hop * 4 * t * (1 - t);
+      this.tilt = this.tiltSide * Math.PI * 2 * TUMBLE.flipTurns * (1 - (1 - t) * (1 - t));
+      if (t >= 1) {
+        this.z = 0;
+        this.tilt = 0;
+        this.active = false;
+        this.flipping = false;
+      }
+      return;
+    }
     const air = Math.min(1, this.time / TUMBLE.airSeconds);
     const late = Math.min(1, Math.max(0, (this.time - TUMBLE.airSeconds) / TUMBLE.bounceSeconds));
     this.spin = this.targetSpin * (1 - (1 - air) * (1 - air));

@@ -9,7 +9,7 @@ import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keep
 import { steerPolice } from './PolicePursuit.js';
 import { PowerUps } from './PowerUpSystem.js';
 import { RunStats } from './ScoreSystem.js';
-import { NORMAL_PACE, SpawnDirector, isOnScreen } from './SpawnSystem.js';
+import { NORMAL_PACE, SpawnDirector, fragilityAt, isOnScreen, toughnessAt } from './SpawnSystem.js';
 import { nearestRoadPoint } from './WorldLayout.js';
 
 // One chase, as pure game logic (no Phaser, no drawing, no sound), so it can be tested and
@@ -65,7 +65,17 @@ export class ChaseSimulation {
 
   // A hit harder than this wrecks the player's car.
   get playerCrashImpact() {
-    return CRASH.playerImpact * (this.car ? this.car.durability : 1);
+    return CRASH.playerImpact * (this.car ? this.car.durability : 1) * toughnessAt(this.stats.time, this.pace);
+  }
+
+  // The same against walls and props: tougher early in a normal run too, but less so (HEAT.propToughness).
+  get playerPropImpact() {
+    return CRASH.playerImpact * (this.car ? this.car.durability : 1) * toughnessAt(this.stats.time, this.pace, 'prop');
+  }
+
+  // A hit harder than this wrecks a police car against another car (easier early in a normal run: HEAT.fragility).
+  get policeCarImpact() {
+    return CRASH.policeCarImpact * fragilityAt(this.stats.time, this.pace);
   }
 
   setPace(pace) {
@@ -347,7 +357,7 @@ export class ChaseSimulation {
       player.puncture(FLAT_TIRE.seconds, this.rng() < 0.5 ? -1 : 1);
       this.emit('flat', { x: player.x, y: player.y });
     }
-    if (this.result.impact > this.playerCrashImpact) this.crashPlayer('obstacle');
+    if (this.result.impact > this.playerPropImpact) this.crashPlayer('obstacle');
     else if (this.result.impact > 60) this.emit('bump', { x: player.x, y: player.y, impact: this.result.impact, player: true });
     else if (this.result.impact > CRASH.scrapeImpact) this.emit('scrape', { x: player.x, y: player.y, impact: this.result.impact });
     if (this.result.curbHit) this.emit('curb', { x: player.x, y: player.y });
@@ -471,13 +481,13 @@ export class ChaseSimulation {
       } else if (impact > this.playerCrashImpact) {
         if (!police.alive) this.crashPlayer('wreck');
         else this.crashPlayer(police.parked ? 'roadblock' : 'police');
-        if (police.alive && impact > CRASH.policeCarImpact) this.wreckPolice(police, 'player');
+        if (police.alive && impact > this.policeCarImpact) this.wreckPolice(police, 'player');
       } else if (impact > 40) {
         this.emit('bump', { x: this.player.x, y: this.player.y, impact, player: true });
       }
       return;
     }
-    if (impact <= CRASH.policeCarImpact) return;
+    if (impact <= this.policeCarImpact) return;
     // A Bearcat shrugs off all but the hardest hits. Whatever hits it comes off worse.
     const hard = impact > BEARCAT.carImpact;
     if (a.alive && (!a.armored || hard)) this.wreckPolice(a, b.alive ? 'police' : 'wreck');
@@ -634,7 +644,7 @@ export class ChaseSimulation {
   // How hard a police car must hit this prop to be wrecked. Pillars are deadly; Bearcats are tough.
   obstacleLimit(police, shape) {
     if (shape && shape.item.isPillar) return PILLARS.lethalImpact;
-    return police.armored ? BEARCAT.obstacleImpact : CRASH.policeObstacleImpact;
+    return police.armored ? BEARCAT.obstacleImpact : CRASH.policeObstacleImpact * fragilityAt(this.stats.time, this.pace);
   }
 
   // ---- Spike strips, laid across roadblocks ----------------------------------------------------

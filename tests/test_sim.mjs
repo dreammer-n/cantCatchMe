@@ -129,15 +129,22 @@ p3.handling.maxTurnRateDeg = 0;
 stepSim(1.2);
 check('police hitting a concrete block at speed are wrecked', p3.state === 'wreck' || p3.state === 'idle', p3.state);
 
-// Player rammed hard from the side by a police car: busted.
-sim.reset(6);
-sim.player.reset(3000, 3000, 0);
-sim.player.launch(300);
-const p4 = sim.spawnPolice(2850, 2950, Math.PI / 2, { role: 'chaser', speedFactor: 1.1, turnDeg: 0, aimSide: 0 });
-p4.handling.maxTurnRateDeg = 0;
-p4.model.launch(330);
-ev = stepSim(0.8);
-check('a T-bone by police busts the player', sim.state === 'crashed' && sim.crash.cause === 'police', sim.crash ? sim.crash.cause : 'no crash');
+// Player rammed hard from the side by a police car: busted, once the run's forgiving start is over (HEAT.toughness).
+const tBone = (hard) => {
+  sim.setPace({ hard });
+  sim.reset(6);
+  sim.player.reset(3000, 3000, 0);
+  sim.player.launch(300);
+  const p4 = sim.spawnPolice(2850, 2950, Math.PI / 2, { role: 'chaser', speedFactor: 1.1, turnDeg: 0, aimSide: 0 });
+  p4.handling.maxTurnRateDeg = 0;
+  p4.model.launch(330);
+  return stepSim(0.8);
+};
+tBone(false);
+check('early in a normal run the car takes that knock and drives on', sim.state === 'running', sim.crash ? sim.crash.cause : 'running');
+ev = tBone(true);
+check('a T-bone by police busts the player (full rule: HARD START, or later in a run)', sim.state === 'crashed' && sim.crash.cause === 'police', sim.crash ? sim.crash.cause : 'no crash');
+sim.setPace({});
 
 // Boxed in: speed held under the limit = busted ("pinned").
 sim.reset(7);
@@ -288,6 +295,7 @@ function hitBlockAt(angleDeg) {
   const a = (angleDeg * Math.PI) / 180; // 90 = straight at the block's long south face
   s.player.reset(1000 - Math.cos(a) * 170, 900 + 60 + Math.sin(a) * 170, Math.PI / 2 - a);
   s.player.launch(300);
+  s.setPace({ hard: true }); // no forgiving start (HEAT.toughness): the full rule
   return { s, ...stepTier(s, 0.9) };
 }
 {

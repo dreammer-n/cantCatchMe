@@ -714,10 +714,17 @@ const lock = (p) => {
     }
   }
   check('Suburbs has hydrants, mailboxes, trash cans, hedges and fences', ['hydrant', 'mailbox', 'trashcan', 'bush', 'fence'].every((k) => kinds[k] > 0), JSON.stringify(['hydrant', 'mailbox', 'trashcan', 'bush', 'fence'].map((k) => kinds[k] || 0)));
-  check('no ramps in the world while they are switched off', RAMP.enabled || !kinds.ramp, `${kinds.ramp || 0}`);
+  check('a ramp on the road now and then (in about half the chunks)', !RAMP.onRoads || (kinds.ramp >= 15 && kinds.ramp <= 45), `${kinds.ramp || 0} in 64 chunks`);
   check('no road hole right by a ramp', rampsByHoles === 0, `${rampsByHoles}`);
   const others = maps.slice(1).map((m) => buildLayout(undefined, m));
-  check('the other maps don\'t have them', others.every((l) => [0, 1, 2].every((cx) => l.chunkAt(cx, 1).items.every((i) => !['hydrant', 'mailbox', 'trashcan', 'ramp'].includes(i.kind)))));
+  check('the other maps don\'t have the street props', others.every((l) => [0, 1, 2].every((cx) => l.chunkAt(cx, 1).items.every((i) => !['hydrant', 'mailbox', 'trashcan'].includes(i.kind)))));
+  const rampsOn = (m) => {
+    let n = 0;
+    const l = buildLayout(undefined, m);
+    for (let cx = -3; cx < 3; cx += 1) for (let cy = -3; cy < 3; cy += 1) n += l.chunkAt(cx, cy).items.filter((i) => i.isRamp).length;
+    return n;
+  };
+  check('ramps turn up on every map with roads, never on BLACKTOP', maps.filter((m) => !m.bare).every((m) => rampsOn(m) > 0) && maps.filter((m) => m.bare).every((m) => rampsOn(m) === 0), maps.map((m) => `${m.id} ${rampsOn(m)}`).join(', '));
 
   // A ramp, low end first: the car rides up it, leaves the top, flies over a police car and a hole, and lands.
   const ramp = { kind: 'ramp', isRamp: true, x: 3000, y: 2900, heading: 0, model: 'ramp', params: {}, collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 }, breakable: false };

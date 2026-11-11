@@ -213,8 +213,9 @@ export const TUTORIAL = {
   markRadius: 70, // the glow on the road under what a hint is about (world units)
   // The first drive forgives early crashes: put back on the road with OOPS! TRY AGAIN and the 3, 2, 1, with no
   // coins, no ad and no CONTINUE? screen. The run's own second chance is still there afterwards.
-  // The first drive's lessons, in order (Coach): make a police car crash, the die, KABOOM, the helicopter and
-  // BLACKOUT. Lessons a player hasn't reached carry over to their next runs (under basicsRuns).
+  // The first drive's lessons, in order (Coach): make a police car crash, then the die and KABOOM; then YOU'RE ON
+  // YOUR OWN!. The helicopter is taught by its one-time hint when one first comes (owner, 2026-11-11: a third
+  // lesson made the first drive too long). Lessons a player hasn't reached carry over to their next runs.
   // Each lesson waits for the player to act, and what happens next follows from it. While a lesson runs, the
   // police are the lesson's own (SpawnDirector.lesson) and the player can't be wrecked in its key moments.
   closeRange: 300, // a police car this close is close enough for TURN SHARP!
@@ -249,12 +250,14 @@ export const TUTORIAL = {
     roadblock: 'TIP: LOOK FOR THE GAP IN A ROADBLOCK',
   },
   tips: {
-    police: { head: 'POLICE!', body: "DON'T LET THEM RAM YOU", basic: true },
-    wreck: { head: 'NICE!', body: 'THEY CRASH, YOU GET COINS', basic: true },
-    die: { head: 'LUCKY DIE!', body: 'IT BRINGS YOU A POWER-UP', basic: true },
-    use: { head: 'POWER-UP!', body: 'WAIT AND IT GOES OFF BY ITSELF', basic: true },
-    turn: { head: 'TURN SHARP!', body: 'HOLD LEFT OR RIGHT', keysBody: 'HOLD A OR D', basic: true },
-    kaboom: { head: 'DOUBLE TAP!', keysHead: 'PRESS SPACE!', body: 'KABOOM BLOWS THEM ALL AWAY', basic: true },
+    // One plain action per hint: what to do, in as few words as possible.
+    police: { head: 'POLICE!', body: 'DODGE THEM, MAKE THEM CRASH', basic: true },
+    wreck: { head: 'NICE!', body: 'EVERY CRASH PAYS COINS', basic: true },
+    die: { head: 'LUCKY DIE!', body: 'DRIVE INTO IT', basic: true },
+    use: { head: 'POWER-UP!', body: 'DOUBLE TAP TO USE IT', keysBody: 'PRESS SPACE TO USE IT', basic: true },
+    turn: { head: 'TURN NOW!', body: 'HOLD LEFT OR RIGHT', keysBody: 'HOLD A OR D', basic: true },
+    kaboom: { head: 'DOUBLE TAP!', keysHead: 'PRESS SPACE!', body: 'BLOW THEM ALL AWAY', basic: true },
+    done: { head: "YOU'RE ON YOUR OWN!", body: 'LAST AS LONG AS YOU CAN', basic: true },
     blackout: { head: 'DOUBLE TAP!', keysHead: 'PRESS SPACE!', body: 'BLACKOUT DOWNS THE CHOPPER', basic: true },
     bearcat: { head: 'SWAT TRUCK!', body: "DON'T TOUCH IT" },
     roadblock: { head: 'ROADBLOCK!', body: 'FIND THE GAP' },
@@ -678,13 +681,17 @@ export const WARNING = {
 //   45 s +   full tactical pursuit: the helicopter (HELICOPTER), more cars, more of them interceptors
 //            and Bearcats, and interceptors react faster
 export const HEAT = {
-  // A gentle first two or three minutes (owner, 2026-11-06): one police car, then more, slower than the player at
-  // first; interceptors from 1 minute, Bearcats from 2; the full pressure of before by about 5 minutes.
-  police: [[0, 1], [30, 2], [60, 3], [90, 4], [120, 6], [150, 8], [180, 11], [240, 17], [300, 24], [360, 26]],
+  // Busy but forgiving (owner, 2026-11-11): police from the start and more of them early, so there is always a
+  // chase, but they are slower than the player at first and wreck easily, and the player's car takes harder knocks
+  // early on (toughness); interceptors from 1 minute, Bearcats from 2; the full pressure of before by 5 minutes.
+  police: [[0, 1], [8, 2], [40, 3], [80, 4], [120, 6], [150, 8], [180, 11], [240, 17], [300, 24], [360, 26]],
+  toughness: [[0, 2.1], [90, 1.6], [180, 1.2], [240, 1]], // x the police hit that wrecks the player's car (CRASH.playerImpact)
+  propToughness: [[0, 1.25], [120, 1.12], [240, 1]], // the same against walls and props: modest, so a full-speed head-on still ends it
+  fragility: [[0, 0.75], [180, 0.9], [240, 1]], // x the hit that wrecks a police car (props and other cars)
   interceptorShare: [[59.99, 0], [60, 0.15], [120, 0.3], [180, 0.45], [240, 0.6]],
   bearcatShare: [[119.99, 0], [120, 0.1], [180, 0.18], [240, 0.26]], // share of new cars that are Bearcats
-  speedFactor: [[0, 0.92], [60, 0.96], [120, 1.0], [180, 1.05], [240, 1.1], [300, 1.14]], // x the player's top speed of 300
-  turnDeg: [[0, 95], [150, 118], [270, 136]],
+  speedFactor: [[0, 0.86], [60, 0.92], [120, 1.0], [180, 1.05], [240, 1.1], [300, 1.14]], // x the player's top speed of 300
+  turnDeg: [[0, 88], [150, 118], [270, 136]],
   reaction: [[150, 1], [210, 0.65]], // interceptors' reaction time, x normal
 };
 
@@ -699,6 +706,9 @@ export const HEAT_HARD = {
   reaction: [[70, 1], [110, 0.65]],
   roadblockAt: 40, // seconds: the first roadblock ...
   helicopterAt: 70, // ... and the helicopter
+  toughness: [[0, 1]],
+  propToughness: [[0, 1]],
+  fragility: [[0, 1]],
 };
 
 // [TUNE] SWAT Bearcat: a heavy armoured truck. Slow to turn, hard to stop.
@@ -756,7 +766,18 @@ export const STREET_PROPS = {
 // moment, over police, small things and even holes. Buildings still stop it. Physics stays flat: only the
 // drawing lifts it.
 export const RAMP = {
-  enabled: false, // switched off by the owner (2026-11-06): no ramps are placed in the world. The code stays for later.
+  enabled: false, // ramps on the road beside building sites: switched off by the owner (2026-11-06)
+  // Ramps on the road, once in a while, on every map with roads (owner, 2026-11-11): in a lane, mid-block, along
+  // the road, so a car that takes it flies along the road and lands on it. Never on a border road, on a bridge or
+  // near the start.
+  onRoads: false, // off again (owner, 2026-11-11): no ramps anywhere
+  roadChance: 0.45, // share of chunks with one
+  // Ramps on the Suburbs lawns: tried and taken out the same day (the owner had meant curbs).
+  onLawns: false,
+  lawnChance: 0.85, // share of grass blocks that get one (where one fits)
+  lawnInset: 52, // the ramp's middle, in from the block's edge
+  lawnFromCorner: 60, // its low end, in from the block's corner
+  lawnClearance: 14, // room kept round props along the strip (a low kerbed grass plot may touch it)
   width: 100,
   length: 140,
   height: 30, // its high end
@@ -1066,6 +1087,11 @@ export const TUMBLE = {
   tiltDeg: 7, // it leans over a little while in the air
   overFlamesHeight: 12, // above this height it is drawn in front of the fireball
   playerTimeScale: 0.6, // the player's crash runs in slow motion, so its tumble uses this share of real time
+  // A flip (the tutorial's police car losing it): thrown up, turning right over end to end, and crashing down.
+  flipHop: 78,
+  flipSeconds: 0.62,
+  flipTurns: 1, // whole turns over
+  flipSpin: 1.1, // and this much turn on the road (radians)
 };
 
 // [TUNE] What fire does to a car's colours (0 = untouched, 1 = all soot). See burntOut in render/carModels.js.
@@ -1483,6 +1509,8 @@ export const PALETTE = {
   curb: 0xece5d8, // warm cream rim of islands and roundabouts ...
   leafLitter: 0x8c6a33, // dry leaves blown against the kerbs
   lawnDry: 0x93a447, // worn, sunburnt patches in a lawn
+  streetCurb: 0xa19f98, // the low grey kerb round a Suburbs lawn
+  streetCurbShadow: 0x6f6e6a, // its edge on the road side
   lawnLush: 0x6b9434, // thicker, darker grass
   median: 0x98c43d, // ... around fresh lime grass
   medianTuft: 0x7fa932, // darker patches in the grass
@@ -1828,7 +1856,9 @@ export const WORLD = {
     blades: [10, 18], // small clumps of grass blades in a lawn
     bladeShade: 0.84,
     tufts: [5, 10], // clumps of blades along the edge
-    leaves: [2, 5], // drifts of leaves along the edge
+    leavesChance: 0.2, // a block with a drift of leaves along its edge: only now and then
+    curb: 3.5, // a lawn's low kerb ...
+    curbShadow: 1.5, // ... with a darker edge on the road side, so it reads as raised
     stains: [1, 4], // oil stains on an asphalt block
     lotShade: 0.05, // a block's asphalt is up to this much lighter or darker than PALETTE.lot
     grassBlocks: ['lawn', 'garden', 'grove'], // arrangements whose block is a lawn

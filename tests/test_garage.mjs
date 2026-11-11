@@ -301,7 +301,12 @@ const run = (s, seconds, steer = 0) => {
   };
   check('a hit that wrecks the coupe', smack('coupe') === 'crashed');
   check('doesn\'t wreck the tank', smack('tank') === 'running');
-  const limit = (id) => simWith(id).playerCrashImpact;
+  // Measured with no forgiving start (HARD START), where only durability changes the limit.
+  const limit = (id) => {
+    const s = simWith(id);
+    s.setPace({ hard: true });
+    return s.playerCrashImpact;
+  };
   check('durability sets the limit', limit('coupe') === CRASH.playerImpact && Math.abs(limit('tank') - CRASH.playerImpact * Math.sqrt(4.5)) < 1e-9);
   const sorted = [...CARS].sort((a, b) => a.scale - b.scale);
   let shrinking = '';

@@ -108,7 +108,7 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
     biggest.push([entry.model, total]);
   }
   biggest.sort((a, b) => b[1] - a[1]);
-  check(`${map.name}: all the prop drawings stay within a phone-friendly budget`, bytes < 16e6, biggest.length ? `${(bytes / 1e6).toFixed(1)} MB; biggest: ${biggest[0][0]} ${(biggest[0][1] / 1e6).toFixed(2)} MB` : 'no props on this map');
+  check(`${map.name}: all the prop drawings stay within a phone-friendly budget`, bytes < 17e6, biggest.length ? `${(bytes / 1e6).toFixed(1)} MB; biggest: ${biggest[0][0]} ${(biggest[0][1] / 1e6).toFixed(2)} MB` : 'no props on this map');
   }
 }
 

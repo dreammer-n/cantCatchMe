@@ -1,6 +1,6 @@
 // Checks for pursuit: spawning in motion, chasers vs interceptors, warning arrows, the heat curve,
 // roadblocks.
-import { Camera, ChaseSimulation, SCREENS, T, difficultyAt, fixedMap, isOnScreen, newSim, playRun, projection } from './simkit.mjs';
+import { Camera, ChaseSimulation, SCREENS, T, difficultyAt, fixedMap, fragilityAt, toughnessAt, isOnScreen, newSim, playRun, projection } from './simkit.mjs';
 import { PoliceCar } from '../src/entities/PoliceCar.js';
 import { Car } from '../src/entities/Car.js';
 import { chooseTarget, steerPolice } from '../src/systems/PolicePursuit.js';
@@ -33,12 +33,14 @@ function policeAt(x, y, headingDeg, role, options = {}) {
 // ---- Heat curve -----------------------------------------------------------------------------
 {
   const at = difficultyAt;
-  // A gentle start (owner, 2026-11-06): the first two or three minutes are for learning, then it builds.
-  check('the first 30 s: one police car', at(0).targetPolice === 1 && at(29.9).targetPolice <= 2, `${at(0).targetPolice} rising to ${at(29.9).targetPolice}`);
+  // Busy but forgiving (owner, 2026-11-11): a chase from the start, then it builds.
+  check('a chase from the start: one police car, a second within 10 s, at most three by 30 s', at(0).targetPolice === 1 && at(10).targetPolice === 2 && at(29.9).targetPolice <= 3, `${at(0).targetPolice}, ${at(10).targetPolice}, ${at(29.9).targetPolice}`);
+  check('walls and trees are forgiven less than police knocks', toughnessAt(0, undefined, 'prop') > 1 && toughnessAt(0, undefined, 'prop') < toughnessAt(0));
+  check('early on the car takes harder knocks and police wreck more easily; by 4 minutes both are back to normal', toughnessAt(0) > 1.2 && fragilityAt(0) < 0.85 && toughnessAt(240) === 1 && fragilityAt(240) === 1 && toughnessAt(0, { hard: true }) === 1, `${toughnessAt(0)} / ${fragilityAt(0)}`);
   check('the first minute: chasers only', at(0).interceptorShare === 0 && at(59.9).interceptorShare === 0);
   check('from 1 minute: interceptors appear', at(60).interceptorShare > 0.1, `${at(60).interceptorShare}`);
   check('early on, police are slower than the player; by 2 minutes they match it', at(0).speedFactor < 0.95 && at(120).speedFactor >= 1 && at(240).speedFactor > at(120).speedFactor + 0.05, `${at(0).speedFactor} / ${at(120).speedFactor} / ${at(240).speedFactor}`);
-  check('no more than 4 police in the first 90 s', at(90).targetPolice <= 4, `${at(90).targetPolice}`);
+  check('no more than 5 police in the first 90 s', at(90).targetPolice <= 5, `${at(90).targetPolice}`);
   check('after 3 minutes: a swarm, with more interceptors reacting faster', at(300).targetPolice > at(180).targetPolice && at(240).interceptorShare > at(90).interceptorShare && at(240).reaction < at(120).reaction, `${at(180).targetPolice} -> ${at(300).targetPolice} police`);
   // HARD START: the old, harder start; and the challenge map's extra police.
   const hard = { hard: true, policeScale: 1 };
@@ -338,6 +340,7 @@ function policeAt(x, y, headingDeg, role, options = {}) {
 {
   // Hitting one: full speed is the end, and says why.
   const s = new ChaseSimulation({ layout: fixedMap([]), handling });
+  s.setPace({ hard: true }); // the full rule, with no forgiving start (HEAT.toughness)
   s.spawner.cooldown = 1e6;
   s.spawner.nextRoadblock = 1e6;
   s.powerUps.timer = 1e6;

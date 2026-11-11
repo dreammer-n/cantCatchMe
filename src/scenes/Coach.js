@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { BLACKOUT, HELICOPTER, PALETTE, POWERUP, SLICK, TUTORIAL } from '../config/tuning.js';
+import { BLACKOUT, HELICOPTER, PALETTE, POWERUP, SLICK, TUMBLE, TUTORIAL } from '../config/tuning.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { isOnScreen } from '../systems/SpawnSystem.js';
@@ -7,19 +7,20 @@ import { Tips } from '../systems/Tips.js';
 
 const SIREN = [0xff3b30, 0x2f7bff];
 // The lessons of the first drive, in order; each is saved once done, so one not reached carries over.
-const LESSONS = ['crash', 'kaboom', 'chopper'];
+const LESSONS = ['crash', 'kaboom']; // the helicopter is taught by its hint (TUTORIAL.tips.helicopter)
 
 // The first drive and the one-time hints, for GameScene. It watches the run and, the first time something
 // happens, sends the UI a short hint ('tip': { head, body }) and lights the thing on the road with a soft pulse
 // in the game's own colours (siren red and blue under a police car, amber under the die), never an arrow.
 // One hint at a time; each is shown once ever (Tips).
 // In the first drive it also runs the steering lesson, holds the police back until it is done, and then plays
-// three lessons in which the game waits for the player and what happens follows from what they do:
+// two lessons in which the game waits for the player and what happens follows from what they do, then YOU'RE ON
+// YOUR OWN!:
 //   crash    one police car closes in; the action holds on TURN SHARP! until the player turns; the police car
 //            can't follow, spins out and wrecks.
 //   kaboom   a die that always gives KABOOM; once it is caught three police close in from all sides; when they
 //            are inside the blast the action holds on DOUBLE TAP!, and the tap blows them all away.
-//   chopper  a quiet helicopter, a die that always gives BLACKOUT, DOUBLE TAP! once it is in reach.
+//   (chopper, a quiet helicopter and BLACKOUT, is still here but no longer in LESSONS.)
 // While a lesson runs the police are the lesson's own (SpawnDirector.lesson), nothing else joins in, and the
 // player can't be wrecked in its key moments. A prompt nobody answers acts for the player after a few seconds.
 export class Coach {
@@ -188,7 +189,10 @@ export class Coach {
     this.stageTime = 0;
     this.lessonPolice = null;
     if (this.lesson !== 'crash' && this.lesson !== 'kaboom') this.setPolice(sim, null); // the usual police again
-    if (!this.lesson) sim.powerUps.timer = POWERUP.interval; // the dice come as they normally do from now on
+    if (!this.lesson) {
+      sim.powerUps.timer = POWERUP.interval; // the dice come as they normally do from now on
+      this.tip('done'); // the lessons are over: the goal, in a line
+    }
   }
 
   updateLesson(dt, sim, view) {
@@ -253,6 +257,14 @@ export class Coach {
       this.stage = 'spinning';
       this.stageTime = 0;
     } else if (this.stage === 'spinning' && this.stageTime >= TUTORIAL.spinSeconds) {
+      // Spinning that fast it catches a wheel and flips over, end over end; it crashes as it comes down.
+      if (police && police.alive) {
+        police.spinOut(TUMBLE.flipSeconds + 0.2, 1, SLICK.spinRate, SLICK.grip);
+        if (police.view) police.view.startFlip();
+        this.stage = 'flipping';
+        this.stageTime = 0;
+      } else this.nextLesson(sim);
+    } else if (this.stage === 'flipping' && this.stageTime >= TUMBLE.flipSeconds) {
       if (police && police.alive) {
         sim.wreckPolice(police, 'obstacle');
         this.scene.handleEvents(sim.events.splice(0)); // the wreck: NICE!, and on to the next lesson (onEvent)
@@ -387,7 +399,7 @@ export class Coach {
     if (this.steering) return;
     if (e.type === 'wreck' && this.lesson === 'crash') {
       // The player's turn did it: NICE!. One that wrecked itself before that doesn't count; another comes.
-      if (this.stage === 'turning' || this.stage === 'spinning') {
+      if (this.stage === 'turning' || this.stage === 'spinning' || this.stage === 'flipping') {
         this.slow = TUTORIAL.slowSeconds;
         this.urgent('wreck');
         this.nextLesson(this.scene.sim);
@@ -409,7 +421,7 @@ export class Coach {
   show(entry) {
     const tip = TUTORIAL.tips[entry.id];
     if (tip.basic) PlatformManager.sendEvent('tutorial_step', { step: entry.id });
-    this.scene.game.events.emit('tip', { head: tip.head, body: tip.body });
+    this.scene.game.events.emit('tip', { head: this.touch ? tip.head : tip.keysHead || tip.head, body: this.touch ? tip.body : tip.keysBody || tip.body });
     this.showing = TUTORIAL.tipSeconds + TUTORIAL.tipGap;
     this.hintAge = 0;
     this.target = entry.target;

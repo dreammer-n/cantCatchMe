@@ -301,8 +301,37 @@ body {
 /* Darker behind the logo, so that it reads on bright maps. */
 /* The map is dimmed all over behind the title, so the logo and the buttons stand out; a little more behind the logo. */
 .screen.menu {
-  /* Bright: the map shows in its own colours, with a light shade only behind the logo and the buttons. */
-  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.38), rgba(14, 15, 18, 0) 30%, rgba(14, 15, 18, 0) 62%, rgba(14, 15, 18, 0.32));
+  /* No boxes on the title: the map is evenly a little darker, a touch more at the top and bottom where the
+     lettering is, and the lettering carries its own soft shadow. */
+  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.5), rgba(14, 15, 18, 0.3) 32%, rgba(14, 15, 18, 0.3) 62%, rgba(14, 15, 18, 0.48));
+}
+
+.screen.menu .menu-goals,
+.screen.menu .coin-balance,
+.screen.menu .star-balance,
+.screen.menu .btn-icon {
+  background: none;
+  clip-path: none;
+}
+
+.screen.menu .menu-goals,
+.screen.menu .coin-balance,
+.screen.menu .star-balance,
+.screen.menu .menu-level-badge,
+.screen.menu .btn-icon,
+.screen.menu .logo {
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55));
+}
+
+.screen.menu .btn-icon {
+  min-width: 52px;
+  width: 52px;
+  padding: 0 10px;
+}
+
+.screen.menu .btn-icon svg {
+  width: 26px;
+  height: 26px;
 }
 
 /* Title screen: logo at the top, buttons at the bottom, the car turning in the middle. */

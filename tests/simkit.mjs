@@ -6,7 +6,7 @@ export const { Car } = await import(`${SRC}/entities/Car.js`);
 export const T = await import(`${SRC}/config/tuning.js`);
 export const { projection } = await import(`${SRC}/render/projection.js`);
 export const { CameraRig } = await import(`${SRC}/render/CameraRig.js`);
-export const { isOnScreen, difficultyAt } = await import(`${SRC}/systems/SpawnSystem.js`);
+export const { isOnScreen, difficultyAt, toughnessAt, fragilityAt } = await import(`${SRC}/systems/SpawnSystem.js`);
 export const CS = await import(`${SRC}/systems/CollisionSystem.js`);
 export const { createRng } = await import(`${SRC}/utils/math.js`);
 

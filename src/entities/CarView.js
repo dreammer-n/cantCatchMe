@@ -106,6 +106,11 @@ export class CarView {
     this.tumble.start(Math.random);
   }
 
+  // Thrown up and turned right over (drawing only; see Tumble.flip).
+  startFlip() {
+    this.tumble.flip(Math.random);
+  }
+
   endTumble() {
     this.tumble.reset();
     this.shownScale = 1;
@@ -230,12 +235,10 @@ export class CarView {
       if (this.tumble.z > TUMBLE.overFlamesHeight) this.sprite.setDepth(DEPTH.effects + 2);
     }
     if (this.wasFalling) this.endFall();
-    // Rolling over across the screen shows as the car flattening and turning over.
+    // A roll in the air shows as the car tilting on screen, whichever way it faces; never squashed flat. (A car
+    // that lands over crashes, and its blast throws it about.)
     if (Math.abs(roll) > 0.02) {
-      const s = model.scale / RENDER.bakeScale;
-      const squash = 1 - (1 - Math.abs(Math.cos(roll))) * Math.abs(Math.sin(facing));
-      this.sprite.setScale(s, s * Math.max(0.12, squash)).setFlipY(Math.cos(roll) < 0 && Math.abs(Math.sin(facing)) > 0.5);
-      if (this.wheels) this.wheels.setScale(s, s * Math.max(0.12, squash));
+      this.sprite.setRotation(this.sprite.rotation - roll * 0.6 * Math.abs(Math.sin(facing)));
       this.rolled = true;
     } else if (this.rolled) {
       this.rolled = false;

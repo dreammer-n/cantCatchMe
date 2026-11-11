@@ -11,6 +11,8 @@ const COLORS = {
   curb: 'curb', // the cream edge of an island
   leaves: 'leafLitter',
   lawnDry: 'lawnDry',
+  streetCurb: 'streetCurb',
+  streetCurbShadow: 'streetCurbShadow',
   lawnLush: 'lawnLush',
   sidewalk: 'sidewalk', // the pavement inside it
   grass: 'lawn', // a block of lawn

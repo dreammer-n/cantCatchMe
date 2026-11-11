@@ -76,6 +76,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   // The ground has its own random numbers, so it never moves a prop. So do each map's own features.
   const groundRng = createRng(hash + 7919);
   const streetRng = createRng(hash + 104729);
+  const rampRng = createRng(hash + 7368787); // its own numbers: placing ramps moves nothing else
   const featureRng = createRng(hash + 15485863);
   if (forMap.bare) {
     addBareGround(chunk, groundRng);
@@ -122,6 +123,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
         BUILDERS[arrangement](cell, chunk.items, chunk.paint, rng);
       }
       if (forMap.streets) addStreetFurniture(cell, chunk.items, streetRng);
+      if (forMap.streets && RAMP.onLawns && !hub && WORLD.street.grassBlocks.includes(arrangement)) addLawnRamp(cell, chunk.items, rampRng);
       if (forMap.ice && !riverHere) addSnowmen(cell, chunk.items, featureRng);
       if (forMap.sand && !riverHere) addTumbleweeds(cell, chunk.items, featureRng);
       // The block's ground goes under everything its arrangement painted.
@@ -137,6 +139,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   addLaneLines(chunk);
   addRoadArrows(chunk, rng);
   if (forMap.wild) addWildRoads(chunk);
+  if (RAMP.onRoads && !forMap.bare) addRoadRamp(chunk, rampRng, river);
   if (rng() < def.holeChance) addRoadHoles(chunk, def.roadHoles, rng, river);
   if (forMap.open) {
     // Open ground: no road paint, only paved aprons, and tire tracks where the roads run.
@@ -191,13 +194,14 @@ export function propCatalogue(forMap = MAPS[0]) {
   for (const deg of WORLD.benchTurnsDeg) push('bench', 'bench', deg);
   for (const size of WORLD.boulderSizes) for (const shape of WORLD.boulderShapes) push('boulder', boulderModel(size, shape), 0, { size, shape });
   for (const deg of [0, 270]) push('billboard', 'billboard', deg); // its board faces the camera either way
+  // Ramps on the roads, on every map but BLACKTOP (which returned above).
+  if (RAMP.enabled || RAMP.onRoads || (RAMP.onLawns && forMap.streets)) for (const deg of [0, 90, 180, 270]) push('ramp', 'ramp', deg);
   if (forMap.streets) {
     push('hydrant', 'hydrant', 0);
     for (const deg of STREET_PROPS.mailboxTurnsDeg) push('mailbox', 'mailbox', deg);
     push('trashcan', 'trashcan', 0);
     for (const size of STREET_PROPS.bushSizes) push('bush', `bush${size}`, 0, { size });
     for (const deg of [0, 90]) push('fence', 'fence', deg);
-    if (RAMP.enabled) for (const deg of [0, 180]) push('ramp', 'ramp', deg);
   }
   if (forMap.ice) push('snowman', 'snowman', 0);
   if (forMap.sand) {
@@ -385,6 +389,78 @@ function rampAt(x, y, headingDeg) {
     collider: { type: 'box', hw: RAMP.width / 2, hl: RAMP.length / 2 },
     breakable: false,
   };
+}
+
+// Once in a while a ramp in a lane of one of the chunk's inner roads, mid-block, along the road: a car that takes
+// it flies along the road and lands on it. Never on a border road (both chunks would have to agree), on a bridge
+// (a Woods river crosses the middle of its row of blocks) or near the start. Holes keep clear of it (addRoadHoles).
+function addRoadRamp(chunk, rng, river) {
+  if (rng() >= RAMP.roadChance) return;
+  const vertical = rng() < 0.5;
+  const line = 1 + Math.floor(rng() * (CELLS_PER_CHUNK - 1)); // an inner road
+  const block = Math.floor(rng() * CELLS_PER_CHUNK);
+  const lane = rng() < 0.5 ? -1 : 1;
+  if (vertical && river && block === WOODS_MAP.riverBlock) return;
+  const roadAt = line * WORLD.cell;
+  const midAt = block * WORLD.cell + WORLD.cell / 2;
+  const x = chunk.x0 + (vertical ? roadAt + lane * RAMP.laneOffset : midAt);
+  const y = chunk.y0 + (vertical ? midAt : roadAt + lane * RAMP.laneOffset);
+  if (Math.hypot(x - START.x, y - START.y) < START.clearRadius + 300) return;
+  const deg = vertical ? (lane < 0 ? 180 : 0) : lane < 0 ? 270 : 90; // the way the traffic in that lane goes
+  chunk.items.push(rampAt(x, y, deg));
+}
+
+// The box round an item's collider (exact for boxes turned in quarter turns, a circle's square otherwise).
+function itemBox(item) {
+  const c = item.collider;
+  if (!c) return null;
+  let hx;
+  let hy;
+  if (c.type === 'box') {
+    const quarter = Math.round(item.heading / (Math.PI / 2));
+    if (Math.abs(item.heading - quarter * (Math.PI / 2)) < 1e-3) {
+      [hx, hy] = quarter % 2 === 0 ? [c.hw, c.hl] : [c.hl, c.hw];
+    } else hx = hy = Math.hypot(c.hw, c.hl);
+  } else hx = hy = c.r || 0;
+  return { x0: item.x - hx, x1: item.x + hx, y0: item.y - hy, y1: item.y + hy };
+}
+
+// A ramp along one edge of a grass block, its tall end towards the block's far end, so a car that takes it flies
+// off the end of the lawn onto the crossing road. Tried along each edge both ways; placed only where the strip
+// from the ramp to the block's end is clear of every prop.
+function addLawnRamp(cell, items, rng) {
+  if (rng() >= RAMP.lawnChance) return;
+  const hl = RAMP.length / 2;
+  const half = RAMP.width / 2;
+  const near = RAMP.lawnFromCorner + hl; // the ramp's middle, along the edge from its corner
+  const options = [];
+  for (const [edgeY, deg, cx] of [[cell.y0 + RAMP.lawnInset, 90, cell.x0 + near], [cell.y0 + RAMP.lawnInset, 270, cell.x1 - near], [cell.y1 - RAMP.lawnInset, 90, cell.x0 + near], [cell.y1 - RAMP.lawnInset, 270, cell.x1 - near]]) {
+    const run = deg === 90 ? [cx - hl, cell.x1] : [cell.x0, cx + hl];
+    options.push({ x: cx, y: edgeY, deg, box: { x0: run[0], x1: run[1], y0: edgeY - half, y1: edgeY + half } });
+  }
+  for (const [edgeX, deg, cy] of [[cell.x0 + RAMP.lawnInset, 180, cell.y0 + near], [cell.x0 + RAMP.lawnInset, 0, cell.y1 - near], [cell.x1 - RAMP.lawnInset, 180, cell.y0 + near], [cell.x1 - RAMP.lawnInset, 0, cell.y1 - near]]) {
+    const run = deg === 180 ? [cy - hl, cell.y1] : [cell.y0, cy + hl];
+    options.push({ x: edgeX, y: cy, deg, box: { x0: edgeX - half, x1: edgeX + half, y0: run[0], y1: run[1] } });
+  }
+  // A random order, from the ramp's own numbers.
+  for (let i = options.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  // Room round props; a low kerbed grass plot may come right up to the ramp.
+  const boxes = items.map((item) => {
+    const b = itemBox(item);
+    if (!b || item.curb) return b;
+    const m = RAMP.lawnClearance;
+    return { x0: b.x0 - m, x1: b.x1 + m, y0: b.y0 - m, y1: b.y1 + m };
+  }).filter(Boolean);
+  for (const o of options) {
+    if (Math.hypot(o.x - START.x, o.y - START.y) < START.clearRadius + 200) continue;
+    const blocked = boxes.some((b) => b.x0 < o.box.x1 && b.x1 > o.box.x0 && b.y0 < o.box.y1 && b.y1 > o.box.y0);
+    if (blocked) continue;
+    items.push(rampAt(o.x, o.y, o.deg));
+    return;
+  }
 }
 
 // Hydrants, mailboxes and trash cans along a block's pavements, clear of its corners and of each other.
@@ -1536,10 +1612,14 @@ function streetGround(cell, rng, arrangement) {
   const shade = round1(1000 * (1 + (rng() * 2 - 1) * st.lotShade)) / 1000;
   const shape = blockShape(rng, grass ? st.lawnWobble : st.wobble);
   // Asphalt fades into the road; a lawn has a crisp edge with a slightly darker rim, so it reads as a shape.
+  // A lawn has a low grey kerb (a darker edge on the road side, so it reads as raised), then a crisp grass edge.
+  const k = st.curbShadow + st.curb;
   const marks = grass
     ? [
-        { poly: handRect(cell, 0, shape), color: 'grass', alpha: 1, shade: st.lawnRim },
-        { poly: handRect(cell, st.lawnRimWidth, shape), color: 'grass', alpha: 1 },
+        { poly: handRect(cell, 0, shape), color: 'streetCurbShadow', alpha: 1 },
+        { poly: handRect(cell, st.curbShadow, shape), color: 'streetCurb', alpha: 1 },
+        { poly: handRect(cell, k, shape), color: 'grass', alpha: 1, shade: st.lawnRim },
+        { poly: handRect(cell, k + st.lawnRimWidth, shape), color: 'grass', alpha: 1 },
       ]
     : st.edgeFade.map(([inset, alpha]) => ({ poly: handRect(cell, inset, shape), color: 'lot', alpha, shade }));
   const edge = st.edgeFade[st.edgeFade.length - 1][0];
@@ -1574,8 +1654,8 @@ function streetGround(cell, rng, arrangement) {
       softPatch(marks, rng, x, y, 10 + rng() * 22, 'crack', 0.5, 0.6 + rng() * 0.4);
     }
   }
-  // Leaves blown along the edge, on the road side.
-  for (let n = between(rng, st.leaves); n > 0; n -= 1) {
+  // Now and then, leaves blown along the edge, on the road side.
+  for (let n = rng() < st.leavesChance ? 1 : 0; n > 0; n -= 1) {
     const p = kerbPoint(cell, Math.floor(rng() * 4), rng(), -6);
     for (let k = 0; k < 4; k += 1) {
       const along = (rng() * 2 - 1) * 26;

@@ -9,6 +9,17 @@ const DIRECTION = { x: 0, y: 0 };
 
 // How hard the run is at a given time (seconds of survival). See HEAT in tuning.js.
 // pace: { hard: HARD START is on, policeScale: the map's share of police } (ChaseSimulation.pace).
+// How much harder a hit must be to wreck the player's car, and how much easier for a police car, at this time.
+// against: 'police' (cars and wrecks) or 'prop' (walls and props).
+export function toughnessAt(time, pace = NORMAL_PACE, against = 'police') {
+  const heat = pace.hard ? HEAT_HARD : HEAT;
+  return tableLookup(against === 'prop' ? heat.propToughness : heat.toughness, time);
+}
+
+export function fragilityAt(time, pace = NORMAL_PACE) {
+  return tableLookup((pace.hard ? HEAT_HARD : HEAT).fragility, time);
+}
+
 export function difficultyAt(time, pace = NORMAL_PACE) {
   const heat = pace.hard ? HEAT_HARD : HEAT;
   return {
