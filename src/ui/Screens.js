@@ -3,7 +3,7 @@ import { carMesh } from '../render/carModels.js';
 import { paintMesh, projectMesh } from '../render/lowpoly.js';
 import { drawMapDiorama } from '../render/mapDiorama.js';
 import { projection } from '../render/projection.js';
-import { Garage, Maps, formatClock, formatDistance, starsFor } from '../systems/ScoreSystem.js';
+import { Garage, Maps, Records, formatClock, formatDistance, starsFor } from '../systems/ScoreSystem.js';
 import { Missions } from '../systems/Missions.js';
 import { Progress } from '../systems/Progress.js';
 import { dt, setDisplay } from './displayFont.js';
@@ -109,7 +109,7 @@ const ZOOM_MS = 420; // as long as the .zoom-* animations in main.css
 const LEAVE_WAIT_MS = 300;
 const OUTGOING = new Set();
 
-const formatCoins = (n) => Math.round(n).toLocaleString('en-US');
+export const formatCoins = (n) => Math.round(n).toLocaleString('en-US');
 
 function coinGlyph() {
   const glyph = el('span', 'coin-glyph');
@@ -397,6 +397,7 @@ const CAUSES = {
 
 export class GameOverScreen extends Screen {
   constructor({ onRetry, onMenu, onGarage, onDouble, onFeedback }) {
+    let garageButton = null;
     // One question, once (FEEDBACK): a tap on an answer sends it and says thanks.
     const feedbackText = dt('over-feedback-text', FEEDBACK.question);
     const feedbackChoices = el('div', 'over-feedback-choices', FEEDBACK.choices.map((c) => textButton('btn-secondary over-feedback-choice', c.text, () => onFeedback(c.id), c.text)));
@@ -430,12 +431,12 @@ export class GameOverScreen extends Screen {
         double,
         feedback,
         textButton('btn-primary', 'RETRY', onRetry, 'Retry', ICONS.retry),
-        el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
+        el('div', 'menu-row over-small-row', [(garageButton = textButton('btn-secondary', 'GARAGE', onGarage, 'Garage')), textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
       ]),
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, doneList, level, levelUp, feedback, feedbackText, feedbackChoices });
+    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
   }
 
   thankFeedback() {
@@ -466,7 +467,8 @@ export class GameOverScreen extends Screen {
     this.showCoins(balance);
   }
 
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip, missions = [], progress = null, askFeedback = false }) {
+  // Minimal: BUSTED!, the time and stars, ONE line, the coins (and doubling them), RETRY, then GARAGE and MENU small.
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, garagePointer = false }) {
     this.feedback.hidden = !askFeedback;
     this.feedbackChoices.hidden = false;
     setDisplay(this.feedbackText, FEEDBACK.question);
@@ -476,7 +478,8 @@ export class GameOverScreen extends Screen {
     this.levelUp.hidden = true;
     this.next.hidden = true;
     this.rows.hidden = true;
-    this.level.hidden = !progress;
+    this.cause.hidden = true; // why it ended: the one line below covers it when it matters (the crash tip)
+    this.level.hidden = true; // a level-up is the one line
     let levelLine = null;
     if (progress) {
       // From where the bar was before the run to where it is now (empty first if a level was reached).
@@ -489,17 +492,20 @@ export class GameOverScreen extends Screen {
         levelLine = `LEVEL UP! LEVEL ${reached[reached.length - 1]} · +${formatCoins(pay)} COINS`;
       }
     }
-    // The one highlight: a map opened, else a new record, else a level-up, else the tip on why it crashed.
+    // The one line, in order: a car won, a map opened, a new record, a level-up, the garage pointed out (after the
+    // first drive), what to aim for next (GOALS), the tip on why it crashed.
     const unlocked = (mapUnlocks || [])[0];
-    const highlight = unlocked ? `${unlocked.name} UNLOCKED!` : newBest ? 'NEW RECORD!' : levelLine || crashTip || '';
+    const big = carWon ? `${carWon.toUpperCase()} WON!` : unlocked ? `${unlocked.name} UNLOCKED!` : newBest ? 'NEW RECORD!' : levelLine;
+    const small = garagePointer ? '' : goal || crashTip || ''; // the garage's own arrow says it (GUIDE)
+    const highlight = big || small;
     setDisplay(this.badge, highlight);
     this.badge.hidden = !highlight;
-    this.badge.classList.toggle('over-badge-tip', !unlocked && !newBest && !levelLine && Boolean(crashTip));
+    this.badge.classList.toggle('over-badge-tip', !big && Boolean(small));
     this.showCoins(balance);
     this.coinTotal = coins.total;
     const missionCoins = missions.reduce((sum, m) => sum + m.reward, 0);
     setDisplay(this.breakdown, missions.length ? `${missions.length} ${missions.length === 1 ? 'MISSION' : 'MISSIONS'} DONE +${formatCoins(missionCoins)}` : '');
-    this.breakdown.hidden = missions.length === 0;
+    this.breakdown.hidden = true; // the missions' coins are in the total
     if (this.stopCount) this.stopCount();
     this.stopCount = countUp(this.earned, 0, doubled ? coins.total * 2 : coins.total, COINS.tallyMs);
     this.double.hidden = adMode === 'none' || coins.total === 0;
@@ -513,6 +519,14 @@ export class GameOverScreen extends Screen {
     });
     super.show();
   }
+}
+
+// A car won by surviving: what it takes, and the player's best so far.
+function challengeLine(car) {
+  const c = car.challenge;
+  const best = Math.max(Records.best.time, Records.hardBest);
+  const mins = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  return `WIN IT: SURVIVE ${mins(c.normal)} · BEST ${mins(best)}`; // HARD START's time is in the goal line; the price is on BUY
 }
 
 const SHOWN_HEADING = 0; // nose up and to the right, seen from behind and above
@@ -548,7 +562,7 @@ function arrows(onPrev, onNext) {
 // One car at a time, small and still on plain road, with its name, how to get it and how it drives. Drawn live
 // on a canvas, so no drawing sheets are needed to browse.
 export class GarageScreen extends Screen {
-  constructor({ onPrev, onNext, onAction, onBack, onUpgrade, onHardStart }) {
+  constructor({ onPrev, onNext, onAction, onBack, onUpgrade, onHardStart, onToggle = null }) {
     const canvas = el('canvas', 'garage-canvas');
     const name = dt('garage-name', '');
     const count = dt('garage-count', '');
@@ -558,7 +572,8 @@ export class GarageScreen extends Screen {
     const status = el('div', 'garage-price', [lock, statusText]);
     const action = textButton('btn-primary garage-action', '', onAction, 'Buy or select this car');
     const specs = el('div', 'garage-specs', '');
-    const stage = el('div', 'garage-stage', [canvas, ...arrows(onPrev, onNext)]);
+    const browse = arrows(onPrev, onNext);
+    const stage = el('div', 'garage-stage', [canvas, ...browse]);
     // Upgrades work for every car: shown instead of the car's specs when UPGRADES is pressed.
     const level = levelBar('garage-level');
     const upgradeRows = Object.entries(UPGRADES.kinds).map(([kind, def]) => {
@@ -581,7 +596,7 @@ export class GarageScreen extends Screen {
     const toggle = textButton('btn-secondary garage-toggle', 'UPGRADES', () => this.toggleUpgrades(), 'Show upgrades or cars');
     const step = dt('step-label', '');
     super('garage car-screen', [step, el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [toggle, carPanel, upgrades])]);
-    Object.assign(this, { upgrades, upgradeRows, level, carPanel, toggle, hard, step });
+    Object.assign(this, { upgrades, upgradeRows, level, carPanel, toggle, hard, step, nextArrow: browse[1], onToggle });
     // The map you are about to drive, close up round the car: the same place as the map screen, nearer.
     const backdrop = el('canvas', 'map-canvas');
     this.node.prepend(backdrop);
@@ -597,13 +612,14 @@ export class GarageScreen extends Screen {
   }
 
   // flow: on the way into a run (from PLAY), where the big button reads DRIVE and HARD START is offered.
-  setFlow(flow, hardOn) {
+  // hint: a line in place of the step's label (the first time a new player is sent here).
+  setFlow(flow, hardOn, hint = null) {
     this.flow = flow;
     this.node.classList.toggle('flow', flow); // see-through: the car is the one in the world, the camera close on it
     this.hard.hidden = true; // HARD START is on the map screen now, the last step before the run
     this.hard.setOn(hardOn);
-    this.step.hidden = !flow;
-    setDisplay(this.step, 'CHOOSE YOUR CAR');
+    this.step.hidden = !flow && !hint;
+    setDisplay(this.step, hint || 'CHOOSE YOUR CAR');
     this.back.setText('BACK');
   }
 
@@ -615,7 +631,7 @@ export class GarageScreen extends Screen {
     const selected = Garage.selected === car.id;
     this.status.classList.toggle('owned', owned);
     this.lock.hidden = owned;
-    setDisplay(this.statusText, owned ? 'UNLOCKED' : `LOCKED - ${formatCoins(car.price)} COINS`);
+    setDisplay(this.statusText, owned ? 'UNLOCKED' : car.challenge ? challengeLine(car) : `LOCKED - ${formatCoins(car.price)} COINS`);
     const action = this.action;
     if (this.flow) {
       // On the way into a run: an owned car drives at once; a locked one is bought first.
@@ -629,10 +645,16 @@ export class GarageScreen extends Screen {
       else if (owned) action.setText('SELECT');
       else action.setText(`BUY FOR ${formatCoins(car.price)} COINS`);
     }
+    this.car = car;
     this.showSpecs(car);
     this.showUpgrades();
-    this.car = car;
     this.drawCar();
+  }
+
+  showCarsPanel() {
+    this.upgrades.hidden = true;
+    this.carPanel.hidden = false;
+    this.toggle.setText('UPGRADES');
   }
 
   toggleUpgrades() {
@@ -641,36 +663,40 @@ export class GarageScreen extends Screen {
     this.carPanel.hidden = showing;
     this.toggle.setText(showing ? 'CARS' : 'UPGRADES');
     this.showUpgrades();
+    if (this.onToggle) this.onToggle(showing);
   }
 
   // Each upgrade's tiers, and what the next one costs or needs.
+  // The car on show's own ENGINE and HANDLING (it must be owned), and the player's COIN BONUS.
   showUpgrades() {
+    const id = this.car ? this.car.id : Garage.selected;
     this.level.set(Progress.level, Progress.share);
     for (const row of this.upgradeRows) {
-      const tier = Progress.tier(row.kind);
+      const tier = Progress.tier(row.kind, id);
       row.blocks.forEach((block, i) => block.classList.toggle('lit', i < tier));
-      const next = Progress.next(row.kind);
-      if (!next) row.buy.setText('MAX');
+      const next = Progress.next(row.kind, id);
+      if (Progress.isFree(row.kind, id)) row.buy.setText('FREE');
+      else if (!next) row.buy.setText('MAX');
+      else if (UPGRADES.perCar.includes(row.kind) && !Garage.owns(id)) row.buy.setText('LOCKED');
       else if (Progress.level < next.level) row.buy.setText(`LEVEL ${next.level}`);
       else row.buy.setText(`${formatCoins(next.price)}`);
-      row.buy.disabled = !Progress.canUpgrade(row.kind);
+      row.buy.disabled = !Progress.canUpgrade(row.kind, id);
     }
   }
 
   // Blocks out of SPEC_BLOCKS, so that even the car with the least of something shows one.
+  // The car's own specs, and in a lighter shade the blocks its upgrades add.
   showSpecs(car) {
     const specs = carSpecs(car);
-    const line = (label, share) => {
-      const lit = 1 + Math.round(share * (SPEC_BLOCKS - 1));
-      const blocks = Array.from({ length: SPEC_BLOCKS }, (_, i) => el('span', i < lit ? 'spec-block lit' : 'spec-block'));
+    const tuned = carSpecs(car, (h) => Progress.handling(h, car.id));
+    const blocksFor = (share) => Math.min(SPEC_BLOCKS, 1 + Math.round(Math.max(0, share) * (SPEC_BLOCKS - 1)));
+    const line = (label, name) => {
+      const lit = blocksFor(specs[name]);
+      const boosted = Math.max(lit, blocksFor(tuned[name]));
+      const blocks = Array.from({ length: SPEC_BLOCKS }, (_, i) => el('span', i < lit ? 'spec-block lit' : i < boosted ? 'spec-block lit boost' : 'spec-block'));
       return el('div', 'garage-spec', [dt('garage-spec-label', label), el('div', 'spec-blocks', blocks)]);
     };
-    this.specs.replaceChildren(
-      line('SPEED', specs.speed),
-      line('ACCELERATION', specs.acceleration),
-      line('HANDLING', specs.handling),
-      line('DURABILITY', specs.durability),
-    );
+    this.specs.replaceChildren(line('SPEED', 'speed'), line('ACCELERATION', 'acceleration'), line('HANDLING', 'handling'), line('DURABILITY', 'durability'));
   }
 
   // Called every frame, but only draws when the car or the size of the screen has changed.
@@ -776,7 +802,8 @@ export class MapScreen extends Screen {
     const status = el('div', 'garage-price', [lock, statusText]);
     const stars = starRow('over-star map-star');
     const action = textButton('btn-primary map-start', 'START', onAction, 'Start the run');
-    const stage = el('div', 'garage-stage', arrows(onPrev, onNext));
+    const browse = arrows(onPrev, onNext);
+    const stage = el('div', 'garage-stage', browse);
     const plate = el('div', 'map-plate', [el('div', 'over-stars', stars), status]);
     // HARD START: a small switch under START (on, it pays more coins).
     const hardLabel = dt('', '');
@@ -789,6 +816,7 @@ export class MapScreen extends Screen {
     };
     super('garage map-screen', [dt('step-label', 'CHOOSE A MAP'), el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [plate, action, hard])]);
     this.hard = hard;
+    this.nextArrow = browse[1];
     this.back = textButton('btn-secondary garage-back', 'BACK', onBack, 'Back');
     this.starsTotal = starBadge();
     this.node.prepend(canvas);

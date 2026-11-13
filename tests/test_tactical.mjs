@@ -47,8 +47,9 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
   check('the first minute: patrol cruisers only', at(59.9).interceptorShare === 0 && at(59.9).bearcatShare === 0);
   check('1-2 minutes: interceptors, no Bearcats', at(60).interceptorShare > 0 && at(119.9).bearcatShare === 0);
   check('from 2 minutes: Bearcats', at(120).bearcatShare >= 0.1);
-  check('roadblocks from 75 s', ROADBLOCK.firstAt === 75);
-  check('from 2 minutes: the helicopter', HELICOPTER.firstAt === 120);
+  // One new kind of trouble every 30 s from 1 minute (owner, 2026-11-13).
+  check('roadblocks from 1:30', ROADBLOCK.firstAt === 90);
+  check('the helicopter from 2:30', HELICOPTER.firstAt === 150);
   check('and more Bearcats later on', at(240).bearcatShare > at(120).bearcatShare);
 }
 
@@ -898,7 +899,7 @@ check('longer power-ups: TURBO 5 s, PHANTOM 6 s, TITAN 10 s', T.TURBO.seconds ==
   const { readFileSync } = await import('node:fs');
   const font = readFileSync(new URL('../src/ui/displayFont.js', import.meta.url), 'utf8');
   const drawable = (text) => [...text].every((c) => c === ' ' || /[A-Z0-9]/.test(c) || font.includes(`'${c}': [`) || font.includes(`"${c}": [`));
-  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body, tip.keysHead || '', tip.keysBody || '']), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D'];
+  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body, tip.keysHead || '', tip.keysBody || '']), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D', 'FREE'];
   check('every hint can be drawn in the game\'s lettering', texts.every(drawable), texts.filter((t) => !drawable(t)).join(' | '));
   // Fallen into a hole on the road: it comes back on the road, clear of the hole.
   const hole = { kind: 'void', isVoid: true, x: 3000, y: 3000, heading: 0, collider: { type: 'circle', r: 150 }, breakable: false, outline: [] };

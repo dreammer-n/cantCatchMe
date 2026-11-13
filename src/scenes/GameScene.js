@@ -4,7 +4,10 @@ import {
   WORLD,
   carById,
   ADS,
+  CARS,
   FEEDBACK,
+  GOALS,
+  GUIDE,
   MENU_CAMERA,
   LEADERBOARD,
   MISSIONS,
@@ -71,6 +74,7 @@ import { degToRad, wrapAngle } from '../utils/math.js';
 
 const screenPoint = { x: 0, y: 0 };
 const ATTRACT_HEADING = degToRad(150); // a flattering three-quarter view on the title screen
+const GARAGE_HEADING = 0; // choosing a car: seen from behind and above, nose up and to the right, as the garage always showed it
 const WARM_UP_AFTER_FRAMES = 2; // the title is drawn first, then the warm-up starts
 const WARM_UP_PROPS = 6; // prop drawings a frame
 const WARM_UP_VIEWS = 4; // car views a frame
@@ -241,7 +245,7 @@ export class GameScene extends Phaser.Scene {
   menuShot(name) {
     this.shotTarget = MENU_CAMERA.shots[name] || MENU_CAMERA.shots.play;
     if (this.mode !== 'attract') return;
-    const heading = name === 'map' ? this.startHeading : ATTRACT_HEADING;
+    const heading = name === 'map' ? this.startHeading : name === 'car' ? GARAGE_HEADING : ATTRACT_HEADING;
     if (heading === undefined) return;
     this.sim.player.heading = heading;
     ensureCarAtlas(this, `${this.carId}Body`, projection, heading);
@@ -426,8 +430,7 @@ export class GameScene extends Phaser.Scene {
       this.wantedLevel = level;
       // During a lesson of the first drive only the star lights: its call-out would talk over the lesson.
       const quiet = Boolean(this.coach.lesson);
-      this.game.events.emit('wanted', level, quiet ? null : wantedCall(level, this.sim.pace.hard));
-      if (!quiet) this.audio.play('police_radio');
+      this.game.events.emit('wanted', level, quiet ? null : wantedCall(level, this.sim.pace.hard)); // the radio is the helicopter's
     }
   }
 
@@ -528,12 +531,17 @@ export class GameScene extends Phaser.Scene {
     PlatformManager.flush();
     this.audio.quiet();
     this.audio.setMusic(null); // no music on the results
+    // A car won by surviving (the Hypercar): normal runs count toward its normal time, HARD START runs toward both.
+    const carWon = Garage.checkChallenges(Records.best.time, Records.hardBest)[0] || null;
+    const goal = this.nextGoal(runNumber);
     // A natural pause: the platform decides whether an advert is due; never after a quick crash (ADS).
     if (summary.time >= ADS.minRunSeconds) PlatformManager.showInterstitial();
     // Once, after a few runs: what spoiled it? (FEEDBACK; counted as asked as soon as it is shown.)
     const askFeedback = !Tips.has('feedback') && runNumber >= FEEDBACK.afterRuns && !this.coach.firstDrive;
     if (askFeedback) Tips.mark('feedback');
-    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause, crashTip, missions, progress, askFeedback, runNumber };
+    // A new player's first results point at the garage (an arrow on its button) until they have been in it.
+    const garagePointer = !Tips.has('garage-visit') && runNumber <= GUIDE.garageRuns;
+    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause, crashTip, missions, progress, askFeedback, runNumber, goal, carWon: carWon && carWon.name, garagePointer };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
   }
@@ -847,6 +855,26 @@ export class GameScene extends Phaser.Scene {
           break;
       }
     }
+  }
+
+  // On a new player's early results, one thing to aim for next, taking turns (GOALS): a map to unlock, a car to buy,
+  // the Hypercar challenge. Null when there is nothing to say or the player is past their early runs.
+  nextGoal(runNumber) {
+    if (runNumber < GOALS.firstRun || runNumber > GOALS.lastRun) return null;
+    const goals = [];
+    const nextMap = Maps.nextLocked();
+    if (nextMap) goals.push(`NEXT: ${nextMap.needed} MORE ${nextMap.needed === 1 ? 'STAR UNLOCKS' : 'STARS UNLOCK'} ${nextMap.map.name}`);
+    const nextCar = CARS.filter((car) => !Garage.owns(car.id) && !car.challenge).sort((a, b) => a.price - b.price)[0];
+    if (nextCar) {
+      const short = nextCar.price - Garage.coins;
+      goals.push(short > 0 ? `NEXT: ${short.toLocaleString('en-US')} MORE COINS FOR THE ${nextCar.name.toUpperCase()}` : `YOU CAN BUY THE ${nextCar.name.toUpperCase()} IN THE GARAGE!`);
+    }
+    const prize = CARS.find((car) => car.challenge && !Garage.owns(car.id));
+    if (prize) {
+      const mins = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+      goals.push(`SURVIVE ${mins(prize.challenge.normal)} TO WIN THE ${prize.name.toUpperCase()} · BEST ${mins(Math.max(Records.best.time, Records.hardBest))}`);
+    }
+    return goals.length ? goals[runNumber % goals.length] : null;
   }
 
   // The sound of a knock-over thing being hit, if it has one (AUDIO.propSounds).

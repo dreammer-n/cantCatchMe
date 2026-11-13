@@ -109,11 +109,18 @@ const handling = T.HANDLING_PRESETS.balanced;
     s.player.launch(300);
     return s.player;
   });
-  check('the player smashing one at full speed is not a crash', head.s.state === 'running');
-  check('it is knocked away', head.s.cones[0].state !== 'standing', head.s.cones[0].state);
-  check('it costs real speed, more than a cone', head.slowest < 300 * CONES.slowdown - 10 && head.slowest > 200, `slowest ${head.slowest.toFixed(0)}`);
-  check('the hit is reported for effects', head.events.some((e) => e.type === 'cone' && e.player && e.cone.item.kind === 'civilian'));
-  check('it gets pushed the way the car was going', head.s.cones[0].y < parked.y);
+  // A hard hit, head on, crashes the car like a wall (owner, 2026-11-13: PARKED_CARS); a slow bump shoves it aside.
+  check('the player hitting one head on at full speed crashes', head.s.state === 'crashed' && head.s.crash.cause === 'obstacle', head.s.state);
+  const bump = smash(parked, (s) => {
+    s.player.reset(1000, 1070, 0); // close by, so it is still slow when it touches
+    s.player.launch(140);
+    return s.player;
+  });
+  check('a slow bump is not a crash', bump.s.state === 'running');
+  check('it is knocked away', bump.s.cones[0].state !== 'standing', bump.s.cones[0].state);
+  check('it costs real speed', bump.slowest < 160 * CONES.slowdown, `slowest ${bump.slowest.toFixed(0)}`);
+  check('the hit is reported for effects', bump.events.some((e) => e.type === 'cone' && e.player && e.cone.item.kind === 'civilian'));
+  check('it gets pushed the way the car was going', bump.s.cones[0].y < parked.y);
   const clip = smash(parked, (s) => {
     s.player.reset(1030, 1250, 0);
     s.player.launch(300);

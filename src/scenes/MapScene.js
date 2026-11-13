@@ -2,6 +2,8 @@ import * as Phaser from 'phaser';
 import { MAPS } from '../config/tuning.js';
 import { Maps } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
+import { Tips } from '../systems/Tips.js';
+import { Guide } from '../ui/Guide.js';
 import { MapScreen } from '../ui/Screens.js';
 
 // The last step after PLAY (title > car > map): choosing a map, shown by the world itself, the camera pulled back over
@@ -32,7 +34,11 @@ export class MapScene extends Phaser.Scene {
     this.screen.show(); // laid out (no frame is shown before zoom() takes over), so the map can be drawn
     this.showMap(); // drawn first, then the move starts
     this.screen.zoom();
-    this.events.once('shutdown', () => this.screen.leave(!this.starting));
+    this.guide();
+    this.events.once('shutdown', () => {
+      Guide.hide();
+      this.screen.leave(!this.starting);
+    });
   }
 
   update(time) {
@@ -48,7 +54,16 @@ export class MapScene extends Phaser.Scene {
     this.screen.showMap(MAPS[this.index], this.index, Settings.hardStart);
   }
 
+  // Once: the arrow on the next map (which shows the stars it needs), or on START when every map is open.
+  guide() {
+    if (Tips.has('guide-map')) return;
+    const done = () => Tips.mark('guide-map');
+    Guide.point(Maps.nextLocked() ? this.screen.nextArrow : this.screen.action, done);
+  }
+
   browse(step) {
+    Guide.hide();
+    Tips.mark('guide-map');
     this.audio.play('click');
     this.index = (this.index + step + MAPS.length) % MAPS.length;
     this.showMap();
@@ -67,6 +82,8 @@ export class MapScene extends Phaser.Scene {
     const map = MAPS[this.index];
     if (!Maps.select(map.id)) return;
     this.starting = true;
+    Guide.hide();
+    Tips.mark('guide-map');
     this.audio.unlock();
     this.audio.play('click');
     this.scene.stop('GarageScene');

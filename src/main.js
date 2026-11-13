@@ -65,6 +65,7 @@ async function start() {
   await PlatformManager.initialize();
   mark('platform');
   await Promise.all([Records.load(), Settings.load(), Garage.load(), Tips.load(), Progress.load()]);
+  Progress.adopt(Garage.unlocked); // upgrades from an older save go to every car owned
   await Maps.load(); // after the records, which older saves take their first best time from
   await Missions.load(); // after the maps: a new mission may name an open map
   mark('save');

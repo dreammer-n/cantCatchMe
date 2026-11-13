@@ -22,11 +22,20 @@ export function wantedCall(level, hard = false) {
   return (steps[level - 1] && steps[level - 1].call) || null;
 }
 
-// The player's level and XP, and the upgrades bought (they work for every car). Saved through PlatformManager.
+// The player's level and XP, and the upgrades bought: ENGINE and HANDLING for each car (cars: { id: { engine,
+// handling } }), COIN BONUS for the player. Saved through PlatformManager.
+const tierOf = (value) => {
+  const tier = Number(value);
+  return Number.isInteger(tier) && tier >= 0 ? Math.min(tier, UPGRADES.prices.length) : 0;
+};
+
 export const Progress = {
   level: 1,
   xp: 0, // XP toward the next level
-  upgrades: { engine: 0, handling: 0, coins: 0 },
+  upgrades: { coins: 0 }, // the player's own (COIN BONUS)
+  cars: {}, // each car's ENGINE and HANDLING
+  legacy: null, // from an older save, where they were the same for every car: see adopt()
+  freeUsed: false, // the one free upgrade (UPGRADES.free) has been taken
 
   async load() {
     this.restore(await PlatformManager.getStoredValue(STORAGE_KEYS.progress, null));
@@ -40,15 +49,32 @@ export const Progress = {
     this.level = Number.isInteger(level) && level >= 1 ? level : 1;
     this.xp = Number.isFinite(xp) && xp >= 0 ? Math.floor(xp) : 0;
     const tiers = data.upgrades && typeof data.upgrades === 'object' ? data.upgrades : {};
-    this.upgrades = {};
-    for (const kind of Object.keys(UPGRADES.kinds)) {
-      const tier = Number(tiers[kind]);
-      this.upgrades[kind] = Number.isInteger(tier) && tier >= 0 ? Math.min(tier, UPGRADES.prices.length) : 0;
+    this.upgrades = { coins: tierOf(tiers.coins) };
+    this.freeUsed = Boolean(data.freeUsed);
+    this.cars = {};
+    const cars = data.cars && typeof data.cars === 'object' ? data.cars : {};
+    for (const [id, own] of Object.entries(cars)) {
+      if (!own || typeof own !== 'object') continue;
+      this.cars[id] = {};
+      for (const kind of UPGRADES.perCar) this.cars[id][kind] = tierOf(own[kind]);
     }
+    // An older save had ENGINE and HANDLING for every car at once: they go to each car owned (adopt()).
+    const legacy = {};
+    for (const kind of UPGRADES.perCar) legacy[kind] = tierOf(tiers[kind]);
+    this.legacy = !data.cars && UPGRADES.perCar.some((kind) => legacy[kind] > 0) ? legacy : null;
+  },
+
+  // After the garage has loaded: upgrades from an older save go to every car the player owns, so nothing bought
+  // is lost.
+  adopt(ownedIds) {
+    if (!this.legacy) return;
+    for (const id of ownedIds) this.cars[id] = { ...this.legacy, ...this.cars[id] };
+    this.legacy = null;
+    this.save();
   },
 
   save() {
-    PlatformManager.setStoredValue(STORAGE_KEYS.progress, { level: this.level, xp: this.xp, upgrades: this.upgrades });
+    PlatformManager.setStoredValue(STORAGE_KEYS.progress, { level: this.level, xp: this.xp, upgrades: this.upgrades, cars: this.cars, freeUsed: this.freeUsed });
   },
 
   // Share of the way to the next level, 0..1.
@@ -70,38 +96,50 @@ export const Progress = {
     return reached;
   },
 
-  tier(kind) {
-    return this.upgrades[kind] || 0;
+  // carId: whose (ENGINE and HANDLING are each car's; the selected car if none is named).
+  tier(kind, carId = Garage.selected) {
+    if (!UPGRADES.perCar.includes(kind)) return this.upgrades[kind] || 0;
+    return (this.cars[carId] && this.cars[carId][kind]) || 0;
   },
 
   // The next tier of an upgrade: { tier, price, level } or null when it is at the top.
-  next(kind) {
-    const tier = this.tier(kind);
+  next(kind, carId = Garage.selected) {
+    const tier = this.tier(kind, carId);
     if (tier >= UPGRADES.prices.length) return null;
     return { tier: tier + 1, price: UPGRADES.prices[tier], level: UPGRADES.levels[tier] };
   },
 
-  canUpgrade(kind) {
-    const next = this.next(kind);
+  // The one free upgrade: the first tier of UPGRADES.free on a car the player owns, once ever.
+  isFree(kind, carId = Garage.selected) {
+    return kind === UPGRADES.free && !this.freeUsed && this.tier(kind, carId) === 0 && Garage.owns(carId);
+  },
+
+  // A car's own upgrades need the car to be owned.
+  canUpgrade(kind, carId = Garage.selected) {
+    if (this.isFree(kind, carId)) return true;
+    const next = this.next(kind, carId);
+    if (UPGRADES.perCar.includes(kind) && !Garage.owns(carId)) return false;
     return Boolean(next) && this.level >= next.level && Garage.coins >= next.price;
   },
 
   // Returns whether it was bought.
-  upgrade(kind) {
-    if (!this.canUpgrade(kind)) return false;
-    const next = this.next(kind);
-    if (!Garage.spend(next.price)) return false;
-    this.upgrades[kind] = next.tier;
+  upgrade(kind, carId = Garage.selected) {
+    if (!this.canUpgrade(kind, carId)) return false;
+    const next = this.next(kind, carId);
+    if (this.isFree(kind, carId)) this.freeUsed = true;
+    else if (!Garage.spend(next.price)) return false;
+    if (UPGRADES.perCar.includes(kind)) this.cars[carId] = { ...this.cars[carId], [kind]: next.tier };
+    else this.upgrades[kind] = next.tier;
     this.save();
     return true;
   },
 
-  // A car's handling with the engine and handling upgrades.
-  handling(base) {
+  // A car's handling with its own engine and handling upgrades.
+  handling(base, carId = Garage.selected) {
     const engine = UPGRADES.kinds.engine;
     const grip = UPGRADES.kinds.handling;
-    const e = this.tier('engine');
-    const h = this.tier('handling');
+    const e = this.tier('engine', carId);
+    const h = this.tier('handling', carId);
     return {
       ...base,
       topSpeed: base.topSpeed * (1 + e * engine.topSpeed),

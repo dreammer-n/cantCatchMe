@@ -1858,3 +1858,145 @@ body {
 .screen.garage .garage-arrow {
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
 }
+
+/* The blocks a car's upgrades add to its specs, in a lighter shade of the UI colour. */
+.spec-block.lit.boost {
+  background: #fff1a8;
+}
+
+/* ---------------------------------------------------------------- spacing (owner, 2026-11-13) */
+/* The results: one even column, a little air between its parts; GARAGE and MENU small under RETRY. */
+.screen.over .screen-panel {
+  gap: clamp(10px, 2.4vmin, 18px);
+}
+
+.screen.over .over-group {
+  gap: clamp(8px, 2vmin, 14px);
+}
+
+.over-small-row .btn {
+  min-height: 38px;
+  padding: 0 18px;
+  font-size: clamp(12px, 3vmin, 15px);
+}
+
+.over-feedback {
+  margin-top: 2px;
+}
+
+.over-feedback-choice {
+  min-height: 32px;
+}
+
+/* The car step: the panel's parts evenly spaced, the status on one line. */
+.screen.garage.flow .garage-details,
+.screen.garage .garage-details {
+  gap: clamp(8px, 1.8vmin, 14px);
+}
+
+.screen.garage .garage-car-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: clamp(6px, 1.4vmin, 10px);
+  width: 100%;
+}
+
+.screen.garage .garage-price {
+  white-space: nowrap;
+}
+
+.screen.garage .garage-toggle {
+  margin-bottom: 2px;
+}
+
+/* A button pointed out once (the garage after the first drive): a soft amber glow coming and going. */
+.btn-pointer {
+  animation: pointer-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes pointer-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 rgba(255, 196, 0, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(255, 196, 0, 0.55));
+  }
+}
+
+/* Sideways on a phone: the step's label beside BACK, clear of the car's or map's name; the stat rows given room. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .step-label {
+    left: calc(var(--safe-left) + 110px);
+    right: auto;
+    margin: 0;
+    top: calc(var(--safe-top) + 22px);
+  }
+
+  .garage-specs {
+    gap: 9px;
+  }
+}
+
+/* ---------------------------------------------------------------- one-time pointers on the menus (ui/Guide.js) */
+/* A small amber arrow by a button, bobbing gently; under the button, pointing up, when asked or when there is no
+   room above. Never catches a tap. */
+.guide {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.guide-arrow {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -100%);
+  animation: guide-bob 1.6s ease-in-out infinite;
+}
+
+.guide-arrow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--amber);
+  clip-path: polygon(0 20%, 100% 20%, 50% 100%);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+
+.guide.below .guide-arrow {
+  transform: translate(-50%, 0);
+  animation-name: guide-bob-up;
+}
+
+.guide.below .guide-arrow::before {
+  transform: rotate(180deg);
+}
+
+@keyframes guide-bob {
+  0%,
+  100% {
+    transform: translate(-50%, -100%);
+  }
+  50% {
+    transform: translate(-50%, calc(-100% - 4px));
+  }
+}
+
+@keyframes guide-bob-up {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, 4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-arrow {
+    animation: none;
+  }
+}

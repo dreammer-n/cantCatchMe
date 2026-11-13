@@ -72,6 +72,10 @@ export class Bot {
         car.stepFor(steer, 0.05, 1 / 120);
         t += 0.05;
         if (!sim.world.isClear(car.x, car.y, 30)) ok = false;
+        // Parked cars can crash it when hit hard (PARKED_CARS), so it steers round them as a player would.
+        for (const c of sim.cones) {
+          if (c.state === 'standing' && c.item.kind === 'civilian' && Math.abs(c.x - car.x) < 60 && Math.abs(c.y - car.y) < 60) ok = false;
+        }
         for (const p of sim.police) {
           if (!p.active) continue;
           const px = p.model.x + p.model.vx * t;

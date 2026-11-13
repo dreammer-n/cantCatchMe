@@ -2,7 +2,7 @@ import { Car } from '../entities/Car.js';
 import { Airstrike } from '../entities/Airstrike.js';
 import { Helicopter } from '../entities/Helicopter.js';
 import { PoliceCar } from '../entities/PoliceCar.js';
-import { handlingFor, CAR_SIZE, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK, CHUNKS, HELICOPTER, HELICOPTER_COVER, WORLD, WOODS_MAP } from '../config/tuning.js';
+import { PARKED_CARS, handlingFor, CAR_SIZE, AIRSTRIKE, ARMOR, RAMP, BEARCAT, BLACKOUT, SLICK, COLLISION, CONES, CRASH, EXPLOSION, FLAT_TIRE, FREEZE, GIANT, NEAR_MISS, PHYSICS, PILLARS, POLICE, REVIVE, ROADBLOCK, START, VOID, WRECK, WRECK_KNOCK, CHUNKS, HELICOPTER, HELICOPTER_COVER, WORLD, WOODS_MAP } from '../config/tuning.js';
 import { createRng, wrapAngle } from '../utils/math.js';
 import { ChunkManager, resetCone } from './ChunkManager.js';
 import { CAR_REACH, StaticWorld, carContact, collideCars, collideWithWorld, keepInsideHole, rampHeightAt, rampSurfaceAt } from './CollisionSystem.js';
@@ -852,6 +852,13 @@ export class ChaseSimulation {
     }
     const cone = shape.cone || this.chunks.makeBreakable(shape);
     if (!cone || cone.state !== 'standing') return;
+    // A parked car hit hard and head on is a crash (PARKED_CARS); a heavy car, TITAN or a ghost goes through.
+    if (PARKED_CARS.crash && car === this.player && cone.item.kind === 'civilian' && !car.plowing && !car.crushing && !car.ghost) {
+      const dx = cone.x - car.x;
+      const dy = cone.y - car.y;
+      const closing = (car.vx * dx + car.vy * dy) / Math.max(1, Math.hypot(dx, dy));
+      if (closing > this.playerPropImpact) this.crashPlayer('obstacle');
+    }
     cone.state = 'flying';
     cone.timer = 0;
     if (cone.wasSolid) shape.solid = false;

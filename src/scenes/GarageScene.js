@@ -4,6 +4,8 @@ import { PlatformManager } from '../platform/PlatformManager.js';
 import { Progress } from '../systems/Progress.js';
 import { Garage } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
+import { Tips } from '../systems/Tips.js';
+import { Guide } from '../ui/Guide.js';
 import { GarageScreen } from '../ui/Screens.js';
 
 // Browse, buy and choose cars. Opened as the last step after PLAY (flow: from the map step, the big button reads
@@ -17,6 +19,7 @@ export class GarageScene extends Phaser.Scene {
   init(data) {
     this.from = data.from;
     this.flow = Boolean(data.flow);
+    this.hint = data.hint || null;
   }
 
   create() {
@@ -30,9 +33,12 @@ export class GarageScene extends Phaser.Scene {
         onBack: () => this.close(),
         onUpgrade: (kind) => this.upgrade(kind),
         onHardStart: () => this.toggleHardStart(),
+        onToggle: () => this.guide(),
       });
     }
-    this.screen.setFlow(this.flow, Settings.hardStart);
+    this.screen.setFlow(this.flow, Settings.hardStart, this.hint);
+    this.screen.showCarsPanel(); // opens on the car, not the upgrades left open last time
+    Tips.mark('garage-visit');
     this.index = CARS.findIndex((car) => car.id === Garage.selected);
     this.lastSteer = 0;
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
@@ -43,7 +49,9 @@ export class GarageScene extends Phaser.Scene {
     this.showCar(); // drawn first (the map behind and the car), then the move starts
     this.screen.zoom();
     this.stopWatching = Garage.onChange(() => this.showCar());
+    this.guide();
     this.events.once('shutdown', () => {
+      Guide.hide();
       this.stopWatching();
       this.screen.leave(!this.driving);
     });
@@ -63,7 +71,34 @@ export class GarageScene extends Phaser.Scene {
     this.screen.showCar(CARS[this.index], this.index, CARS.length);
   }
 
+  // One-time pointers (GUIDE), each only once: the free upgrade (UPGRADES, then its button), then the next car to
+  // save for; on the way into a run, if those are done, where to pick a car. A tap anywhere else ends the guide.
+  guide() {
+    const screen = this.screen;
+    const done = (id) => () => Tips.mark(id);
+    if (!Tips.has('guide-garage')) {
+      const car = CARS[this.index];
+      if (Progress.isFree('engine', car.id)) {
+        const onTap = (hit) => {
+          if (!hit) Tips.mark('guide-garage');
+        };
+        if (screen.upgrades.hidden) Guide.point(screen.toggle, onTap);
+        else Guide.point(screen.upgradeRows.find((row) => row.kind === 'engine').buy, onTap); // it reads FREE
+        return;
+      }
+      const next = CARS.filter((c) => !Garage.owns(c.id) && !c.challenge).sort((a, b) => a.price - b.price)[0];
+      if (next) {
+        Guide.point(screen.nextArrow, done('guide-garage')); // the next car shows its price
+        return;
+      }
+      Tips.mark('guide-garage');
+    }
+    if (this.flow && !Tips.has('guide-car')) Guide.point(screen.nextArrow, done('guide-car'));
+  }
+
   browse(step) {
+    Guide.hide();
+    if (this.flow) Tips.mark('guide-car');
     this.audio.play('click');
     this.index = (this.index + step + CARS.length) % CARS.length;
     this.showCar();
@@ -87,6 +122,7 @@ export class GarageScene extends Phaser.Scene {
   // On to the map: the camera pulls back over it.
   toMap() {
     if (this.screen.leaving) return;
+    Guide.hide();
     this.audio.unlock();
     this.screen.leave();
     this.world.menuShot('map');
@@ -101,6 +137,7 @@ export class GarageScene extends Phaser.Scene {
     this.screen.zoom(true);
     this.world.menuShot('car');
     this.readyAt = this.time.now + 250;
+    this.guide();
   }
 
   toggleHardStart() {
@@ -111,10 +148,12 @@ export class GarageScene extends Phaser.Scene {
 
   // An upgrade for every car, if the player's level and coins allow it.
   upgrade(kind) {
-    if (!Progress.upgrade(kind)) return;
+    const id = CARS[this.index].id; // the car on show
+    if (!Progress.upgrade(kind, id)) return;
     this.audio.play('click');
-    PlatformManager.sendEvent('upgrade_bought', { kind, tier: Progress.tier(kind) });
+    PlatformManager.sendEvent('upgrade_bought', { kind, tier: Progress.tier(kind, id), car: id });
     this.showCar();
+    this.guide(); // on to the next car to save for
   }
 
   close() {

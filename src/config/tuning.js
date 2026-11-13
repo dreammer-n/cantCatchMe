@@ -144,19 +144,20 @@ export const STORAGE_KEYS = {
 // [TUNE] The WANTED level during a run: stars that fill as new kinds of trouble join the chase, with a call-out
 // each time. The times follow the pace of a run (HEAT, HEAT_HARD, AIRSTRIKE), so each star means something new.
 export const WANTED = {
+  // One new kind of trouble every 30 s from 1 minute, the same in both modes (the jets at 3:00 have their hint).
   normal: [
     { at: 0, call: null },
-    { at: 30, call: 'MORE POLICE!' },
     { at: 60, call: 'INTERCEPTORS!' },
-    { at: 120, call: 'SWAT AND CHOPPER!' },
-    { at: 180, call: 'AIRSTRIKE!' },
+    { at: 90, call: 'ROADBLOCKS!' },
+    { at: 120, call: 'SWAT TRUCKS!' },
+    { at: 150, call: 'CHOPPER!' },
   ],
   hard: [
     { at: 0, call: null },
-    { at: 15, call: 'INTERCEPTORS!' },
-    { at: 40, call: 'ROADBLOCKS!' },
-    { at: 70, call: 'SWAT AND CHOPPER!' },
-    { at: 180, call: 'AIRSTRIKE!' },
+    { at: 60, call: 'INTERCEPTORS!' },
+    { at: 90, call: 'ROADBLOCKS!' },
+    { at: 120, call: 'SWAT TRUCKS!' },
+    { at: 150, call: 'CHOPPER!' },
   ],
 };
 
@@ -189,7 +190,10 @@ export const LEVELS = {
 
 // [TUNE] Upgrades bought with coins in the garage; they work for every car. tier n costs prices[n-1] and needs
 // player level levels[n-1]. Police speed stays as it is (decision 21), so these make a run easier, a little.
+// ENGINE and HANDLING belong to each car (owner, 2026-11-13); COIN BONUS is the player's, whatever they drive.
 export const UPGRADES = {
+  perCar: ['engine', 'handling'],
+  free: 'engine', // the first tier of this one is free, once (the garage's first-visit guide points at it)
   prices: [300, 700, 1500, 3000, 6000],
   levels: [1, 3, 5, 8, 12],
   kinds: {
@@ -217,8 +221,28 @@ export const MENU_CAMERA = {
 };
 
 // [TUNE] Pop-up adverts (Bridge decides when one is due; these are the game's own limits, owner 2026-11-12).
+// [TUNE] Parked cars (owner, 2026-11-13): a slow bump shoves one aside; a hard hit, head on, crashes the car like a
+// wall (closing speed above the hit that wrecks the car on props, so the run's early toughness counts too).
+export const PARKED_CARS = {
+  crash: true,
+};
+
 export const ADS = {
   minRunSeconds: 30, // no pop-up after a run shorter than this: a quick crash goes straight to the results
+};
+
+// [TUNE] On the results of a player's early runs (from the 2nd to the lastRun-th), one line on what to aim for
+// next, taking turns: a map to unlock, a car to buy, the Hypercar challenge.
+// [TUNE] One-time pointers on the menus (ui/Guide.js): a small amber arrow on one button, once each, no words. The
+// results point at GARAGE until the player has been in it (on runs up to garageRuns); the garage then points at the
+// free upgrade and the next car; the car and map steps at the arrow to the next car and map.
+export const GUIDE = {
+  garageRuns: 3,
+};
+
+export const GOALS = {
+  firstRun: 2,
+  lastRun: 12,
 };
 
 // [TUNE] One question, once, to a player who has played a few runs: what spoiled it? Sent to Playgama's stats
@@ -430,7 +454,8 @@ export const CARS = [
     handling: { topSpeed: 375, maxTurnRateDeg: 218, gripTurning: 4.6, acceleration: 480 } },
   { id: 'camper', name: 'Camper', price: 18000, scale: 1.12, mass: 1.6, plows: true,
     handling: { topSpeed: 300, maxTurnRateDeg: 160, gripTurning: 3, acceleration: 340 } },
-  { id: 'hypercar', name: 'Hypercar', price: 25000, scale: 0.98, mass: 0.9, plows: false,
+  // Also won by surviving (CHALLENGE): 6 minutes, or 3 with HARD START.
+  { id: 'hypercar', name: 'Hypercar', price: 25000, challenge: { normal: 360, hard: 180 }, scale: 0.98, mass: 0.9, plows: false,
     handling: { topSpeed: 420, maxTurnRateDeg: 192, gripTurning: 4.2, acceleration: 520 } },
   { id: 'firetruck', name: 'Fire Engine', price: 35000, scale: 1.16, mass: 2.4, plows: true,
     handling: { topSpeed: 315, maxTurnRateDeg: 165, gripTurning: 3.8, acceleration: 350 } },
@@ -447,6 +472,7 @@ for (const car of CARS) car.durability = Math.sqrt(car.mass);
 
 // What the garage shows: each car's real numbers, as a share (0 to 1) of the way from the worst car to the best.
 // Worked out, never set by hand, so the screen can't drift from how the car really drives.
+const readTuned = (name, h) => (name === 'speed' ? h.topSpeed : name === 'acceleration' ? h.acceleration : h.maxTurnRateDeg + h.gripTurning * 8);
 const SPEC_READINGS = {
   speed: (car) => handlingFor(car).topSpeed,
   acceleration: (car) => handlingFor(car).acceleration,
@@ -454,12 +480,14 @@ const SPEC_READINGS = {
   durability: (car) => car.durability,
 };
 
-export function carSpecs(car) {
+// tune: the car's handling with its upgrades (Progress.handling), to show what they add; shares may then pass 1.
+export function carSpecs(car, tune = null) {
   const specs = {};
   for (const [name, read] of Object.entries(SPEC_READINGS)) {
     const values = CARS.map(read);
     const low = Math.min(...values);
-    specs[name] = (read(car) - low) / (Math.max(...values) - low);
+    const value = tune && name !== 'durability' ? readTuned(name, tune(handlingFor(car))) : read(car);
+    specs[name] = (value - low) / (Math.max(...values) - low);
   }
   return specs;
 }
@@ -668,7 +696,7 @@ export const INTERCEPTOR = {
 // [TUNE] Roadblocks: parked cruisers across a crossing ahead. They don't chase and don't count
 // toward HEAT.police. Hit one hard and the run is over; lure police into one and they pile up.
 export const ROADBLOCK = {
-  firstAt: 75, // seconds into the run
+  firstAt: 90, // seconds into the run: one new kind of trouble every 30 s from 1 minute (WANTED)
   everyMin: 12, // seconds between roadblocks, random in this range
   everyMax: 18,
   retrySeconds: 1, // no suitable crossing right now: look again this soon
@@ -717,28 +745,32 @@ export const HEAT = {
   // Busy but forgiving (owner, 2026-11-11): police from the start and more of them early, so there is always a
   // chase, but they are slower than the player at first and wreck easily, and the player's car takes harder knocks
   // early on (toughness); interceptors from 1 minute, Bearcats from 2; the full pressure of before by 5 minutes.
-  police: [[0, 1], [8, 2], [40, 3], [80, 4], [120, 6], [150, 8], [180, 11], [240, 17], [300, 24], [360, 26]],
-  toughness: [[0, 2.1], [90, 1.6], [180, 1.2], [240, 1]], // x the police hit that wrecks the player's car (CRASH.playerImpact)
-  propToughness: [[0, 1.25], [120, 1.12], [240, 1]], // the same against walls and props: modest, so a full-speed head-on still ends it
+  // A little easier again (owner, 2026-11-13): fewer police from 2 minutes, a slower build, tough for longer.
+  police: [[0, 1], [8, 2], [40, 3], [80, 4], [120, 5], [150, 7], [180, 9], [240, 13], [300, 18], [360, 22], [420, 26]],
+  toughness: [[0, 2.1], [90, 1.6], [180, 1.3], [300, 1.1], [360, 1]], // x the police hit that wrecks the player's car (CRASH.playerImpact)
+  propToughness: [[0, 1.25], [120, 1.12], [300, 1]], // the same against walls and props: modest, so a full-speed head-on still ends it
   fragility: [[0, 0.75], [180, 0.9], [240, 1]], // x the hit that wrecks a police car (props and other cars)
   interceptorShare: [[59.99, 0], [60, 0.15], [120, 0.3], [180, 0.45], [240, 0.6]],
   bearcatShare: [[119.99, 0], [120, 0.1], [180, 0.18], [240, 0.26]], // share of new cars that are Bearcats
-  speedFactor: [[0, 0.86], [60, 0.92], [120, 1.0], [180, 1.05], [240, 1.1], [300, 1.14]], // x the player's top speed of 300
+  speedFactor: [[0, 0.86], [60, 0.92], [120, 0.98], [180, 1.02], [240, 1.06], [300, 1.1], [360, 1.13]], // x the player's top speed of 300
   turnDeg: [[0, 88], [150, 118], [270, 136]],
   reaction: [[150, 1], [210, 0.65]], // interceptors' reaction time, x normal
 };
 
 // HARD START (a switch on the title screen): the run starts as hard as it used to, before the gentle start of
 // decision 40. Pays COINS.hardShare.
+// A bit easier (owner, 2026-11-13): plain police cars only in the first minute, then one new kind of trouble every
+// 30 s, as in a normal run (interceptors 1:00, roadblocks and spikes 1:30, SWAT 2:00, helicopter 2:30, jets 3:00);
+// HARD START stays harder by having more police, and faster ones.
 export const HEAT_HARD = {
-  police: [[0, 2], [15, 4], [30, 7], [45, 10], [75, 16], [110, 22], [160, 26]],
-  interceptorShare: [[14.99, 0], [15, 0.3], [30, 0.35], [45, 0.5], [90, 0.6]],
-  bearcatShare: [[44.99, 0], [45, 0.14], [70, 0.2], [110, 0.26]],
-  speedFactor: [[0, 1.04], [30, 1.05], [70, 1.1], [150, 1.14]],
-  turnDeg: [[0, 118], [150, 136]],
-  reaction: [[70, 1], [110, 0.65]],
-  roadblockAt: 40, // seconds: the first roadblock ...
-  helicopterAt: 70, // ... and the helicopter
+  police: [[0, 2], [20, 3], [40, 5], [60, 7], [90, 11], [130, 16], [180, 22], [240, 26]],
+  interceptorShare: [[59.99, 0], [60, 0.3], [90, 0.4], [120, 0.5], [180, 0.6]],
+  bearcatShare: [[119.99, 0], [120, 0.12], [150, 0.18], [190, 0.24]],
+  speedFactor: [[0, 1.0], [45, 1.04], [90, 1.08], [160, 1.12]],
+  turnDeg: [[0, 110], [150, 132]],
+  reaction: [[90, 1], [130, 0.65]],
+  roadblockAt: 90, // seconds: the first roadblock ...
+  helicopterAt: 150, // ... and the helicopter: the same times as a normal run, one new kind every 30 s
   toughness: [[0, 1]],
   propToughness: [[0, 1]],
   fragility: [[0, 1]],
@@ -954,7 +986,7 @@ export const HELICOPTER = {
   shadowWidth: 78, // its soft shadow on the road
   shadowLength: 190,
   shadowAlpha: 0.55,
-  firstAt: 120,
+  firstAt: 150, // the fifth kind of trouble (WANTED); HARD START the same (HEAT_HARD.helicopterAt)
   arriveDistance: 1500,
   height: 250,
   swoopHeight: 120,
@@ -1341,8 +1373,8 @@ export const HELICOPTER_COVER = { trees: 3, treeReach: 75 };
 // Spike strips lying on their own across a road ahead, now and then, at odd spots and angles: always laid out of
 // sight, so they are seen coming. [TUNE]
 export const LOOSE_SPIKES = {
-  firstAt: 60, // seconds into a run (HARD START: hardFirstAt)
-  hardFirstAt: 30,
+  firstAt: 90, // seconds into a run, with the roadblocks (HARD START: hardFirstAt)
+  hardFirstAt: 90,
   everyMin: 14,
   everyMax: 24,
   ahead: [900, 1400], // how far ahead of the car, along its way

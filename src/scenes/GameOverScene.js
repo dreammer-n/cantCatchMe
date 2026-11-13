@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { Garage } from '../systems/ScoreSystem.js';
+import { Guide } from '../ui/Guide.js';
 import { GameOverScreen, simulateAd } from '../ui/Screens.js';
 
 // Results after a crash: survival time, best, police wrecked, close calls, best combo, coins earned, with
@@ -31,7 +32,16 @@ export class GameOverScene extends Phaser.Scene {
     this.screen.show({ ...this.result, balance: Garage.coins, adMode: PlatformManager.rewardedAdMode() });
     // A short delay, so a key or tap meant for steering doesn't skip the results by accident.
     this.readyAt = this.time.now + 600;
-    this.events.once('shutdown', () => this.screen.hide());
+    this.pointAtGarage();
+    this.events.once('shutdown', () => {
+      Guide.hide();
+      this.screen.hide();
+    });
+  }
+
+  // A new player's results: an arrow on GARAGE until they have been in it (GUIDE). A tap elsewhere just hides it.
+  pointAtGarage() {
+    if (this.result.garagePointer) Guide.point(this.screen.garageButton, null, { below: true });
   }
 
   update(time) {
@@ -70,6 +80,8 @@ export class GameOverScene extends Phaser.Scene {
   openGarage() {
     if (this.adBusy) return;
     this.audio.play('click');
+    Guide.hide();
+    this.result.garagePointer = false;
     this.screen.hide();
     this.scene.launch('GarageScene', { from: 'GameOverScene' });
     this.scene.pause();

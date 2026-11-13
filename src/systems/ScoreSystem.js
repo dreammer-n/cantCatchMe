@@ -211,6 +211,27 @@ export const Garage = {
     return !this.owns(id) && CARS.some((car) => car.id === id) && this.coins >= carById(id).price;
   },
 
+  // A car won (a survival challenge): owned, free. Returns whether it was new.
+  grant(id) {
+    if (this.owns(id) || !CARS.some((car) => car.id === id)) return false;
+    this.unlocked.push(id);
+    this.save();
+    return true;
+  },
+
+  // Cars won by surviving long enough (CARS challenge): the ones this run's best times have just won.
+  checkChallenges(bestNormal, bestHard) {
+    const won = [];
+    for (const car of CARS) {
+      if (!car.challenge || this.owns(car.id)) continue;
+      if (bestNormal >= car.challenge.normal || bestHard >= car.challenge.hard) {
+        this.grant(car.id);
+        won.push(car);
+      }
+    }
+    return won;
+  },
+
   // Returns whether the car was bought.
   buy(id) {
     if (!this.canBuy(id)) return false;
