@@ -1,8 +1,8 @@
 import * as Phaser from 'phaser';
-import { BLACKOUT, HELICOPTER, PALETTE, POWERUP, SLICK, TUMBLE, TUTORIAL } from '../config/tuning.js';
+import { BLACKOUT, HELICOPTER, PALETTE, POLICE_HANDLING, POWERUP, SLICK, TUMBLE, TUTORIAL } from '../config/tuning.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
-import { isOnScreen } from '../systems/SpawnSystem.js';
+import { difficultyAt, isOnScreen } from '../systems/SpawnSystem.js';
 import { Tips } from '../systems/Tips.js';
 
 const SIREN = [0xff3b30, 0x2f7bff];
@@ -184,6 +184,7 @@ export class Coach {
     }
     Tips.mark(`lesson-${this.lesson}`);
     PlatformManager.sendEvent('tutorial_step', { step: `${this.lesson}_done` });
+    this.calmPolice(sim);
     this.lesson = LESSONS.find((id) => !Tips.has(`lesson-${id}`)) || null;
     this.stage = this.lesson ? 'start' : null;
     this.stageTime = 0;
@@ -192,6 +193,15 @@ export class Coach {
     if (!this.lesson) {
       sim.powerUps.timer = POWERUP.interval; // the dice come as they normally do from now on
       this.tip('done'); // the lessons are over: the goal, in a line
+    }
+  }
+
+  // A lesson's police come in fast (TUTORIAL.lessonPoliceSpeed, kaboomPoliceSpeed) so they arrive together; the ones
+  // still chasing when it ends drop back to the speed police have at this point of a normal run.
+  calmPolice(sim) {
+    const speed = POLICE_HANDLING.topSpeed * difficultyAt(sim.stats.time, sim.pace).speedFactor;
+    for (const police of sim.police) {
+      if (police.active && police.alive && !police.parked && !police.armored) police.model.handling.topSpeed = Math.min(police.model.handling.topSpeed, speed);
     }
   }
 

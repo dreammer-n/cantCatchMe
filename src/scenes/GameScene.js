@@ -2,6 +2,10 @@ import * as Phaser from 'phaser';
 import { DEBUG } from '../config/debug.js';
 import {
   WORLD,
+  carById,
+  ADS,
+  FEEDBACK,
+  MENU_CAMERA,
   LEADERBOARD,
   MISSIONS,
   applyMapPalette,
@@ -60,6 +64,7 @@ import { Records, Garage, coinsForRun, Maps } from '../systems/ScoreSystem.js';
 import { Missions } from '../systems/Missions.js';
 import { Progress, wantedAt, wantedCall } from '../systems/Progress.js';
 import { Settings } from '../systems/Settings.js';
+import { Tips } from '../systems/Tips.js';
 import { ThreatRadar } from '../systems/ThreatRadar.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
@@ -134,6 +139,9 @@ export class GameScene extends Phaser.Scene {
     this.helicopterView = new HelicopterView(this, this.layers);
     this.jetView = new JetView(this, this.layers);
     this.rig = new CameraRig();
+    // The menus are camera shots of this same world (menuShot): the shot the camera is gliding towards, and where it is.
+    this.shotTarget = MENU_CAMERA.shots.title;
+    this.shot = { ...MENU_CAMERA.shots.title };
     this.rig.reset(this.sim.player.x, this.sim.player.y);
     this.view = { x: 0, y: 0, right: 0, bottom: 0 }; // visible screen rectangle
     this.simView = { cx: 0, cy: 0, halfW: 0, halfH: 0 };
@@ -199,8 +207,7 @@ export class GameScene extends Phaser.Scene {
 
   // Moves to the map chosen on the map screen. Everything on the map is drawn again in its colours: that
   // takes a moment, so it only happens when the map really changes, between runs.
-  useSelectedMap() {
-    const map = Maps.current();
+  useSelectedMap(map = Maps.current()) {
     if (map.id === this.mapId) return;
     this.mapId = map.id;
     applyMapPalette(map);
@@ -218,9 +225,57 @@ export class GameScene extends Phaser.Scene {
     document.documentElement.style.setProperty('--ground', cssColor(PALETTE.uiGround));
   }
 
-  // Back from the garage: the car on the title screen changes at once; after a run, it waits for the next one.
+  // Back on the title: the car and map chosen (whatever was being browsed), and the title's shot.
   onGarageClosed() {
-    if (this.mode === 'attract') this.enterAttract();
+    if (this.mode !== 'attract') return;
+    this.previewMap(Maps.current());
+    this.previewCar(Garage.selected);
+    this.menuShot('title');
+  }
+
+  // ---- The menus as camera shots of this world (title > car > map > play) ----
+
+  // name: 'title', 'car', 'map' or 'play'. The camera glides there (followCar); the car stands for the shot: turned to
+  // show itself off for the title and its close-up, set on the road the way the run will go for the map, so START
+  // simply drives off.
+  menuShot(name) {
+    this.shotTarget = MENU_CAMERA.shots[name] || MENU_CAMERA.shots.play;
+    if (this.mode !== 'attract') return;
+    const heading = name === 'map' ? this.startHeading : ATTRACT_HEADING;
+    if (heading === undefined) return;
+    this.sim.player.heading = heading;
+    ensureCarAtlas(this, `${this.carId}Body`, projection, heading);
+    ensureCarAtlas(this, `${this.carId}Wheels`, projection, heading);
+  }
+
+  // Choosing a car: it is swapped on the spot in the world (only the views it is seen from are drawn now), even one
+  // not owned yet. The car actually driven is still the one chosen (useSelectedCar, at the start of a run).
+  previewCar(id) {
+    if (this.mode !== 'attract' || id === this.carId) return;
+    const old = this.carId;
+    this.carId = id;
+    this.applyPreviewScale();
+    this.looks.player = this.playerLook(this.sim.player.heading);
+    this.playerView.setLook(this.looks.player);
+    if (old !== Garage.selected && old !== id) releaseCarSheets(this, old);
+  }
+
+  applyPreviewScale() {
+    const scale = carById(this.carId).scale;
+    Object.assign(this.sim.player, { baseScale: scale, scale, scaleTarget: scale });
+  }
+
+  // Choosing a map: the world is redrawn as that map behind the menu (a locked one too, to look at), with a quick
+  // fade; the camera keeps its shot.
+  previewMap(map) {
+    if (this.mode !== 'attract' || map.id === this.mapId) return;
+    const heading = this.sim.player.heading;
+    this.useSelectedMap(map);
+    this.sim.reset(1);
+    this.applyPreviewScale();
+    this.sim.player.heading = heading;
+    this.resetVisuals();
+    this.cameras.main.fadeIn(MENU_CAMERA.mapFadeMs, 14, 15, 18);
   }
 
   // first: see ensureCarAtlas (the title only needs the car standing at ATTRACT_HEADING).
@@ -269,8 +324,11 @@ export class GameScene extends Phaser.Scene {
     this.useSelectedCar();
     this.useSelectedMap();
     this.sim.reset(1);
+    this.startHeading = this.sim.player.heading; // the way a run sets off (the map shot turns the car to it)
     this.sim.player.heading = ATTRACT_HEADING;
     this.mode = 'attract';
+    this.shotTarget = MENU_CAMERA.shots.title;
+    this.shot = { ...MENU_CAMERA.shots.title };
     this.turntable = false;
     this.resetVisuals();
     this.snapCamera();
@@ -314,6 +372,9 @@ export class GameScene extends Phaser.Scene {
   // firstDrive: a new player's first run (scenes/Coach.js): the car waits on the road for the first touch, and the
   // drawing goes on in the background meanwhile, so the game starts as soon as it has loaded.
   startRun(seed = (Math.random() * 2 ** 31) >>> 0, { firstDrive = false } = {}) {
+    const fromMenus = this.mode === 'attract' && !firstDrive; // the camera glides down from the map shot as it drives off
+    this.shotTarget = MENU_CAMERA.shots.play;
+    if (!fromMenus) this.shot = { ...MENU_CAMERA.shots.play };
     if (!firstDrive) this.finishWarmUp();
     this.useSelectedCar();
     this.useSelectedMap();
@@ -467,8 +528,12 @@ export class GameScene extends Phaser.Scene {
     PlatformManager.flush();
     this.audio.quiet();
     this.audio.setMusic(null); // no music on the results
-    PlatformManager.showInterstitial(); // a natural pause: the platform decides whether an advert is due
-    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause, crashTip, missions, progress };
+    // A natural pause: the platform decides whether an advert is due; never after a quick crash (ADS).
+    if (summary.time >= ADS.minRunSeconds) PlatformManager.showInterstitial();
+    // Once, after a few runs: what spoiled it? (FEEDBACK; counted as asked as soon as it is shown.)
+    const askFeedback = !Tips.has('feedback') && runNumber >= FEEDBACK.afterRuns && !this.coach.firstDrive;
+    if (askFeedback) Tips.mark('feedback');
+    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause, crashTip, missions, progress, askFeedback, runNumber };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
   }
@@ -677,13 +742,13 @@ export class GameScene extends Phaser.Scene {
           this.effects.smokePuff(e.x, e.y, 2);
           this.effects.groundRing(e.x, e.y, EFFECTS.ringRadius * 0.6);
           if (e.kind === 'spikes') this.effects.sparksAt(e.x, e.y, 6);
-          this.audio.play(e.kind === 'spikes' ? 'cone' : 'bump', close * 0.8);
+          if (e.kind !== 'spikes') this.audio.play('bump', close * 0.8); // spikes: silent until their own sound comes
           if (distance < EXPLOSION.shakeDistance) this.rig.addTrauma(TRAUMA.dropLand * (1 - distance / EXPLOSION.shakeDistance));
           break;
         }
         case 'barrelHit':
           this.effects.bitsBurst(e.x, e.y, [PALETTE.trafficBarrel, PALETTE.trafficBand], 8);
-          this.audio.play('cone', e.player ? 0.9 : 0.5);
+          this.playPropSound('barrel', e.player ? 0.9 : 0.5);
           if (e.player) {
             this.playerView.bump(90);
             this.rig.addTrauma(TRAUMA.knock);
@@ -726,8 +791,7 @@ export class GameScene extends Phaser.Scene {
           break;
         case 'ignite':
           this.effects.ignite(e.x, e.y);
-          this.rig.addTrauma(TRAUMA.ignite);
-          this.audio.play('cone', 0.6);
+          this.rig.addTrauma(TRAUMA.ignite); // silent until its own sound comes
           break;
         case 'pillarCrumble':
           this.effects.pillarDust(e.x, e.y);
@@ -762,7 +826,7 @@ export class GameScene extends Phaser.Scene {
         case 'cone':
           if (e.cone.item.kind === 'civilian' || e.cone.wasSolid) this.onParkedCarHit(e);
           else {
-            this.audio.play(['bush', 'snowman', 'tumbleweed'].includes(e.cone.item.kind) ? 'bump' : 'cone', 0.8);
+            this.playPropSound(e.cone.item.kind, 0.8);
             if (e.player) this.rig.addTrauma(TRAUMA.knock);
             this.onStreetPieceHit(e.cone.item.kind, e.x, e.y);
           }
@@ -783,6 +847,12 @@ export class GameScene extends Phaser.Scene {
           break;
       }
     }
+  }
+
+  // The sound of a knock-over thing being hit, if it has one (AUDIO.propSounds).
+  playPropSound(kind, volume) {
+    const sound = AUDIO.propSounds[kind];
+    if (sound) this.audio.play(sound, volume);
   }
 
   // A car going over the edge: into a river it splashes; into a hole the road crumbles behind it.
@@ -1152,28 +1222,39 @@ export class GameScene extends Phaser.Scene {
     const { width, height } = this.scale;
     camera.setSize(width, height);
     this.baseZoom = Math.min(width, height) / VIEW.shortSideWorldUnits;
-    camera.setZoom(this.baseZoom * this.rig.zoom);
+    camera.setZoom(this.baseZoom * this.rig.zoom * this.shot.zoom);
     this.centerCamera();
+  }
+
+  // The camera glides towards the menus' shot (zoom in log steps, so zooming in and out feel alike).
+  stepShot(dt) {
+    const k = 1 - Math.exp(-MENU_CAMERA.ease * dt);
+    const target = this.shotTarget;
+    this.shot.zoom = Math.exp(Math.log(this.shot.zoom) + (Math.log(target.zoom) - Math.log(this.shot.zoom)) * k);
+    this.shot.lift += (target.lift - this.shot.lift) * k;
+    if (Math.abs(this.shot.zoom - target.zoom) < 1e-3) this.shot.zoom = target.zoom;
   }
 
   // Look-ahead, speed zoom and shake are worked out by the rig; this applies them to the camera.
   followCar(dt) {
     const camera = this.cameras.main;
+    this.stepShot(dt);
     this.rig.update(this.sim.player, dt, camera.width / this.baseZoom / 2, camera.height / this.baseZoom / 2);
-    camera.setZoom(this.baseZoom * this.rig.zoom);
+    camera.setZoom(this.baseZoom * this.rig.zoom * this.shot.zoom);
     this.centerCamera();
   }
 
   snapCamera() {
     this.rig.reset(this.sim.player.x, this.sim.player.y);
-    this.cameras.main.setZoom(this.baseZoom);
+    this.cameras.main.setZoom(this.baseZoom * this.shot.zoom);
     this.centerCamera();
   }
 
   centerCamera() {
     const camera = this.cameras.main;
     projection.toScreen(this.rig.x, this.rig.y, 0, screenPoint);
-    camera.centerOn(screenPoint.x + this.rig.shakeX, screenPoint.y + this.rig.shakeY);
+    // A shot's lift moves the view down, so the car sits higher on the screen.
+    camera.centerOn(screenPoint.x + this.rig.shakeX, screenPoint.y + this.rig.shakeY + (this.shot.lift * camera.height) / camera.zoom);
     const halfW = camera.width / camera.zoom / 2;
     const halfH = camera.height / camera.zoom / 2;
     Object.assign(this.simView, { cx: screenPoint.x, cy: screenPoint.y, halfW, halfH });

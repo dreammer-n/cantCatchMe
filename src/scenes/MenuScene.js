@@ -47,9 +47,11 @@ export class MenuScene extends Phaser.Scene {
     if (time >= this.readyAt && this.controls.getCommand().confirmPressed) this.play();
   }
 
-  // PLAY: on to choosing a map, then a car.
+  // PLAY: the camera closes in on the car to choose it; then it pulls back over the map; then the run.
   play() {
-    this.openOver('MapScene');
+    if (!this.screen || this.screen.node.hidden || this.screen.leaving) return;
+    this.scene.get('GameScene').menuShot('car');
+    this.openOver('GarageScene', { from: 'MenuScene', flow: true });
   }
 
   openOver(sceneKey, data) {

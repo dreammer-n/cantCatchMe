@@ -24,6 +24,7 @@ export class GameOverScene extends Phaser.Scene {
         onMenu: () => this.toMenu(),
         onGarage: () => this.openGarage(),
         onDouble: () => this.doubleCoins(),
+        onFeedback: (choice) => this.feedback(choice),
       });
     }
     this.adBusy = false;
@@ -56,6 +57,14 @@ export class GameOverScene extends Phaser.Scene {
     Garage.award(result.coins.total);
     PlatformManager.flush();
     this.screen.showDoubled(result.coins.total, Garage.coins);
+  }
+
+  // The one question (FEEDBACK): the answer goes to Playgama's stats, with the run's number, and nothing else.
+  feedback(choice) {
+    this.audio.play('click');
+    PlatformManager.sendEvent('feedback', { choice, run_number: Math.min(this.result.runNumber || 0, 50) });
+    PlatformManager.flush();
+    this.screen.thankFeedback();
   }
 
   openGarage() {

@@ -37,6 +37,7 @@ export class GarageScene extends Phaser.Scene {
     this.lastSteer = 0;
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     this.driving = false;
+    this.world = this.scene.get('GameScene');
     this.screen.show();
     this.screen.forget();
     this.showCar(); // drawn first (the map behind and the car), then the move starts
@@ -66,6 +67,7 @@ export class GarageScene extends Phaser.Scene {
     this.audio.play('click');
     this.index = (this.index + step + CARS.length) % CARS.length;
     this.showCar();
+    if (this.flow) this.world.previewCar(CARS[this.index].id); // the car itself, in the world
   }
 
   // Buys or selects the car on show. A car you have just paid for is the one you want to drive.
@@ -79,17 +81,26 @@ export class GarageScene extends Phaser.Scene {
     }
     Garage.select(car.id);
     this.audio.play('click');
-    if (this.flow) this.drive();
+    if (this.flow) this.toMap();
   }
 
-  // The end of PLAY's steps: map and car chosen, off we go. The title and map step close behind.
-  drive() {
-    if (this.driving) return;
-    this.driving = true;
+  // On to the map: the camera pulls back over it.
+  toMap() {
+    if (this.screen.leaving) return;
     this.audio.unlock();
-    this.scene.stop();
-    this.scene.stop('MapScene');
-    this.scene.get('GameScene').startRun(); // emits 'run-started', which closes the title
+    this.screen.leave();
+    this.world.menuShot('map');
+    this.scene.launch('MapScene', { flow: true });
+    this.scene.pause();
+  }
+
+  // Back from the map: the camera closes in on the car again.
+  onMapClosed() {
+    this.screen.show();
+    this.showCar();
+    this.screen.zoom(true);
+    this.world.menuShot('car');
+    this.readyAt = this.time.now + 250;
   }
 
   toggleHardStart() {

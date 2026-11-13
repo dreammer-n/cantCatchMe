@@ -202,6 +202,39 @@ export const UPGRADES = {
 // The first drive and the one-time hints (scenes/Coach.js). A new player starts on the road, not the title: the car
 // waits until the first touch, which is also the steering lesson. Each hint shows once ever; the basic ones only
 // to new players (fewer than basicsRuns runs), the danger ones to everyone the first time each danger appears.
+// [TUNE] The menus are camera shots of the one live world (GameScene.menuShot): the title, a close-up of the car
+// for choosing it, a wide pull-back over the map for choosing it, and play. zoom: x the play view. lift: how far
+// up the screen the car sits, as a share of the screen's height (so the buttons below don't cover it).
+export const MENU_CAMERA = {
+  shots: {
+    title: { zoom: 1, lift: 0 },
+    car: { zoom: 2.4, lift: 0.1 },
+    map: { zoom: 0.55, lift: 0.04 },
+    play: { zoom: 1, lift: 0 },
+  },
+  ease: 3.6, // how quickly the camera glides to a new shot (per second): about a second to settle
+  mapFadeMs: 260, // a quick fade in as the world is redrawn for another map
+};
+
+// [TUNE] Pop-up adverts (Bridge decides when one is due; these are the game's own limits, owner 2026-11-12).
+export const ADS = {
+  minRunSeconds: 30, // no pop-up after a run shorter than this: a quick crash goes straight to the results
+};
+
+// [TUNE] One question, once, to a player who has played a few runs: what spoiled it? Sent to Playgama's stats
+// as `feedback` (one of these choices and the run's number; nothing else).
+export const FEEDBACK = {
+  afterRuns: 3,
+  question: 'HOW IS IT GOING?',
+  choices: [
+    { id: 'love', text: 'LOVE IT' },
+    { id: 'hard', text: 'TOO HARD' },
+    { id: 'ads', text: 'TOO MANY ADS' },
+    { id: 'boring', text: 'BORING' },
+  ],
+  thanks: 'THANKS!',
+};
+
 export const TUTORIAL = {
   basicsRuns: 5,
   steerSeconds: 6, // the steering hint goes once both ways are tried, or after this long
@@ -253,7 +286,7 @@ export const TUTORIAL = {
     // One plain action per hint: what to do, in as few words as possible.
     police: { head: 'POLICE!', body: 'DODGE THEM, MAKE THEM CRASH', basic: true },
     wreck: { head: 'NICE!', body: 'EVERY CRASH PAYS COINS', basic: true },
-    die: { head: 'LUCKY DIE!', body: 'DRIVE INTO IT', basic: true },
+    die: { head: 'LUCKY DIE!', body: 'GRAB IT FOR A POWER-UP', basic: true },
     use: { head: 'POWER-UP!', body: 'DOUBLE TAP TO USE IT', keysBody: 'PRESS SPACE TO USE IT', basic: true },
     turn: { head: 'TURN NOW!', body: 'HOLD LEFT OR RIGHT', keysBody: 'HOLD A OR D', basic: true },
     kaboom: { head: 'DOUBLE TAP!', keysHead: 'PRESS SPACE!', body: 'BLOW THEM ALL AWAY', basic: true },
@@ -1711,6 +1744,9 @@ export const AUDIO = {
   // biggest file, only needed once a run starts) starts loading once these are in. Names not listed come last.
   loadOrder: ['menu', 'click', 'carCrash', 'bump', 'engine_loop', 'tire_squeal', 'cone', 'siren', 'kaboom', 'shockwave'],
   loadAtOnce: 3, // files downloading at the same time
+  // The sound of each knock-over thing hit (owner, 2026-11-12: the cone sound only for cones). A kind not listed
+  // is silent until its own file comes: add it to `files` and name it here.
+  propSounds: { cone: 'cone', bush: 'bump', snowman: 'bump', tumbleweed: 'bump' },
   menuOverlap: 1.2, // seconds the menu track overlaps itself where it repeats
   musicLookAhead: 2, // seconds ahead that its next pass is prepared
   loopTrim: 0.06, // seconds skipped at each end of a looping effect: the silence an MP3 adds

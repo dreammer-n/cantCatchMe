@@ -400,10 +400,11 @@ body {
   animation-name: screen-zoom-leave-back;
 }
 
+/* Gentle: the camera does the big move now (GameScene.menuShot); the menus only fade and settle a little. */
 @keyframes screen-zoom-in {
   from {
     opacity: 0;
-    transform: scale(0.9);
+    transform: scale(0.97);
   }
   to {
     opacity: 1;
@@ -418,14 +419,14 @@ body {
   }
   to {
     opacity: 0;
-    transform: scale(1.12);
+    transform: scale(1.03);
   }
 }
 
 @keyframes screen-zoom-back {
   from {
     opacity: 0;
-    transform: scale(1.12);
+    transform: scale(1.03);
   }
   to {
     opacity: 1;
@@ -440,7 +441,7 @@ body {
   }
   to {
     opacity: 0;
-    transform: scale(0.9);
+    transform: scale(0.97);
   }
 }
 
@@ -1753,4 +1754,107 @@ body {
   .menu-goals {
     display: none;
   }
+}
+
+/* ---------------------------------------------------------------- PLAY's steps over the live world */
+/* The car and map screens are see-through: the world behind is the car and the map, the camera on them. A light
+   shade at the top and bottom keeps the lettering readable. */
+.screen.garage.flow,
+.screen.map-screen {
+  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.38), rgba(14, 15, 18, 0) 22%, rgba(14, 15, 18, 0) 58%, rgba(14, 15, 18, 0.42));
+}
+
+.screen.garage.flow .map-canvas,
+.screen.garage.flow .garage-canvas,
+.screen.map-screen .map-canvas {
+  display: none;
+}
+
+/* A locked map is dimmed. */
+.screen.map-screen.locked {
+  background: rgba(14, 15, 18, 0.5);
+}
+
+.map-screen .garage-details .btn-hard {
+  align-self: center;
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+/* The one question on the results (FEEDBACK). */
+.over-feedback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.over-feedback[hidden] {
+  display: none;
+}
+
+.over-feedback-text {
+  font-size: clamp(12px, 3vmin, 15px);
+  color: var(--amber);
+}
+
+.over-feedback-choices {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.over-feedback-choices[hidden] {
+  display: none;
+}
+
+.over-feedback-choice {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: clamp(11px, 2.7vmin, 13px);
+}
+
+/* ---------------------------------------------------------------- no dark boxes (owner, 2026-11-12) */
+/* The lettering stands on the game itself, with a soft shadow to read on bright snow and sand; the yellow main
+   buttons stay solid. */
+.hud-tele,
+.hud-record,
+.hud-wanted,
+.hud-tip,
+.hud-steer-text,
+.hud-call,
+.hud-pause,
+.step-label,
+.menu-hint,
+.over-tip,
+.coin-balance,
+.star-balance,
+.map-plate,
+.car-screen .garage-details,
+.screen.garage.flow .btn-secondary,
+.screen.map-screen .btn-secondary {
+  background: none;
+  clip-path: none;
+}
+
+.hud-tele,
+.hud-record,
+.hud-wanted,
+.hud-tip,
+.hud-steer-text,
+.hud-call,
+.hud-pause,
+.step-label,
+.menu-hint,
+.over-tip,
+.coin-balance,
+.star-balance,
+.map-plate,
+.screen.garage .garage-heading,
+.car-screen .garage-details > *:not(.btn-primary),
+.screen.garage.flow .btn-secondary,
+.screen.map-screen .btn-secondary,
+.screen.garage .garage-arrow {
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
 }

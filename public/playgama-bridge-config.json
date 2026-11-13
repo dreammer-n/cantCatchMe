@@ -2,8 +2,8 @@
   "loadingScreenType": "none",
   "disableLoadingLogo": true,
   "advertisement": {
-    "minimumDelayBetweenInterstitial": 120,
-    "initialInterstitialDelay": 120,
+    "minimumDelayBetweenInterstitial": 240,
+    "initialInterstitialDelay": 240,
     "interstitial": {
       "placements": [
         {

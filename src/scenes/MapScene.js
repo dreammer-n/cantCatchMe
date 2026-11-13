@@ -1,10 +1,12 @@
 import * as Phaser from 'phaser';
 import { MAPS } from '../config/tuning.js';
 import { Maps } from '../systems/ScoreSystem.js';
+import { Settings } from '../systems/Settings.js';
 import { MapScreen } from '../ui/Screens.js';
 
-// Step one after PLAY: choosing a map. Steer left and right to browse, Enter / Space / gamepad A for NEXT
-// (choosing the car, GarageScene), P to go back to the title.
+// The last step after PLAY (title > car > map): choosing a map, shown by the world itself, the camera pulled back over
+// it (GameScene.menuShot, previewMap). Steer left and right to browse, Enter / Space / gamepad A to START (the camera
+// glides down into play as the car drives off), P to go back to the car.
 export class MapScene extends Phaser.Scene {
   constructor() {
     super('MapScene');
@@ -19,19 +21,21 @@ export class MapScene extends Phaser.Scene {
         onNext: () => this.browse(1),
         onAction: () => this.start(),
         onBack: () => this.close(),
+        onHardStart: () => this.toggleHardStart(),
       });
     }
+    this.world = this.scene.get('GameScene');
+    this.starting = false;
     this.index = MAPS.findIndex((map) => map.id === Maps.selected);
     this.lastSteer = 0;
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     this.screen.show(); // laid out (no frame is shown before zoom() takes over), so the map can be drawn
     this.showMap(); // drawn first, then the move starts
     this.screen.zoom();
-    this.events.once('shutdown', () => this.screen.leave(true));
+    this.events.once('shutdown', () => this.screen.leave(!this.starting));
   }
 
   update(time) {
-    this.screen.drawMap();
     if (time < this.readyAt) return;
     const command = this.controls.getCommand();
     if (command.steer !== 0 && command.steer !== this.lastSteer) this.browse(command.steer);
@@ -41,39 +45,42 @@ export class MapScene extends Phaser.Scene {
   }
 
   showMap() {
-    this.screen.showMap(MAPS[this.index], this.index);
+    this.screen.showMap(MAPS[this.index], this.index, Settings.hardStart);
   }
 
   browse(step) {
     this.audio.play('click');
     this.index = (this.index + step + MAPS.length) % MAPS.length;
     this.showMap();
+    this.world.previewMap(MAPS[this.index]); // the world itself becomes that map
   }
 
+  toggleHardStart() {
+    Settings.setHardStart(!Settings.hardStart);
+    this.screen.hard.setOn(Settings.hardStart);
+    this.audio.play('click');
+  }
+
+  // START: the menus go and the camera glides down into play as the car drives off.
   start() {
-    if (this.screen.node.hidden || this.screen.leaving) return;
+    if (this.screen.node.hidden || this.screen.leaving || this.starting) return;
     const map = MAPS[this.index];
     if (!Maps.select(map.id)) return;
+    this.starting = true;
     this.audio.unlock();
     this.audio.play('click');
-    this.screen.leave();
-    this.scene.launch('GarageScene', { from: 'MapScene', flow: true });
-    this.scene.pause();
-  }
-
-  // Back from choosing the car.
-  onGarageClosed() {
-    this.screen.show();
-    this.showMap();
-    this.screen.zoom(true);
-    this.readyAt = this.time.now + 250;
-  }
-
-  close() {
-    if (this.screen.leaving) return;
-    this.audio.play('click');
+    this.scene.stop('GarageScene');
     this.scene.stop();
-    this.scene.resume('MenuScene');
-    this.scene.get('MenuScene').onGarageClosed();
+    this.world.startRun(); // emits 'run-started', which closes the title
+  }
+
+  // Back to the car: the map chosen before stays, and the camera closes in on the car.
+  close() {
+    if (this.screen.leaving || this.starting) return;
+    this.audio.play('click');
+    this.world.previewMap(Maps.current());
+    this.scene.stop();
+    this.scene.resume('GarageScene');
+    this.scene.get('GarageScene').onMapClosed();
   }
 }

@@ -1,4 +1,4 @@
-import { COINS, LEVELS, MAPS, STARS, UPGRADES, carSpecs, withMapPalette } from '../config/tuning.js';
+import { COINS, FEEDBACK, LEVELS, MAPS, STARS, UPGRADES, carSpecs, withMapPalette } from '../config/tuning.js';
 import { carMesh } from '../render/carModels.js';
 import { paintMesh, projectMesh } from '../render/lowpoly.js';
 import { drawMapDiorama } from '../render/mapDiorama.js';
@@ -396,7 +396,12 @@ const CAUSES = {
 };
 
 export class GameOverScreen extends Screen {
-  constructor({ onRetry, onMenu, onGarage, onDouble }) {
+  constructor({ onRetry, onMenu, onGarage, onDouble, onFeedback }) {
+    // One question, once (FEEDBACK): a tap on an answer sends it and says thanks.
+    const feedbackText = dt('over-feedback-text', FEEDBACK.question);
+    const feedbackChoices = el('div', 'over-feedback-choices', FEEDBACK.choices.map((c) => textButton('btn-secondary over-feedback-choice', c.text, () => onFeedback(c.id), c.text)));
+    const feedback = el('div', 'over-feedback', [feedbackText, feedbackChoices]);
+    feedback.hidden = true;
     const cause = dt('over-cause', '');
     const time = dt('over-time', '00:00.00');
     const stars = starRow('over-star');
@@ -423,13 +428,19 @@ export class GameOverScreen extends Screen {
         earnedRow,
         breakdown,
         double,
+        feedback,
         textButton('btn-primary', 'RETRY', onRetry, 'Retry', ICONS.retry),
         el('div', 'menu-row', [textButton('btn-secondary', 'GARAGE', onGarage, 'Garage'), textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
       ]),
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, doneList, level, levelUp });
+    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, doneList, level, levelUp, feedback, feedbackText, feedbackChoices });
+  }
+
+  thankFeedback() {
+    setDisplay(this.feedbackText, FEEDBACK.thanks);
+    this.feedbackChoices.hidden = true;
   }
 
   showCoins(coins) {
@@ -455,7 +466,10 @@ export class GameOverScreen extends Screen {
     this.showCoins(balance);
   }
 
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip, missions = [], progress = null }) {
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip, missions = [], progress = null, askFeedback = false }) {
+    this.feedback.hidden = !askFeedback;
+    this.feedbackChoices.hidden = false;
+    setDisplay(this.feedbackText, FEEDBACK.question);
     // Kept short: one highlight line, the coins (missions folded in), the level bar, the buttons.
     this.advice.hidden = true;
     this.doneList.hidden = true;
@@ -585,11 +599,12 @@ export class GarageScreen extends Screen {
   // flow: on the way into a run (from PLAY), where the big button reads DRIVE and HARD START is offered.
   setFlow(flow, hardOn) {
     this.flow = flow;
-    this.hard.hidden = !flow;
+    this.node.classList.toggle('flow', flow); // see-through: the car is the one in the world, the camera close on it
+    this.hard.hidden = true; // HARD START is on the map screen now, the last step before the run
     this.hard.setOn(hardOn);
     this.step.hidden = !flow;
     setDisplay(this.step, 'CHOOSE YOUR CAR');
-    this.back.setText(flow ? 'MAPS' : 'BACK');
+    this.back.setText('BACK');
   }
 
   showCar(car, index, total) {
@@ -606,7 +621,7 @@ export class GarageScreen extends Screen {
       // On the way into a run: an owned car drives at once; a locked one is bought first.
       action.classList.remove('btn-done');
       action.disabled = !owned && !Garage.canBuy(car.id);
-      action.setText(owned ? 'DRIVE' : `BUY FOR ${formatCoins(car.price)} COINS`);
+      action.setText(owned ? 'NEXT' : `BUY FOR ${formatCoins(car.price)} COINS`);
     } else {
       action.classList.toggle('btn-done', selected);
       action.disabled = selected || (!owned && !Garage.canBuy(car.id));
@@ -661,7 +676,7 @@ export class GarageScreen extends Screen {
   // Called every frame, but only draws when the car or the size of the screen has changed.
   drawCar() {
     const { canvas, ctx, car } = this;
-    if (!car) return;
+    if (!car || this.flow) return; // in the flow the world draws the car
     this.drawBackdrop();
     const key = `${car.id}:${canvas.clientWidth}:${canvas.clientHeight}`;
     if (key === this.drawn) return;
@@ -751,7 +766,7 @@ const MAP_DIM = 'rgba(16, 18, 24, 0.5)'; // over a map still locked
 // Choosing where to drive: the map itself fills the screen, with your car waiting on it. Its name, its stars, and
 // how many more it takes to unlock.
 export class MapScreen extends Screen {
-  constructor({ onPrev, onNext, onAction, onBack }) {
+  constructor({ onPrev, onNext, onAction, onBack, onHardStart }) {
     const canvas = el('canvas', 'map-canvas');
     const name = dt('map-name', '');
     const count = dt('garage-count', '');
@@ -760,10 +775,20 @@ export class MapScreen extends Screen {
     const statusText = dt('map-status-text', '');
     const status = el('div', 'garage-price', [lock, statusText]);
     const stars = starRow('over-star map-star');
-    const action = textButton('btn-primary map-start', 'NEXT', onAction, 'Next: choose your car');
+    const action = textButton('btn-primary map-start', 'START', onAction, 'Start the run');
     const stage = el('div', 'garage-stage', arrows(onPrev, onNext));
     const plate = el('div', 'map-plate', [el('div', 'over-stars', stars), status]);
-    super('garage map-screen', [dt('step-label', 'CHOOSE A MAP'), el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [plate, action])]);
+    // HARD START: a small switch under START (on, it pays more coins).
+    const hardLabel = dt('', '');
+    const hard = button('btn btn-secondary btn-hard', '', () => onHardStart(), 'Hard start on / off');
+    hard.append(hardLabel);
+    hard.setOn = (on) => {
+      setDisplay(hardLabel, on ? `HARD START: ON ×${COINS.hardShare}` : 'HARD START: OFF');
+      hard.classList.toggle('on', on);
+      hard.setAttribute('aria-pressed', String(on));
+    };
+    super('garage map-screen', [dt('step-label', 'CHOOSE A MAP'), el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [plate, action, hard])]);
+    this.hard = hard;
     this.back = textButton('btn-secondary garage-back', 'BACK', onBack, 'Back');
     this.starsTotal = starBadge();
     this.node.prepend(canvas);
@@ -773,8 +798,10 @@ export class MapScreen extends Screen {
     this.drawn = '';
   }
 
-  showMap(map, index) {
+  // The map itself is the world behind (GameScene.previewMap); this is its name, stars and whether it is open.
+  showMap(map, index, hardOn = false) {
     this.map = map;
+    this.hard.setOn(hardOn);
     setDisplay(this.name, map.name);
     setDisplay(this.count, `${index + 1}/${MAPS.length}`);
     const open = Maps.isUnlocked(map);
@@ -785,8 +812,9 @@ export class MapScreen extends Screen {
     const earned = starsFor(best);
     this.stars.forEach((star, i) => star.classList.toggle('on', i < earned));
     this.action.disabled = !open;
+    this.action.setText(open ? 'START' : 'LOCKED');
+    this.node.classList.toggle('locked', !open);
     this.starsTotal.setStars(Maps.totalStars());
-    this.drawMap();
   }
 
   // Called every frame, but only draws when the map or the size of the screen has changed.
