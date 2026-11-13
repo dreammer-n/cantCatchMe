@@ -41,6 +41,9 @@ const INTERSTITIAL_PLACEMENT = 'game_over';
 const AD_TIMEOUT_MS = 180000; // never leaves the player stuck if an ad doesn't report back
 const AD_REWARD_GRACE_MS = 800; // some platforms may report 'rewarded' just after 'closed'
 const AD_STUCK_MS = 1500; // an advert that never reported closing is let go by a tap on the game after this long
+// After an advert says it has closed, the pause and mute that came with it are let go this soon if the platform
+// hasn't lifted them itself: players saw the game sit frozen, as if lagging, after an advert had gone.
+const AD_RELEASE_MS = 600;
 
 const state = {
   initialized: false,
@@ -163,9 +166,14 @@ async function connectBridge() {
     if (bridge.advertisement && events.INTERSTITIAL_STATE_CHANGED) {
       const onInterstitial = (adState) => {
         const open = adState === 'opened';
-        if (open && !state.interstitialOpen) state.adOpenedAt = Date.now();
+        if (open && !state.interstitialOpen) {
+          state.adOpenedAt = Date.now();
+          holdCameWithAdvert();
+        }
+        const closing = state.interstitialOpen && !open;
         state.interstitialOpen = open;
         updatePaused();
+        if (closing) releaseAdvertSoon();
       };
       bridge.advertisement.on(events.INTERSTITIAL_STATE_CHANGED, onInterstitial);
       onInterstitial(bridge.advertisement.interstitialState); // one may already be showing as the game starts
@@ -191,6 +199,31 @@ async function connectBridge() {
 // other reason is left alone.
 function advertOpen() {
   return state.interstitialOpen || state.adOpen;
+}
+
+// The platform may pause and mute a moment before it says an advert has opened: those count as the advert's too.
+function holdCameWithAdvert() {
+  if (state.platformPaused) state.pauseFromAdvert = true;
+  if (!state.audioEnabled) state.muteFromAdvert = true;
+}
+
+// Lets go of the pause and mute an advert brought, a moment after it has closed, unless the platform already has or
+// another advert has opened. A pause or mute the platform gave for any other reason is left alone.
+function releaseAdvertSoon() {
+  clearTimeout(state.releaseTimer);
+  state.releaseTimer = setTimeout(() => {
+    if (advertOpen()) return;
+    if (state.pauseFromAdvert) {
+      state.platformPaused = false;
+      state.pauseFromAdvert = false;
+    }
+    if (state.muteFromAdvert) {
+      state.audioEnabled = true;
+      state.muteFromAdvert = false;
+      emit('audio', true);
+    }
+    updatePaused();
+  }, AD_RELEASE_MS);
 }
 
 function watchForStuckAdverts() {
@@ -382,11 +415,15 @@ export const PlatformManager = {
         state.pendingAd = null;
         state.adOpen = false;
         updatePaused();
+        releaseAdvertSoon();
         resolve(earned);
       };
       state.onRewardedState = (adState) => {
         if (adState === 'opened') {
-          if (!state.adOpen) state.adOpenedAt = Date.now();
+          if (!state.adOpen) {
+            state.adOpenedAt = Date.now();
+            holdCameWithAdvert();
+          }
           state.adOpen = true;
           updatePaused();
         } else if (adState === 'rewarded') {

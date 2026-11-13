@@ -1241,7 +1241,7 @@ export const POWERUP = {
   // What the player sees.
   names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER', turbo: 'TURBO', slick: 'SLICK', decoy: 'DECOY', blackout: 'BLACKOUT', phantom: 'PHANTOM' },
   // See AUDIO.files. The five newer items are silent until their files arrive: nothing is made up in code.
-  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'], turbo: [], slick: [], decoy: [], blackout: [], phantom: [] },
+  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'], turbo: [], slick: [], decoy: [], blackout: ['blackout'], phantom: [] },
   autoSeconds: Infinity, // a held item waits for the player's double tap (players didn't want it going off by itself)
   homingSpeed: 150, // it goes this much faster than the car, so it always catches up
   hopMs: 400, // each bounce (drawing only)
@@ -1771,11 +1771,13 @@ export const AUDIO = {
   chaseMusic: 0.65, // under the effects
   musicFade: 0.3, // seconds: how quickly one track gives way to the other (a time constant: about 5 x this in all)
   musicDim: 0, // share of its volume the music keeps on the pause menu: none (owner, 2026-11-11: pause is silent)
-  // Sounds download in this order, a few at a time, so what is heard first arrives first on a slow connection:
-  // the menu music and the button click, then the driving and crash sounds, then the rest. The chase track (the
-  // biggest file, only needed once a run starts) starts loading once these are in. Names not listed come last.
+  // Sounds download from the very start of loading (before the platform has answered), in this order, a few at a
+  // time, so what is heard first arrives first on a slow connection: the menu music and the button click, then the
+  // driving and crash sounds, then the rest. The chase track streams beside them as soon as the files in
+  // `chaseAfter` are in (a new player's first touch starts a run, so it is needed early). Names not listed come last.
   loadOrder: ['menu', 'click', 'carCrash', 'bump', 'engine_loop', 'tire_squeal', 'cone', 'siren', 'kaboom', 'shockwave'],
   loadAtOnce: 3, // files downloading at the same time
+  chaseAfter: ['menu', 'click'],
   // The sound of each knock-over thing hit (owner, 2026-11-12: the cone sound only for cones). A kind not listed
   // is silent until its own file comes: add it to `files` and name it here.
   propSounds: { cone: 'cone', bush: 'bump', snowman: 'bump', tumbleweed: 'bump' },
@@ -1797,6 +1799,7 @@ export const AUDIO = {
     cold_snap: { path: 'sound_effects/cold_snap.mp3', volume: 1 },
     stone_wall: { path: 'sound_effects/stone_wall.mp3', volume: 1 },
     scorcher: { path: 'sound_effects/scorcher.mp3', volume: 1 },
+    blackout: { path: 'sound_effects/blackout.mp3', volume: 1 },
     police_radio: { path: 'sound_effects/police_radio.mp3', volume: 0.8, cooldown: 30 },
     engine_loop: { path: 'sound_effects/engine_loop.mp3' }, // these four loop: see AudioSystem
     tire_squeal: { path: 'sound_effects/tire_squeal.mp3' },

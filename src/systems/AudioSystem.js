@@ -39,6 +39,7 @@ export class AudioSystem {
     const paths = new Map([['menu', AUDIO.music.menu], ...Object.entries(AUDIO.files).map(([name, file]) => [name, file.path])]);
     const order = [...AUDIO.loadOrder.filter((name) => paths.has(name)), ...[...paths.keys()].filter((name) => !AUDIO.loadOrder.includes(name))];
     const waiting = [];
+    const chaseWaitsFor = new Set(AUDIO.chaseAfter.filter((name) => paths.has(name)));
     let running = 0;
     const next = () => {
       while (running < AUDIO.loadAtOnce && waiting.length > 0) {
@@ -51,23 +52,24 @@ export class AudioSystem {
           .then((sound) => {
             running -= 1;
             job.done(sound);
+            chaseWaitsFor.delete(job.name);
+            if (chaseWaitsFor.size === 0) this.loadChase();
             next();
-            if (running === 0 && waiting.length === 0) this.loadChase();
           });
       }
     };
     for (const name of order) {
-      this.downloads.set(name, new Promise((done) => waiting.push({ path: paths.get(name), done })));
+      this.downloads.set(name, new Promise((done) => waiting.push({ name, path: paths.get(name), done })));
     }
-    next();
-    // The chase track streams from an audio element; it starts filling its buffer once the sounds above are in.
+    // The chase track streams from an audio element; it starts filling its buffer once the menu music is in.
     this.chase = new Audio();
     this.chase.loop = true;
     this.chase.preload = 'none';
     this.chaseLoading = false;
+    next();
   }
 
-  // Starts the chase track's download (once): after the other sounds, or when a run needs it, whichever is first.
+  // Starts the chase track's download (once): after the menu music (AUDIO.chaseAfter), or when a run needs it.
   loadChase() {
     if (this.chaseLoading) return;
     this.chaseLoading = true;

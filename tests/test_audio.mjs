@@ -44,6 +44,8 @@ check('the engine is back, from the owner\'s own file, quiet under the music', A
 check('a combo makes no sound, on the owner\'s word', AUDIO.files.combo === undefined);
 check('the music is silent on the pause menu', AUDIO.musicDim === 0);
 check('sounds load in the order they are needed: the menu music and the click first', AUDIO.loadOrder[0] === 'menu' && AUDIO.loadOrder[1] === 'click' && AUDIO.loadOrder.every((name) => name === 'menu' || AUDIO.files[name]) && AUDIO.loadAtOnce >= 2);
+check('BLACKOUT has its sound file', POWERUP.sounds.blackout.includes('blackout') && AUDIO.files.blackout.path === 'sound_effects/blackout.mp3');
+check('the chase music starts loading as soon as the menu music and click are in', AUDIO.chaseAfter.length > 0 && AUDIO.chaseAfter.every((name) => name === 'menu' || AUDIO.files[name]));
 check('the police radio can\'t talk over itself', AUDIO.files.police_radio.cooldown >= 5);
 check('the music sits under the effects', AUDIO.chaseMusic < Math.min(...Object.values(POWERUP.sounds).flat().map((s) => AUDIO.files[s].volume)));
 const crashFile = AUDIO.files.carCrash;

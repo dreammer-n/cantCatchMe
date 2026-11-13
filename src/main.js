@@ -62,6 +62,8 @@ const mark = (name) => performance.mark && performance.mark(`ccm:${name}`);
 
 async function start() {
   mark('start');
+  // The sounds start downloading at once, while the platform and the save load, so the music is ready by the title.
+  const audio = new AudioSystem();
   await PlatformManager.initialize();
   mark('platform');
   await Promise.all([Records.load(), Settings.load(), Garage.load(), Tips.load(), Progress.load()]);
@@ -74,7 +76,6 @@ async function start() {
   setPixelRatioCap(QUALITY.levels[quality.level].pixelRatio);
 
   const input = new InputManager(container);
-  const audio = new AudioSystem();
   audio.setSoundOn(Settings.sound);
   audio.setMusicOn(Settings.music);
   audio.setPlatformAllowed(PlatformManager.isAudioEnabled());
