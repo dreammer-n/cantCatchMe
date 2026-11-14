@@ -75,7 +75,7 @@ export class ChaseSimulation {
 
   // A hit harder than this wrecks a police car against another car (easier early in a normal run: HEAT.fragility).
   get policeCarImpact() {
-    return CRASH.policeCarImpact * fragilityAt(this.stats.time, this.pace);
+    return CRASH.policeCarImpact * fragilityAt(this.stats.time, this.pace) * this.sturdyPolice;
   }
 
   setPace(pace) {
@@ -89,6 +89,7 @@ export class ChaseSimulation {
     this.crash = null;
     this.revived = false; // a run has one second chance
     this.safeTime = 0; // seconds left in which nothing can wreck the player (after a revive)
+    this.sturdyPolice = 1; // police take this many times the usual hit to wreck (the KABOOM lesson, while they close in)
     this.pinnedTime = 0;
     this.player.baseScale = this.car ? this.car.scale : 1;
     this.player.reset(START.x, START.y, 0);
@@ -644,7 +645,7 @@ export class ChaseSimulation {
   // How hard a police car must hit this prop to be wrecked. Pillars are deadly; Bearcats are tough.
   obstacleLimit(police, shape) {
     if (shape && shape.item.isPillar) return PILLARS.lethalImpact;
-    return police.armored ? BEARCAT.obstacleImpact : CRASH.policeObstacleImpact * fragilityAt(this.stats.time, this.pace);
+    return police.armored ? BEARCAT.obstacleImpact : CRASH.policeObstacleImpact * fragilityAt(this.stats.time, this.pace) * this.sturdyPolice;
   }
 
   // ---- Spike strips, laid across roadblocks ----------------------------------------------------

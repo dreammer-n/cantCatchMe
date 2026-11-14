@@ -65,18 +65,21 @@ export class Coach {
   }
 
   // How many police the lesson wants on the map (null: the usual police again).
-  setPolice(sim, count, speedFactor = TUTORIAL.lessonPoliceSpeed, aheadShare = undefined) {
+  setPolice(sim, count, speedFactor = TUTORIAL.lessonPoliceSpeed, around = undefined) {
     const now = sim.spawner.lesson;
     if (count === null) sim.spawner.lesson = null;
     else if (!now || now.police !== count) {
-      sim.spawner.lesson = { police: count, interval: 0.3, speedFactor, aheadShare };
+      sim.spawner.lesson = { police: count, interval: 0.3, speedFactor, around, placed: 0 };
       if (Number.isFinite(sim.spawner.cooldown)) sim.spawner.cooldown = Math.min(sim.spawner.cooldown, 0.3);
     }
   }
 
   // Whether this crash is forgiven (an early one in the first drive); uses one up if so.
   takeFreeRetry(runSeconds) {
-    if (this.scene.sim && this.stage === 'gather') this.scene.sim.player.boost = 1;
+    if (this.scene.sim && this.stage === 'gather') {
+      this.scene.sim.player.boost = 1;
+      this.scene.sim.sturdyPolice = 1;
+    }
     if (this.freeRetries <= 0 || runSeconds >= TUTORIAL.freeRetrySeconds) return false;
     this.freeRetries -= 1;
     this.queue.length = 0;
@@ -177,6 +180,8 @@ export class Coach {
   // ---- The lessons ----
 
   nextLesson(sim) {
+    sim.player.boost = 1; // the KABOOM lesson's easing off, if it was on
+    sim.sturdyPolice = 1;
     if (this.lesson === 'chopper' && sim.helicopter.active && sim.helicopter.state === 'chasing') {
       // Still flying (out of reach, or the tap came too early): from now on it is a normal helicopter.
       sim.helicopter.nextDrop = HELICOPTER.firstDropAfter;
@@ -282,7 +287,9 @@ export class Coach {
     }
   }
 
-  // A die that gives KABOOM; once it is caught, police close in from all sides; DOUBLE TAP! when they are in the blast.
+  // A die that gives KABOOM; once it is caught, three police close in from three sides (ahead left, ahead right,
+  // behind), starting just out of sight; one that reaches the car keeps pace with it, boxing it in. DOUBLE TAP!
+  // comes when all three are inside the blast. One that crashes on the way is replaced, so there are always three.
   kaboomLesson(sim) {
     const power = sim.powerUps;
     if (this.stage === 'start') {
@@ -291,29 +298,37 @@ export class Coach {
     } else if (this.stage === 'holding') {
       if (!power.held) this.nextLesson(sim); // used before being asked
       else if (this.stageTime > TUTORIAL.readSeconds) {
-        this.setPolice(sim, TUTORIAL.kaboomPolice, TUTORIAL.kaboomPoliceSpeed, TUTORIAL.kaboomAhead);
+        this.setPolice(sim, TUTORIAL.kaboomPolice, TUTORIAL.kaboomPoliceSpeed, TUTORIAL.kaboomAround.map(degToRad));
         this.stage = 'gather';
         this.stageTime = 0;
       }
     } else if (this.stage === 'gather') {
       if (!power.held) {
         sim.player.boost = 1;
+        sim.sturdyPolice = 1;
         this.nextLesson(sim);
         return;
       }
       sim.player.boost = TUTORIAL.kaboomEase; // the car eases off, so they really close in
+      sim.sturdyPolice = TUTORIAL.kaboomSturdy; // and they don't wreck on the way
       sim.safeTime = Math.max(sim.safeTime, 0.3); // they close in, but the moment is the player's
+      const player = sim.player;
       const reach = POWERUP.pulseRadius * TUTORIAL.kaboomRange;
+      const rush = POLICE_HANDLING.topSpeed * TUTORIAL.kaboomPoliceSpeed;
+      const keepPace = Math.max(TUTORIAL.kaboomHoldMin, Math.hypot(player.vx, player.vy) * TUTORIAL.kaboomHoldShare);
       let close = 0;
       for (const police of sim.police) {
-        if (police.alive && !police.parked && Math.hypot(police.model.x - sim.player.x, police.model.y - sim.player.y) < reach) close += 1;
+        if (!police.active || !police.alive || police.parked) continue;
+        const near = Math.hypot(police.model.x - player.x, police.model.y - player.y) < reach;
+        if (near) close += 1;
+        // Rushing in from out of sight; once beside the car, only a little faster than it, so it stays there.
+        police.model.handling.topSpeed = near ? keepPace : rush;
       }
-      const [two, one, anyway] = TUTORIAL.kaboomWaitSeconds;
-      const t = this.stageTime;
-      if (close >= TUTORIAL.kaboomPolice || (close >= 2 && t > two) || (close >= 1 && t > one) || t > anyway) {
+      if (close >= TUTORIAL.kaboomPolice || this.stageTime > TUTORIAL.kaboomLastResort) {
         // The ring on the road is the blast: everything inside it goes.
+        // The car stays eased off and they keep pace until the tap, so all three are still inside it then.
+        sim.sturdyPolice = 1;
         this.startPrompt('kaboom', () => sim.player, 'amber', POWERUP.pulseRadius);
-        sim.player.boost = 1;
       }
     }
   }

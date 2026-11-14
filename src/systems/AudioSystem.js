@@ -27,6 +27,8 @@ export class AudioSystem {
     this.buffers = new Map();
     this.menuNextAt = 0;
     this.chase = null;
+    this.runTrack = 'chase'; // which run track the chase element plays (AUDIO.music): a map may have its own
+    this.trackTimes = new Map(); // where each run track was left, so it carries on from there
     this.chasePrimed = false;
     this.chasePriming = false;
     this.engine = null; // the engine loop, whose speed sets its pitch
@@ -74,8 +76,27 @@ export class AudioSystem {
     if (this.chaseLoading) return;
     this.chaseLoading = true;
     this.chase.preload = 'auto';
-    this.chase.src = ASSETS + AUDIO.music.chase;
+    this.chase.src = ASSETS + AUDIO.music[this.runTrack];
     this.chase.load();
+  }
+
+  // The run's track for a map (AUDIO.music; 'chase' unless the map has its own). Switching keeps the old track's
+  // place, and the new one carries on from where it was last left. Downloads only once it is needed.
+  setRunTrack(name) {
+    const track = AUDIO.music[name] ? name : 'chase';
+    if (track === this.runTrack) return;
+    if (this.chaseLoading) this.trackTimes.set(this.runTrack, this.chase.currentTime || 0);
+    this.runTrack = track;
+    if (!this.chaseLoading) return;
+    const resume = this.trackTimes.get(track) || 0;
+    this.chase.src = ASSETS + AUDIO.music[track];
+    if (resume > 0) {
+      this.chase.addEventListener('loadedmetadata', () => {
+        if (this.runTrack === track) this.chase.currentTime = resume;
+      }, { once: true });
+    }
+    this.chase.load();
+    this.syncChase();
   }
 
   get audible() {

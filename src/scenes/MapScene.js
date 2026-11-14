@@ -54,20 +54,19 @@ export class MapScene extends Phaser.Scene {
     this.screen.showMap(MAPS[this.index], this.index, Settings.hardStart);
   }
 
-  // Once: the arrow on the next map (which shows the stars it needs), or on START when every map is open.
+  // Once: the arrow on the next map's button (it shows the stars that map needs), until pressed.
   guide() {
-    if (Tips.has('guide-map')) return;
-    const done = () => Tips.mark('guide-map');
-    Guide.point(Maps.nextLocked() ? this.screen.nextArrow : this.screen.action, done);
+    if (!Tips.has('guide-map') && Maps.nextLocked()) Guide.point(this.screen.nextArrow, () => Tips.mark('guide-map'));
   }
 
   browse(step) {
     Guide.hide();
-    Tips.mark('guide-map');
+    if (step > 0) Tips.mark('guide-map');
     this.audio.play('click');
     this.index = (this.index + step + MAPS.length) % MAPS.length;
     this.showMap();
     this.world.previewMap(MAPS[this.index]); // the world itself becomes that map
+    this.guide();
   }
 
   toggleHardStart() {
@@ -83,7 +82,7 @@ export class MapScene extends Phaser.Scene {
     if (!Maps.select(map.id)) return;
     this.starting = true;
     Guide.hide();
-    Tips.mark('guide-map');
+
     this.audio.unlock();
     this.audio.play('click');
     this.scene.stop('GarageScene');

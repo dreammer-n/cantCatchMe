@@ -9,6 +9,7 @@ import {
   GOALS,
   GUIDE,
   MENU_CAMERA,
+  TITLE_PATROL,
   LEADERBOARD,
   MISSIONS,
   applyMapPalette,
@@ -46,7 +47,7 @@ import { CarView, isSkidding, rearWheels } from '../entities/CarView.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { vibrate } from '../utils/haptics.js';
 import { CameraRig } from '../render/CameraRig.js';
-import { ensureCarAtlas, finishCarAtlases, paintCarAtlases, releaseCarSheets } from '../render/carAtlas.js';
+import { atlasReady, ensureCarAtlas, finishCarAtlases, paintCarAtlases, releaseCarSheets } from '../render/carAtlas.js';
 import { BEARCAT_LIGHTS, carPaint, carShadowPoints } from '../render/carModels.js';
 import { Effects } from '../render/Effects.js';
 import { MapWeather, TUMBLEWEED_BITS } from '../render/MapWeather.js';
@@ -70,6 +71,7 @@ import { Settings } from '../systems/Settings.js';
 import { Tips } from '../systems/Tips.js';
 import { ThreatRadar } from '../systems/ThreatRadar.js';
 import { SkidMarks } from '../systems/SkidMarks.js';
+import { TitlePatrol } from '../systems/TitlePatrol.js';
 import { degToRad, wrapAngle } from '../utils/math.js';
 
 const screenPoint = { x: 0, y: 0 };
@@ -143,6 +145,11 @@ export class GameScene extends Phaser.Scene {
     this.helicopterView = new HelicopterView(this, this.layers);
     this.jetView = new JetView(this, this.layers);
     this.rig = new CameraRig();
+    // Police cruising round the blocks on the title (systems/TitlePatrol.js): drawing only, not in the chase.
+    this.patrol = new TitlePatrol();
+    this.patrolViews = [];
+    this.patrolState = 'off'; // 'waiting' (for the police drawings), 'on', 'leaving' (fading as a run starts), 'off'
+    this.patrolAlpha = 0;
     // The menus are camera shots of this same world (menuShot): the shot the camera is gliding towards, and where it is.
     this.shotTarget = MENU_CAMERA.shots.title;
     this.shot = { ...MENU_CAMERA.shots.title };
@@ -275,9 +282,11 @@ export class GameScene extends Phaser.Scene {
     if (this.mode !== 'attract' || map.id === this.mapId) return;
     const heading = this.sim.player.heading;
     this.useSelectedMap(map);
+    this.audio.setRunTrack(map.music); // its run track starts loading while the map is looked at
     this.sim.reset(1);
     this.applyPreviewScale();
     this.sim.player.heading = heading;
+    this.startPatrol();
     this.resetVisuals();
     this.cameras.main.fadeIn(MENU_CAMERA.mapFadeMs, 14, 15, 18);
   }
@@ -330,6 +339,7 @@ export class GameScene extends Phaser.Scene {
     this.sim.reset(1);
     this.startHeading = this.sim.player.heading; // the way a run sets off (the map shot turns the car to it)
     this.sim.player.heading = ATTRACT_HEADING;
+    this.startPatrol();
     this.mode = 'attract';
     this.shotTarget = MENU_CAMERA.shots.title;
     this.shot = { ...MENU_CAMERA.shots.title };
@@ -338,6 +348,38 @@ export class GameScene extends Phaser.Scene {
     this.snapCamera();
     this.audio.quiet();
     this.audio.setMusic('menu');
+  }
+
+  // The title's police set off round the ring of roads clear on this map (none if no ring is clear). They come in
+  // once their drawings are ready, so the title never waits for them.
+  startPatrol() {
+    this.patrol.setUp(this.sim.world);
+    if (this.patrolState !== 'on') {
+      this.patrolState = 'waiting';
+      this.patrolAlpha = 0;
+    }
+    for (let i = this.patrol.cars.length; i < this.patrolViews.length; i += 1) this.patrolViews[i].hide();
+  }
+
+  updatePatrol(time, dt) {
+    const state = this.patrolState;
+    if (state === 'off' || (state === 'waiting' && !atlasReady(this, 'police'))) return;
+    if (state === 'waiting') this.patrolState = 'on';
+    const fade = dt / TITLE_PATROL.fadeSeconds;
+    this.patrolAlpha = state === 'leaving' ? Math.max(0, this.patrolAlpha - fade) : Math.min(1, this.patrolAlpha + fade);
+    this.patrol.update(dt);
+    const gone = state === 'leaving' && this.patrolAlpha === 0;
+    this.patrol.cars.forEach((car, i) => {
+      if (!this.patrolViews[i]) this.patrolViews[i] = new CarView(this, this.looks.police, this.carShadows, this.layers);
+      const view = this.patrolViews[i];
+      if (gone) {
+        view.hide();
+        return;
+      }
+      view.setAlpha(this.patrolAlpha);
+      view.update(car.model, this.view, time, dt);
+    });
+    if (gone) this.patrolState = 'off';
   }
 
   // Everything the title screen doesn't show, queued to be drawn a piece a frame once the title is up, so the game
@@ -377,6 +419,7 @@ export class GameScene extends Phaser.Scene {
   // drawing goes on in the background meanwhile, so the game starts as soon as it has loaded.
   startRun(seed = (Math.random() * 2 ** 31) >>> 0, { firstDrive = false } = {}) {
     const fromMenus = this.mode === 'attract' && !firstDrive; // the camera glides down from the map shot as it drives off
+    this.patrolState = this.patrolState === 'on' ? 'leaving' : 'off'; // the title's police fade away as the run starts
     this.shotTarget = MENU_CAMERA.shots.play;
     if (!fromMenus) this.shot = { ...MENU_CAMERA.shots.play };
     if (!firstDrive) this.finishWarmUp();
@@ -390,6 +433,7 @@ export class GameScene extends Phaser.Scene {
     this.turntable = false;
     this.crashClock = 0;
     this.finished = false;
+    this.adRevive = false;
     this.resetVisuals();
     this.coach.reset(firstDrive, this.sim);
     if (firstDrive) {
@@ -399,6 +443,7 @@ export class GameScene extends Phaser.Scene {
       ensureCarAtlas(this, `${this.carId}Wheels`, projection, this.sim.player.heading);
     }
     this.snapCamera();
+    this.audio.setRunTrack(Maps.current().music);
     this.audio.setMusic('chase');
     if (!firstDrive) PlatformManager.runStarted(); // the first drive's run starts at the first touch (beginDriving)
     Missions.startRun(Maps.selected);
@@ -445,9 +490,11 @@ export class GameScene extends Phaser.Scene {
       this.handleEvents(this.sim.events.splice(0));
       return;
     }
-    const adMode = PlatformManager.rewardedAdMode();
+    // Fewer offers (REVIVE): none after a quick crash, and the ad only after a run worth it.
+    const time = this.sim.stats.time;
+    const adMode = time >= REVIVE.adMinSeconds ? PlatformManager.rewardedAdMode() : 'none';
     const canPay = Garage.coins >= REVIVE.cost;
-    if (this.sim.revived || (!canPay && adMode === 'none')) {
+    if (this.sim.revived || time < REVIVE.minRunSeconds || (!canPay && adMode === 'none')) {
       this.finishRun();
       return;
     }
@@ -463,6 +510,7 @@ export class GameScene extends Phaser.Scene {
       this.finishRun();
       return;
     }
+    if (!paid) this.adRevive = true; // an ad was watched in this run: no offer to double the coins as well
     if (!this.sim.revivePlayer()) {
       this.finishRun();
       return;
@@ -541,7 +589,8 @@ export class GameScene extends Phaser.Scene {
     if (askFeedback) Tips.mark('feedback');
     // A new player's first results point at the garage (an arrow on its button) until they have been in it.
     const garagePointer = !Tips.has('garage-visit') && runNumber <= GUIDE.garageRuns;
-    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, cause, crashTip, missions, progress, askFeedback, runNumber, goal, carWon: carWon && carWon.name, garagePointer };
+    const canDouble = summary.time >= ADS.doubleMinSeconds && !this.adRevive;
+    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, canDouble, cause, crashTip, missions, progress, askFeedback, runNumber, goal, carWon: carWon && carWon.name, garagePointer };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
   }
@@ -619,6 +668,7 @@ export class GameScene extends Phaser.Scene {
     this.beams.update(this.radar.threats, this.sim.player, time);
     this.carShadows.clear();
     this.syncCars(time, gameDt, dt);
+    this.updatePatrol(time, dt);
     this.updateTiresAndFires(gameDt * 1000);
     this.updateCrate(time, dt);
     this.scenery.syncCones(this.sim.cones);
@@ -1296,6 +1346,7 @@ export class GameScene extends Phaser.Scene {
     this.scenery.redraw();
     this.looks = this.makeLooks();
     this.playerView.setLook(this.looks.player);
+    for (const view of this.patrolViews) view.setLook(this.looks.police);
     for (const police of this.sim.police) {
       if (police.view) police.view.setLook(police.alive ? this.lookFor(police) : this.wreckLookFor(police));
     }

@@ -211,13 +211,27 @@ export const UPGRADES = {
 // up the screen the car sits, as a share of the screen's height (so the buttons below don't cover it).
 export const MENU_CAMERA = {
   shots: {
-    title: { zoom: 1, lift: 0 },
+    title: { zoom: 0.8, lift: 0 }, // pulled back a little: the map and the police cruising round the car are the title
     car: { zoom: 2.4, lift: 0.1 },
     map: { zoom: 0.55, lift: 0.04 },
     play: { zoom: 1, lift: 0 },
   },
   ease: 3.6, // how quickly the camera glides to a new shot (per second): about a second to settle
   mapFadeMs: 260, // a quick fade in as the world is redrawn for another map
+};
+
+// [TUNE] Police cruising round the blocks on the title screen (owner, 2026-11-14), lights flashing. Drawing only:
+// not part of the chase (systems/TitlePatrol.js). They come in once their drawings are ready, and fade out as a run
+// starts.
+export const TITLE_PATROL = {
+  cars: 4, // half each way round, each in its own lane
+  rings: [1, 2], // the ring of roads this many blocks out from the car, the first one clear all round
+  lane: 45, // off the road's middle, on the right-hand side
+  spare: 8, // room kept clear round the car's outline, on a dry run of the ring before it is used
+  speedShare: 0.55, // of the police's top speed: cruising, not chasing
+  lookAhead: 120, // steers for the point this far ahead along the road
+  steerGain: 2.6,
+  fadeSeconds: 0.6, // in and out
 };
 
 // [TUNE] Pop-up adverts (Bridge decides when one is due; these are the game's own limits, owner 2026-11-12).
@@ -227,8 +241,16 @@ export const PARKED_CARS = {
   crash: true,
 };
 
+// Fewer ad offers (owner, 2026-11-14, after "too many ads" led the players' answers): no pop-up after a short run or
+// within 2 minutes of a rewarded ad (PlatformManager), and the offers to watch one only after a run worth it.
 export const ADS = {
   minRunSeconds: 30, // no pop-up after a run shorter than this: a quick crash goes straight to the results
+  doubleMinSeconds: 30, // the results offer to double the coins only after a run this long, with no ad revive in it
+  // When a rewarded ad gives nothing, the screen says why, under the button.
+  notes: {
+    unavailable: 'NO AD RIGHT NOW - TRY AGAIN LATER',
+    closed: 'AD CLOSED EARLY - NO REWARD',
+  },
 };
 
 // [TUNE] On the results of a player's early runs (from the 2nd to the lastRun-th), one line on what to aim for
@@ -286,14 +308,18 @@ export const TUTORIAL = {
   kaboomPolice: 3, // police that close in for KABOOM
   kaboomPoliceSpeed: 1.4, // and how fast (x the usual police top speed): they arrive together, and soon
   kaboomRange: 0.85, // they are close enough inside this share of KABOOM's blast
-  kaboomWaitSeconds: [7, 11, 16], // the prompt comes with 3 close; with 2 after 7 s, 1 after 11, anyway after 16
+  kaboomAround: [-40, 40, 180], // where they come from, degrees from the way the car is going: ahead left, ahead right, behind
+  kaboomHoldShare: 1.08, // one that has reached the car keeps to this share of the car's speed, so it stays beside it ...
+  kaboomHoldMin: 140, // ... and at least this fast
+  kaboomSturdy: 3, // while they close in, they take this many times the usual hit to wreck, so all three get there
+  kaboomLastResort: 20, // DOUBLE TAP! comes when all three are inside the blast; only if that never happens, after this long
+  kaboomWaitSeconds: [7, 11, 16], // the chopper lesson's wait (no longer in the first drive)
   chopperAfter: 12, // seconds after KABOOM before the lesson's helicopter
   blackoutDieAfter: 2.5,
   tapWaitSeconds: Infinity, // a prompt holds the action until the player acts (nothing acts for them)
   tapShare: 0.15, // the action's speed while a DOUBLE TAP! prompt waits
   turnShare: 0.03, // and while TURN SHARP! waits: all but still, so nothing happens until the player turns
   kaboomEase: 0.6, // the car eases off to this share of its top speed while they close in (back to full after)
-  kaboomAhead: 0.7, // share of KABOOM's police that come from ahead, so they meet the car rather than chase it
   freeRetries: 2,
   freeRetrySeconds: 30, // only crashes this early in the run
   // On the results of a new player's runs, one line on why the crash happened (once each, by cause).
@@ -546,6 +572,7 @@ export const MAPS = [
   {
     id: 'desert',
     name: 'DESERT',
+    music: 'desert', // its own run track (AUDIO.music)
     stars: 6,
     palette: {
       asphalt: 0xdcb077, // the sand itself
@@ -1057,6 +1084,10 @@ export const SPAWN = {
   screenMargin: 130, // spawn this far outside the screen edge (screen units)
   minDistance: 700, // never closer to the player than this
   minAheadDistance: 820, // ... and further still when coming from ahead (reaction time)
+  lessonMargin: 40, // the KABOOM lesson's police: only just outside the screen (screen units) ...
+  lessonMinDistance: 380, // ... and this near, so they reach the car together (TUTORIAL.kaboomAround)
+  lessonSpreadDeg: 80, // tried within this angle round each of the lesson's places, the nearest spot kept ...
+  lessonAttempts: 16, // ... of this many
   clearance: 70, // free space needed around a spawn point
   attempts: 10,
 };
@@ -1119,6 +1150,8 @@ export const ARMOR = {
 // [TUNE] A second chance, once a run: after a crash the player can pay coins, or watch an ad, to carry on.
 export const REVIVE = {
   cost: 150, // coins
+  minRunSeconds: 12, // a quicker crash goes straight to the results: no CONTINUE? (owner, 2026-11-14: fewer offers)
+  adMinSeconds: 30, // the ad to carry on is offered only after a run this long (coins before that)
   offerSeconds: 5, // how long the offer waits before the results
   clearRadius: 520, // police this close are blown away
   safeSeconds: 2, // nothing can wreck the car straight after (counted once the countdown is over)
@@ -1785,7 +1818,8 @@ export const AUDIO = {
   musicLookAhead: 2, // seconds ahead that its next pass is prepared
   loopTrim: 0.06, // seconds skipped at each end of a looping effect: the silence an MP3 adds
   // Files in public/assets: every sound in the game. None is made in code.
-  music: { menu: 'bg_audios/bgm_menu.mp3', chase: 'bg_audios/bgm_chase.mp3' },
+  // A run plays its map's own track where it has one (`music` in MAPS: the owner's desert track, 2026-11-14), else chase.
+  music: { menu: 'bg_audios/bgm_menu.mp3', chase: 'bg_audios/bgm_chase.mp3', desert: 'bg_audios/bgm_desert.mp3' },
   // volume; cooldown: minimum seconds apart; vary: pitch change each time.
   files: {
     carCrash: { path: 'sound_effects/car_crash.mp3', volume: 1, cooldown: 0.25, vary: 0.08 },
@@ -1998,7 +2032,8 @@ export const WORLD = {
   letterUnit: 17, // world units per grid square of the block font: letters are 85 tall
   letterThickness: 20,
   letterGap: 10,
-  arrowChance: 0.3, // chance that a stretch of road has a painted arrow
+  roadArrows: false, // painted arrows on the roads: none (owner, 2026-11-14: not needed)
+  arrowChance: 0.3, // chance that a stretch of road would have a painted arrow (still drawn, so the layout stays)
   arrowLength: 64,
   arrowWidth: 28,
   plazaHalfSize: 695, // half the width of the paved square in the middle of a plaza chunk

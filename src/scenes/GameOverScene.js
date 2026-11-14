@@ -39,7 +39,7 @@ export class GameOverScene extends Phaser.Scene {
     });
   }
 
-  // A new player's results: an arrow on GARAGE until they have been in it (GUIDE). A tap elsewhere just hides it.
+  // A new player's results: an arrow on GARAGE until they have been in it (GUIDE). It stays until GARAGE is pressed.
   pointAtGarage() {
     if (this.result.garagePointer) Guide.point(this.screen.garageButton, null, { below: true });
   }
@@ -60,7 +60,7 @@ export class GameOverScene extends Phaser.Scene {
     const earned = PlatformManager.rewardedAdMode() === 'simulated' ? await simulateAd() : await PlatformManager.showRewardedAd();
     this.adBusy = false;
     if (!earned) {
-      this.screen.setDoubleState('failed');
+      this.screen.setDoubleState('failed', PlatformManager.rewardedOutcome);
       return;
     }
     result.doubled = true;

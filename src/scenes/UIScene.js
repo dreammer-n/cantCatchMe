@@ -158,7 +158,7 @@ export class UIScene extends Phaser.Scene {
     if (this.offer !== offer) return;
     offer.busy = false;
     if (earned) this.closeOffer(true, false);
-    else this.reviveScreen.setAdState('failed');
+    else this.reviveScreen.setAdState('failed', PlatformManager.rewardedOutcome);
   }
 
   // revive: true = carry on, false = the results, null = just close it (a new run has begun).

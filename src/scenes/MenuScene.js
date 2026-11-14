@@ -27,6 +27,15 @@ export class MenuScene extends Phaser.Scene {
     const close = () => this.close();
     this.game.events.once('run-started', close);
     this.events.once('shutdown', () => this.game.events.off('run-started', close));
+    // Under PLAY's steps, unseen (DRIVE from the results' garage): ready for BACK, as if PLAY had been pressed.
+    if (this.scene.settings.data && this.scene.settings.data.behind) {
+      const boardMode = PlatformManager.leaderboardMode();
+      this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, coins: Garage.coins, boardShown: boardMode === 'in_game' || boardMode === 'native_popup' });
+      this.screen.hide();
+      this.readyAt = Infinity;
+      this.scene.pause();
+      return;
+    }
     // A brand-new player skips the title: straight onto the road for the first drive (scenes/Coach.js).
     if (Tips.firstDrive()) {
       hideBootScreen();

@@ -70,7 +70,9 @@ export class SpawnDirector {
   reset(pace = NORMAL_PACE) {
     this.cooldown = 0;
     // A lesson of the first drive (scenes/Coach.js) sets how many police there are, and how fast: { police,
-    // interval, speedFactor }. While it is set: plain police cars only, no roadblocks, no loose spikes.
+    // interval, speedFactor, aheadShare, around }. around: screen angles from the way the car is going (0 ahead,
+    // PI behind), one police car at each in turn, just outside the screen and nearer than usual, so they close in
+    // from all sides at once. While it is set: plain police cars only, no roadblocks, no loose spikes.
     this.lesson = null;
     this.nextRoadblock = roadblockStart(pace);
     this.nextSpikes = pace.hard ? LOOSE_SPIKES.hardFirstAt : LOOSE_SPIKES.firstAt;
@@ -84,7 +86,11 @@ export class SpawnDirector {
       const level = { ...difficultyAt(sim.time, sim.pace), interceptorShare: 0, bearcatShare: 0 };
       if (this.lesson.speedFactor) level.speedFactor = this.lesson.speedFactor;
       if (this.lesson.aheadShare !== undefined) level.aheadShare = this.lesson.aheadShare;
-      this.cooldown = this.trySpawn(sim, view, level) ? this.lesson.interval || level.interval : 0.15;
+      const around = this.lesson.around;
+      if (around) level.slotAngle = around[(this.lesson.placed || 0) % around.length];
+      const placed = this.trySpawn(sim, view, level);
+      if (placed && around) this.lesson.placed = (this.lesson.placed || 0) + 1;
+      this.cooldown = placed ? this.lesson.interval || level.interval : 0.15;
       return;
     }
     if (sim.time >= this.nextRoadblock) {
@@ -133,16 +139,21 @@ export class SpawnDirector {
     const travelScreen = Math.atan2((dirX * projection.sinA + dirY * projection.cosA) * projection.squash, dirX * projection.cosA - dirY * projection.sinA);
     const travellingNorthSouth = Math.abs(dirY) >= Math.abs(dirX);
 
-    for (let attempt = 0; attempt < SPAWN.attempts; attempt += 1) {
+    // A lesson's police at set places (level.slotAngle): of every spot tried, the nearest to the car.
+    let best = null;
+    for (let attempt = 0; attempt < (level.slotAngle !== undefined ? SPAWN.lessonAttempts : SPAWN.attempts); attempt += 1) {
       let angle;
-      if (interceptor) angle = travelScreen + side * degToRad(lerp(INTERCEPTOR.spawnAngleDeg[0], INTERCEPTOR.spawnAngleDeg[1], rng()));
+      if (level.slotAngle !== undefined) angle = travelScreen + level.slotAngle + (rng() - 0.5) * degToRad(SPAWN.lessonSpreadDeg);
+      else if (interceptor) angle = travelScreen + side * degToRad(lerp(INTERCEPTOR.spawnAngleDeg[0], INTERCEPTOR.spawnAngleDeg[1], rng()));
       // Ahead: within 50 degrees of the direction of travel; otherwise anywhere outside that cone.
       else if (ahead) angle = travelScreen + (rng() - 0.5) * 1.75;
       else angle = travelScreen + 1.05 + rng() * (Math.PI * 2 - 2.1);
       const ex = Math.cos(angle);
       const ey = Math.sin(angle);
-      const hw = view.halfW + SPAWN.screenMargin;
-      const hh = view.halfH + SPAWN.screenMargin;
+      const slot = level.slotAngle !== undefined;
+      const margin = slot ? SPAWN.lessonMargin : SPAWN.screenMargin;
+      const hw = view.halfW + margin;
+      const hh = view.halfH + margin;
       const t = Math.min(hw / Math.max(1e-6, Math.abs(ex)), hh / Math.max(1e-6, Math.abs(ey)));
       projection.groundFromScreen(view.cx + ex * t, view.cy + ey * t, ground);
 
@@ -154,14 +165,18 @@ export class SpawnDirector {
       const y = ground.y + Math.sin(heading) * SPAWN.laneOffset;
 
       // It must still be out of sight and on a loaded chunk.
-      if (isOnScreen(x, y, view, SPAWN.screenMargin / 2) || !sim.chunks.contains(x, y)) continue;
+      if (isOnScreen(x, y, view, margin / 2) || !sim.chunks.contains(x, y)) continue;
       const dx = x - player.x;
       const dy = y - player.y;
       const distance = Math.hypot(dx, dy);
       const towardUs = (dx * dirX + dy * dirY) / Math.max(1, distance) > 0.35;
-      if (distance < (towardUs ? SPAWN.minAheadDistance : SPAWN.minDistance)) continue;
+      if (distance < (slot ? SPAWN.lessonMinDistance : towardUs ? SPAWN.minAheadDistance : SPAWN.minDistance)) continue;
       if (!sim.world.isClear(x, y, SPAWN.clearance)) continue;
       if (sim.isNearCar(x, y, 110)) continue;
+      if (slot) {
+        if (!best || distance < best.distance) best = { x, y, heading, distance };
+        continue;
+      }
 
       sim.spawnPolice(x, y, heading, {
         role: bearcat ? 'bearcat' : interceptor ? 'interceptor' : 'chaser',
@@ -173,7 +188,16 @@ export class SpawnDirector {
       });
       return true;
     }
-    return false;
+    if (!best) return false;
+    sim.spawnPolice(best.x, best.y, best.heading, {
+      role: 'chaser',
+      speedFactor: level.speedFactor,
+      turnDeg: level.turnDeg,
+      aimSide: rng() * 2 - 1,
+      launchShare: SPAWN.speedMax,
+      reaction: 1,
+    });
+    return true;
   }
 
   // Parked cruisers angled across a crossing ahead, with a spike strip in the gap between them, placed

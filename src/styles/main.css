@@ -303,7 +303,7 @@ body {
 .screen.menu {
   /* No boxes on the title: the map is evenly a little darker, a touch more at the top and bottom where the
      lettering is, and the lettering carries its own soft shadow. */
-  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.5), rgba(14, 15, 18, 0.3) 32%, rgba(14, 15, 18, 0.3) 62%, rgba(14, 15, 18, 0.48));
+  background: linear-gradient(to bottom, rgba(14, 15, 18, 0.45), rgba(14, 15, 18, 0.2) 22%, rgba(14, 15, 18, 0.2) 66%, rgba(14, 15, 18, 0.45));
 }
 
 .screen.menu .menu-goals,
@@ -349,7 +349,8 @@ body {
 }
 
 .menu-top {
-  padding-top: 7vh;
+  /* Below the stars and level in the corner, which would otherwise touch the logo on a phone held upright. */
+  padding-top: calc(var(--safe-top) + clamp(64px, 15vmin, 84px));
 }
 
 @keyframes screen-in {
@@ -496,8 +497,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.12em;
-  font-size: clamp(44px, 13vmin, 92px);
+  gap: 0.06em;
+  font-size: clamp(28px, 8vmin, 58px);
   font-weight: 400;
   color: #fff;
 }
@@ -508,7 +509,7 @@ body {
 
 .logo-me {
   color: var(--amber);
-  font-size: 1.3em;
+  font-size: 1.25em;
 }
 
 .menu-map {
@@ -732,6 +733,14 @@ body {
   color: #fff;
 }
 
+/* Under an ad button that gave nothing: why (ADS.notes). */
+.ad-note {
+  font-size: clamp(11px, 2.8vmin, 14px);
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
 .over-tip {
   font-size: clamp(11px, 3vmin, 15px);
   color: var(--amber);
@@ -740,6 +749,7 @@ body {
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
 }
 
+.ad-note[hidden],
 .over-badge[hidden],
 .over-tip[hidden],
 .over-next[hidden] {
@@ -1150,8 +1160,8 @@ body {
 @media (max-height: 520px) {
   .logo {
     flex-direction: row;
-    gap: 0.4em;
-    font-size: clamp(30px, 10vmin, 56px);
+    gap: 0.35em;
+    font-size: clamp(22px, 7vmin, 40px);
   }
   .logo-me {
     font-size: 1em;
@@ -1910,20 +1920,6 @@ body {
   margin-bottom: 2px;
 }
 
-/* A button pointed out once (the garage after the first drive): a soft amber glow coming and going. */
-.btn-pointer {
-  animation: pointer-glow 1.8s ease-in-out infinite;
-}
-
-@keyframes pointer-glow {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 0 rgba(255, 196, 0, 0));
-  }
-  50% {
-    filter: drop-shadow(0 0 6px rgba(255, 196, 0, 0.55));
-  }
-}
 
 /* Sideways on a phone: the step's label beside BACK, clear of the car's or map's name; the stat rows given room. */
 @media (max-height: 520px) and (orientation: landscape) {
@@ -1949,54 +1945,45 @@ body {
   pointer-events: none;
 }
 
+/* The arrow: placed with its tip by the button (Guide.js), turned to point at it from the side it is on, and
+   moving in towards it again and again, growing as it goes in, like a tap. Plain amber, no outline or shadow. Only
+   the arrow moves: the button it points at stays as it is. It runs even where the phone asks for less motion
+   (owner, 2026-11-14: the tutorial must move to be seen). */
 .guide-arrow {
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 38px;
+  height: 38px;
   transform: translate(-50%, -100%);
-  animation: guide-bob 1.6s ease-in-out infinite;
 }
 
-.guide-arrow::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--amber);
-  clip-path: polygon(0 20%, 100% 20%, 50% 100%);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+.guide-arrow[data-side='below'] {
+  transform: translate(-50%, 0) rotate(180deg);
 }
 
-.guide.below .guide-arrow {
-  transform: translate(-50%, 0);
-  animation-name: guide-bob-up;
+.guide-arrow[data-side='left'] {
+  transform: translate(-100%, -50%) rotate(-90deg);
 }
 
-.guide.below .guide-arrow::before {
-  transform: rotate(180deg);
+.guide-arrow[data-side='right'] {
+  transform: translate(0, -50%) rotate(90deg);
 }
 
-@keyframes guide-bob {
+#ui .guide-arrow svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: var(--amber);
+  transform-origin: 50% 92%;
+  animation: guide-tap 0.9s ease-in-out infinite;
+}
+
+@keyframes guide-tap {
   0%,
   100% {
-    transform: translate(-50%, -100%);
+    transform: translateY(-10px) scale(0.85);
   }
-  50% {
-    transform: translate(-50%, calc(-100% - 4px));
-  }
-}
-
-@keyframes guide-bob-up {
-  0%,
-  100% {
-    transform: translate(-50%, 0);
-  }
-  50% {
-    transform: translate(-50%, 4px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .guide-arrow {
-    animation: none;
+  45% {
+    transform: translateY(0) scale(1.18);
   }
 }

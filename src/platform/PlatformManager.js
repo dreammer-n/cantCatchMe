@@ -44,10 +44,14 @@ const AD_STUCK_MS = 1500; // an advert that never reported closing is let go by 
 // After an advert says it has closed, the pause and mute that came with it are let go this soon if the platform
 // hasn't lifted them itself: players saw the game sit frozen, as if lagging, after an advert had gone.
 const AD_RELEASE_MS = 600;
+// No pop-up advert this soon after the player watched a rewarded one (owner, 2026-11-14: fewer ads).
+const NO_POPUP_AFTER_REWARDED_MS = 120000;
 
 const state = {
   initialized: false,
   platformId: 'local',
+  rewardedOutcome: null, // how the last rewarded ad went: 'rewarded', 'closed' (shut before the reward) or 'unavailable'
+  rewardedShownAt: -Infinity, // when the last rewarded ad was on screen (Date.now())
   bridge: null,
   platformPaused: false,
   pageHidden: false,
@@ -396,6 +400,11 @@ export const PlatformManager = {
 
   // How a rewarded ad works here: 'platform' (a real one), 'none' (the platform has none: offer no button) or
   // 'simulated' (no platform at all: local testing, including the SDK's own 'mock' platform).
+  // How the last rewarded ad went, so the screen can say why nothing came of it: 'rewarded', 'closed' or 'unavailable'.
+  get rewardedOutcome() {
+    return state.rewardedOutcome;
+  },
+
   rewardedAdMode() {
     if (!state.bridge || state.platformId === 'mock') return 'simulated';
     return state.bridge.advertisement?.isRewardedSupported ? 'platform' : 'none';
@@ -408,9 +417,12 @@ export const PlatformManager = {
     if (this.rewardedAdMode() !== 'platform') return Promise.resolve(false);
     state.pendingAd = new Promise((resolve) => {
       let earned = false;
+      let opened = false;
       let timer = null;
       const finish = () => {
         clearTimeout(timer);
+        state.rewardedOutcome = earned ? 'rewarded' : opened ? 'closed' : 'unavailable';
+        if (opened || earned) state.rewardedShownAt = Date.now();
         state.onRewardedState = null;
         state.pendingAd = null;
         state.adOpen = false;
@@ -420,6 +432,7 @@ export const PlatformManager = {
       };
       state.onRewardedState = (adState) => {
         if (adState === 'opened') {
+          opened = true;
           if (!state.adOpen) {
             state.adOpenedAt = Date.now();
             holdCameWithAdvert();
@@ -453,6 +466,7 @@ export const PlatformManager = {
   showInterstitial() {
     const ads = state.bridge && state.bridge.advertisement;
     if (!ads || !ads.isInterstitialSupported) return;
+    if (Date.now() - state.rewardedShownAt < NO_POPUP_AFTER_REWARDED_MS) return; // they have just watched one
     try {
       const result = ads.showInterstitial(INTERSTITIAL_PLACEMENT);
       if (result && typeof result.catch === 'function') result.catch(() => {});

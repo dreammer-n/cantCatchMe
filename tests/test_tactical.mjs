@@ -899,7 +899,7 @@ check('longer power-ups: TURBO 5 s, PHANTOM 6 s, TITAN 10 s', T.TURBO.seconds ==
   const { readFileSync } = await import('node:fs');
   const font = readFileSync(new URL('../src/ui/displayFont.js', import.meta.url), 'utf8');
   const drawable = (text) => [...text].every((c) => c === ' ' || /[A-Z0-9]/.test(c) || font.includes(`'${c}': [`) || font.includes(`"${c}": [`));
-  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body, tip.keysHead || '', tip.keysBody || '']), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D', 'FREE'];
+  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body, tip.keysHead || '', tip.keysBody || '']), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D', 'FREE', ...Object.values(T.ADS.notes)];
   check('every hint can be drawn in the game\'s lettering', texts.every(drawable), texts.filter((t) => !drawable(t)).join(' | '));
   // Fallen into a hole on the road: it comes back on the road, clear of the hole.
   const hole = { kind: 'void', isVoid: true, x: 3000, y: 3000, heading: 0, collider: { type: 'circle', r: 150 }, breakable: false, outline: [] };

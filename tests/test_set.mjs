@@ -132,7 +132,8 @@ const quietView = { cx: -1e6, cy: -1e6, halfW: 1, halfH: 1 };
   check('medians stay within their blocks, clear of the road', inCell);
 
   const arrows = chunks.flatMap((c) => c.paint.filter((m) => m.arrow).map((m) => ({ m, c })));
-  check('roads have painted arrows', arrows.length > chunks.length * 3, `${(arrows.length / chunks.length).toFixed(1)} a chunk`);
+  // No painted arrows on the roads (owner, 2026-11-14); the checks below still hold for any there were.
+  check('no painted arrows on the roads', arrows.length === 0, `${arrows.length} found`);
   let offRoad = 0;
   let wrongLane = 0;
   let outside = 0;

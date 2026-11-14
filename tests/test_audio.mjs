@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AUDIO, POWERUP, STORAGE_KEYS } from '../src/config/tuning.js';
+import { AUDIO, MAPS, POWERUP, STORAGE_KEYS } from '../src/config/tuning.js';
 import { PlatformManager } from '../src/platform/PlatformManager.js';
 import { Settings } from '../src/systems/Settings.js';
 
@@ -43,6 +43,7 @@ check('TITAN is its voice and nothing under it', POWERUP.sounds.giant.length ===
 check('the engine is back, from the owner\'s own file, quiet under the music', AUDIO.files.engine_loop && AUDIO.engine.volume < AUDIO.chaseMusic && AUDIO.engine.pitch[1] > AUDIO.engine.pitch[0]);
 check('a combo makes no sound, on the owner\'s word', AUDIO.files.combo === undefined);
 check('the music is silent on the pause menu', AUDIO.musicDim === 0);
+check('a map with its own run track names one that exists, and Desert has its own', MAPS.every((m) => !m.music || AUDIO.music[m.music]) && MAPS.find((m) => m.id === 'desert').music === 'desert');
 check('sounds load in the order they are needed: the menu music and the click first', AUDIO.loadOrder[0] === 'menu' && AUDIO.loadOrder[1] === 'click' && AUDIO.loadOrder.every((name) => name === 'menu' || AUDIO.files[name]) && AUDIO.loadAtOnce >= 2);
 check('BLACKOUT has its sound file', POWERUP.sounds.blackout.includes('blackout') && AUDIO.files.blackout.path === 'sound_effects/blackout.mp3');
 check('the chase music starts loading as soon as the menu music and click are in', AUDIO.chaseAfter.length > 0 && AUDIO.chaseAfter.every((name) => name === 'menu' || AUDIO.files[name]));

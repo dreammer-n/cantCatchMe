@@ -1,4 +1,4 @@
-import { COINS, FEEDBACK, LEVELS, MAPS, STARS, UPGRADES, carSpecs, withMapPalette } from '../config/tuning.js';
+import { ADS, COINS, FEEDBACK, LEVELS, MAPS, STARS, UPGRADES, carSpecs, withMapPalette } from '../config/tuning.js';
 import { carMesh } from '../render/carModels.js';
 import { paintMesh, projectMesh } from '../render/lowpoly.js';
 import { drawMapDiorama } from '../render/mapDiorama.js';
@@ -271,7 +271,8 @@ export class LeaderboardScreen extends Screen {
 // GarageScene), one choice per screen.
 export class MenuScreen extends Screen {
   constructor({ onPlay, onSound, onMusic, onBoard }) {
-    const logo = el('h1', 'logo', [dt('logo-line', "CAN'T"), dt('logo-line', 'CATCH'), dt('logo-line logo-me', 'ME!')]);
+    // A small logo at the top (owner, 2026-11-14): the map, the car and the police cruising round it are the title.
+    const logo = el('h1', 'logo', [dt('logo-line', "CAN'T CATCH"), dt('logo-line logo-me', 'ME!')]);
     const play = textButton('btn-primary btn-play', 'PLAY', onPlay, 'Play', ICONS.play);
     const sound = soundButton(onSound);
     const music = musicButton(onMusic);
@@ -338,12 +339,24 @@ export class PauseScreen extends Screen {
   }
 }
 
+// The line under an ad button saying why it gave nothing (ADS.notes): no ad to show, or closed before the end.
+function adNote() {
+  const node = dt('ad-note', '');
+  node.hidden = true;
+  node.say = (outcome) => {
+    node.hidden = !outcome;
+    if (outcome) setDisplay(node, ADS.notes[outcome] || ADS.notes.unavailable);
+  };
+  return node;
+}
+
 // After a crash: carry on for coins, or for an ad, before the results. Counts down by itself.
 export class ReviveScreen extends Screen {
   constructor({ onPay, onAd, onDecline }) {
     const count = dt('revive-count', '5');
     const pay = textButton('btn-primary', 'REVIVE', onPay, 'Revive with coins');
     const ad = textButton('btn-secondary', 'WATCH AD: REVIVE', onAd, 'Watch an ad to revive');
+    const note = adNote();
     const balance = coinBadge();
     super('revive', [
       balance,
@@ -351,11 +364,13 @@ export class ReviveScreen extends Screen {
       count,
       pay,
       ad,
+      note,
       textButton('btn-secondary', 'NO THANKS', onDecline, 'See the results'),
     ]);
     this.count = count;
     this.pay = pay;
     this.ad = ad;
+    this.note = note;
     this.balance = balance;
   }
 
@@ -374,12 +389,14 @@ export class ReviveScreen extends Screen {
     setDisplay(this.count, String(Math.max(0, Math.ceil(seconds))));
   }
 
-  setAdState(state) {
+  // failed: outcome says why (PlatformManager.rewardedOutcome), on a line under the button.
+  setAdState(state, outcome = 'unavailable') {
     this.ad.disabled = state === 'busy';
     this.pay.disabled = state === 'busy';
     if (state === 'ready') this.ad.setText('WATCH AD: REVIVE');
     if (state === 'busy') this.ad.setText('LOADING AD...');
-    if (state === 'failed') this.ad.setText('NO AD - TRY AGAIN');
+    if (state === 'failed') this.ad.setText('TRY AGAIN');
+    this.note.say(state === 'failed' ? outcome : null);
   }
 }
 
@@ -418,6 +435,7 @@ export class GameOverScreen extends Screen {
     const earnedRow = el('div', 'over-coins', [coinGlyph(), dt('over-coins-plus', '+'), earned, dt('over-coins-label', 'COINS')]);
     const breakdown = dt('over-breakdown', '');
     const double = textButton('btn-gold', '', onDouble, 'Double your coins by watching an ad', ICONS.film);
+    const adLine = adNote();
     // Two groups: stacked on a tall screen, side by side on a phone held sideways.
     super('over', [
       el('div', 'over-group', [el('h2', 'screen-title over-title', [dt('', 'BUSTED!')]), cause, time, el('div', 'over-stars', stars), badge, next, advice]),
@@ -429,6 +447,7 @@ export class GameOverScreen extends Screen {
         earnedRow,
         breakdown,
         double,
+        adLine,
         feedback,
         textButton('btn-primary', 'RETRY', onRetry, 'Retry', ICONS.retry),
         el('div', 'menu-row over-small-row', [(garageButton = textButton('btn-secondary', 'GARAGE', onGarage, 'Garage')), textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
@@ -436,7 +455,7 @@ export class GameOverScreen extends Screen {
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
+    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, adLine, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
   }
 
   thankFeedback() {
@@ -448,14 +467,16 @@ export class GameOverScreen extends Screen {
     this.balance.setCoins(coins);
   }
 
-  setDoubleState(state) {
+  // failed: outcome says why (PlatformManager.rewardedOutcome), on a line under the button.
+  setDoubleState(state, outcome = 'unavailable') {
     const node = this.double;
     node.disabled = state === 'busy' || state === 'done';
     node.classList.toggle('btn-done', state === 'done');
     if (state === 'ready') node.setText(`WATCH AD: DOUBLE COINS (+${formatCoins(this.coinTotal)})`);
     if (state === 'busy') node.setText('LOADING AD...');
-    if (state === 'failed') node.setText('NO AD - TRY AGAIN');
+    if (state === 'failed') node.setText('TRY AGAIN');
     if (state === 'done') node.setText('COINS DOUBLED!');
+    this.adLine.say(state === 'failed' ? outcome : null);
   }
 
   // The tally and the balance climb to their new totals.
@@ -468,7 +489,7 @@ export class GameOverScreen extends Screen {
   }
 
   // Minimal: BUSTED!, the time and stars, ONE line, the coins (and doubling them), RETRY, then GARAGE and MENU small.
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, garagePointer = false }) {
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, canDouble = true, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, garagePointer = false }) {
     this.feedback.hidden = !askFeedback;
     this.feedbackChoices.hidden = false;
     setDisplay(this.feedbackText, FEEDBACK.question);
@@ -508,7 +529,7 @@ export class GameOverScreen extends Screen {
     this.breakdown.hidden = true; // the missions' coins are in the total
     if (this.stopCount) this.stopCount();
     this.stopCount = countUp(this.earned, 0, doubled ? coins.total * 2 : coins.total, COINS.tallyMs);
-    this.double.hidden = adMode === 'none' || coins.total === 0;
+    this.double.hidden = adMode === 'none' || coins.total === 0 || !canDouble; // only after a run worth it (ADS)
     this.setDoubleState(doubled ? 'done' : 'ready');
     setDisplay(this.cause, CAUSES[cause] || CAUSES.police);
     setDisplay(this.time, formatClock(summary.time));
@@ -639,9 +660,10 @@ export class GarageScreen extends Screen {
       action.disabled = !owned && !Garage.canBuy(car.id);
       action.setText(owned ? 'NEXT' : `BUY FOR ${formatCoins(car.price)} COINS`);
     } else {
-      action.classList.toggle('btn-done', selected);
-      action.disabled = selected || (!owned && !Garage.canBuy(car.id));
-      if (selected) action.setText('SELECTED');
+      // From the results: the chosen car's button reads DRIVE, straight on to choosing a map.
+      action.classList.remove('btn-done');
+      action.disabled = !owned && !Garage.canBuy(car.id);
+      if (selected) action.setText('DRIVE');
       else if (owned) action.setText('SELECT');
       else action.setText(`BUY FOR ${formatCoins(car.price)} COINS`);
     }

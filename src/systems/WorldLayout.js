@@ -1433,6 +1433,9 @@ function addRoadArrows(chunk, rng) {
         const x = chunk.x0 + (northSouth ? across : along);
         const y = chunk.y0 + (northSouth ? along : across);
         if (nearBorder(x) || nearBorder(y) || onPlaza(x, y)) continue;
+        // The random numbers are still drawn, so nothing else in the world moves; the arrow is painted only if
+        // WORLD.roadArrows (off: owner, 2026-11-14).
+        if (!WORLD.roadArrows) continue;
         const heading = northSouth ? (side > 0 ? 0 : Math.PI) : side > 0 ? Math.PI / 2 : -Math.PI / 2;
         chunk.paint.push({ arrow: true, x, y, heading, alpha: SCENERY.stallAlpha });
       }

@@ -148,6 +148,12 @@ export function paintCarAtlases(count) {
   return unfinished.size > 0;
 }
 
+// Whether a sheet is made and every view of it drawn (asking for it then costs nothing).
+export function atlasReady(scene, name, proj = projection) {
+  const key = atlasKey(name, proj);
+  return scene.textures.exists(key) && !unfinished.has(key);
+}
+
 export function finishCarAtlases() {
   for (const key of [...unfinished.keys()]) finishAtlas(key);
 }

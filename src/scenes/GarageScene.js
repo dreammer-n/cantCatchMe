@@ -8,9 +8,10 @@ import { Tips } from '../systems/Tips.js';
 import { Guide } from '../ui/Guide.js';
 import { GarageScreen } from '../ui/Screens.js';
 
-// Browse, buy and choose cars. Opened as the last step after PLAY (flow: from the map step, the big button reads
-// DRIVE), or from the results. Steer left and right to browse, Enter / Space / gamepad A for the big button, P to
-// go back, so it works on any device.
+// Browse, buy and choose cars. Opened as the first step after PLAY (flow: the big button reads NEXT, on to the
+// map), or from the results, where the chosen car's button reads DRIVE and leads on to the map just the same.
+// Steer left and right to browse, Enter / Space / gamepad A for the big button, P to go back, so it works on any
+// device.
 export class GarageScene extends Phaser.Scene {
   constructor() {
     super('GarageScene');
@@ -43,6 +44,7 @@ export class GarageScene extends Phaser.Scene {
     this.lastSteer = 0;
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     this.driving = false;
+    this.leadOn = false; // the guide's last pointer on this visit: NEXT, once the arrow to the next car is pressed
     this.world = this.scene.get('GameScene');
     this.screen.show();
     this.screen.forget();
@@ -71,38 +73,47 @@ export class GarageScene extends Phaser.Scene {
     this.screen.showCar(CARS[this.index], this.index, CARS.length);
   }
 
-  // One-time pointers (GUIDE), each only once: the free upgrade (UPGRADES, then its button), then the next car to
-  // save for; on the way into a run, if those are done, where to pick a car. A tap anywhere else ends the guide.
+  // One-time pointers (GUIDE), each staying until what it points at is pressed: the free upgrade (UPGRADES, then
+  // FREE), then on to the maps (the car's DRIVE, or NEXT on the way into a run, after SELECT if it isn't the chosen
+  // one); the map step then points at START. On the way into a run, once those are done: the arrow to the next car,
+  // then NEXT. Called again whenever what is on show changes.
   guide() {
     const screen = this.screen;
-    const done = (id) => () => Tips.mark(id);
+    const car = CARS[this.index];
     if (!Tips.has('guide-garage')) {
-      const car = CARS[this.index];
+      if (!Garage.owns(car.id)) {
+        Guide.hide(); // browsing a car not owned: the pointer comes back on one that is
+        return;
+      }
       if (Progress.isFree('engine', car.id)) {
-        const onTap = (hit) => {
-          if (!hit) Tips.mark('guide-garage');
-        };
-        if (screen.upgrades.hidden) Guide.point(screen.toggle, onTap);
-        else Guide.point(screen.upgradeRows.find((row) => row.kind === 'engine').buy, onTap); // it reads FREE
-        return;
-      }
-      const next = CARS.filter((c) => !Garage.owns(c.id) && !c.challenge).sort((a, b) => a.price - b.price)[0];
-      if (next) {
-        Guide.point(screen.nextArrow, done('guide-garage')); // the next car shows its price
-        return;
-      }
-      Tips.mark('guide-garage');
+        if (screen.upgrades.hidden) Guide.point(screen.toggle);
+        else Guide.point(screen.upgradeRows.find((row) => row.kind === 'engine').buy); // it reads FREE
+      } else if (screen.carPanel.hidden) Guide.point(screen.toggle); // CARS: back to the car
+      else Guide.point(screen.action); // SELECT, then DRIVE (NEXT on the way into a run): on to the maps
+      return;
     }
-    if (this.flow && !Tips.has('guide-car')) Guide.point(screen.nextArrow, done('guide-car'));
+    if (!this.flow) return;
+    if (!Tips.has('guide-car')) {
+      Guide.point(screen.nextArrow, () => {
+        Tips.mark('guide-car');
+        this.leadOn = true; // then on to NEXT, this time
+      });
+    }
+    else if (this.leadOn && Garage.owns(car.id) && !screen.carPanel.hidden) Guide.point(screen.action); // NEXT
+    else Guide.hide();
   }
 
   browse(step) {
     Guide.hide();
-    if (this.flow) Tips.mark('guide-car');
+    if (this.flow && !Tips.has('guide-car')) {
+      Tips.mark('guide-car');
+      this.leadOn = true; // then on to NEXT, this time
+    }
     this.audio.play('click');
     this.index = (this.index + step + CARS.length) % CARS.length;
     this.showCar();
     if (this.flow) this.world.previewCar(CARS[this.index].id); // the car itself, in the world
+    this.guide();
   }
 
   // Buys or selects the car on show. A car you have just paid for is the one you want to drive.
@@ -114,15 +125,39 @@ export class GarageScene extends Phaser.Scene {
       this.audio.play('click');
       return; // bought: the button now reads DRIVE
     }
+    if (!this.flow && Garage.selected === car.id) {
+      this.driveToMaps();
+      return;
+    }
     Garage.select(car.id);
     this.audio.play('click');
     if (this.flow) this.toMap();
+    else this.guide(); // chosen: the guide, if on, moves to DRIVE
+  }
+
+  // DRIVE from the results' garage: the results go, the world is set back as on the title, and the camera pulls
+  // back over the map, as if PLAY had been pressed and this car chosen. BACK from the map comes back here (now as
+  // PLAY's car step), and BACK again to the title.
+  driveToMaps() {
+    if (this.screen.leaving) return;
+    Guide.hide();
+    Tips.mark('guide-garage');
+    this.audio.unlock();
+    this.audio.play('click');
+    this.scene.stop('GameOverScene');
+    this.world.enterAttract();
+    this.from = 'MenuScene';
+    this.flow = true;
+    this.screen.setFlow(true, Settings.hardStart);
+    this.scene.launch('MenuScene', { behind: true }); // the title waits under PLAY's steps, unseen
+    this.toMap();
   }
 
   // On to the map: the camera pulls back over it.
   toMap() {
     if (this.screen.leaving) return;
     Guide.hide();
+    if (!Progress.isFree('engine', CARS[this.index].id)) Tips.mark('guide-garage');
     this.audio.unlock();
     this.screen.leave();
     this.world.menuShot('map');
@@ -149,11 +184,14 @@ export class GarageScene extends Phaser.Scene {
   // An upgrade for every car, if the player's level and coins allow it.
   upgrade(kind) {
     const id = CARS[this.index].id; // the car on show
+    const guided = !Tips.has('guide-garage') && Progress.isFree(kind, id);
     if (!Progress.upgrade(kind, id)) return;
     this.audio.play('click');
     PlatformManager.sendEvent('upgrade_bought', { kind, tier: Progress.tier(kind, id), car: id });
     this.showCar();
-    this.guide(); // on to the next car to save for
+    // The free upgrade the guide pointed at: back to the car, where its specs show what it added, and DRIVE.
+    if (guided) this.screen.showCarsPanel();
+    this.guide(); // on to the maps
   }
 
   close() {
