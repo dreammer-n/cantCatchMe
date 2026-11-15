@@ -864,8 +864,11 @@ export class ChaseSimulation {
     cone.timer = 0;
     if (cone.wasSolid) shape.solid = false;
     const feel = cone.wasSolid ? CONES.kinds.crushed : CONES.kinds[cone.item.kind] || CONES;
-    cone.flySeconds = feel.flySeconds || CONES.flySeconds;
-    cone.hop = feel.hop || CONES.hop;
+    cone.feel = feel;
+    cone.z = 0;
+    cone.vz = (feel.lift ?? CONES.lift) * Math.hypot(car.vx, car.vy); // thrown up: harder hits, higher
+    cone.still = 0;
+    cone.alpha = 1;
     const jitter = (this.rng() - 0.5) * 80;
     cone.vx = car.vx * feel.knockSpeed + jitter;
     cone.vy = car.vy * feel.knockSpeed - jitter;
@@ -891,13 +894,8 @@ export class ChaseSimulation {
       if (cone.state === 'standing') continue;
       cone.timer += dt;
       if (cone.state === 'flying') {
-        const keep = Math.exp(-2.5 * dt);
-        cone.vx *= keep;
-        cone.vy *= keep;
-        cone.x += cone.vx * dt;
-        cone.y += cone.vy * dt;
-        cone.angle += cone.spin * dt;
-        if (cone.timer > cone.flySeconds) {
+        flyCone(cone, dt);
+        if (cone.alpha <= 0) {
           cone.state = 'gone';
           cone.timer = 0;
         }
@@ -906,4 +904,45 @@ export class ChaseSimulation {
       }
     }
   }
+}
+
+// A knocked prop in flight (CONES): gravity, a bounce on each landing, friction on the ground, then still, then
+// fading. Its own numbers (cone.feel) say what it is made of.
+export function flyCone(cone, dt) {
+  const feel = cone.feel || CONES;
+  const bounce = feel.bounce ?? CONES.bounce;
+  const grip = feel.grip ?? CONES.grip;
+  if (cone.z > 0 || cone.vz > 0) {
+    const keep = Math.exp(-CONES.airDrag * dt);
+    cone.vx *= keep;
+    cone.vy *= keep;
+    cone.vz -= CONES.gravity * dt;
+    cone.z += cone.vz * dt;
+    if (cone.z <= 0) {
+      const fall = -cone.vz;
+      cone.z = 0;
+      cone.vz = fall * bounce > CONES.settleSpeed ? fall * bounce : 0;
+      slowCone(cone, grip * fall * (1 + bounce)); // the push of the landing, times the friction
+    }
+  } else {
+    slowCone(cone, grip * CONES.gravity * dt); // sliding or rolling to a stop
+  }
+  cone.x += cone.vx * dt;
+  cone.y += cone.vy * dt;
+  cone.angle += cone.spin * dt;
+  const resting = cone.z === 0 && cone.vz === 0 && Math.hypot(cone.vx, cone.vy) < CONES.stillSpeed;
+  if (resting) cone.still += dt;
+  const fadeFromStill = 1 - Math.max(0, cone.still - CONES.restSeconds) / CONES.fadeSeconds;
+  const fadeFromTime = (CONES.maxSeconds - cone.timer) / CONES.fadeSeconds;
+  cone.alpha = Math.max(0, Math.min(1, fadeFromStill, fadeFromTime));
+}
+
+// Takes `loss` off its speed along the ground; its spin slows with it.
+function slowCone(cone, loss) {
+  const speed = Math.hypot(cone.vx, cone.vy);
+  if (speed <= 0) return;
+  const share = Math.max(0, speed - loss) / speed;
+  cone.vx *= share;
+  cone.vy *= share;
+  cone.spin *= share;
 }

@@ -102,7 +102,10 @@ export function resetCone(cone) {
   cone.angle = 0;
   cone.spin = 0;
   cone.timer = 0;
-  cone.flySeconds = 0;
-  cone.hop = 0;
+  cone.feel = null;
+  cone.z = 0; // height while flying (CONES)
+  cone.vz = 0;
+  cone.still = 0; // how long it has lain still
+  cone.alpha = 1;
   if (cone.wasSolid) cone.shape.solid = true;
 }

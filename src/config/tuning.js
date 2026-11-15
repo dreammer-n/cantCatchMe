@@ -235,16 +235,20 @@ export const TITLE_PATROL = {
 };
 
 // [TUNE] Pop-up adverts (Bridge decides when one is due; these are the game's own limits, owner 2026-11-12).
-// [TUNE] Parked cars (owner, 2026-11-13): a slow bump shoves one aside; a hard hit, head on, crashes the car like a
-// wall (closing speed above the hit that wrecks the car on props, so the run's early toughness counts too).
+// [TUNE] Parked cars (owner, 2026-11-13): a slow bump shoves one aside; with crash on, a hard hit, head on, crashes
+// the car like a wall. Off again (owner, 2026-11-15): runs ending on scenery rose from 37% to 49% with it, and a
+// parked car you never saw feels unfair. Any hit now shoves it aside, at a cost in speed (CONES.slowdown).
 export const PARKED_CARS = {
-  crash: true,
+  crash: false,
 };
 
 // Fewer ad offers (owner, 2026-11-14, after "too many ads" led the players' answers): no pop-up after a short run or
 // within 2 minutes of a rewarded ad (PlatformManager), and the offers to watch one only after a run worth it.
 export const ADS = {
   minRunSeconds: 30, // no pop-up after a run shorter than this: a quick crash goes straight to the results
+  // Owner, 2026-11-15 (13 of 28 players answered TOO MANY ADS): a pop-up is asked for only once this many runs of
+  // minRunSeconds or more have ended since the last one that really showed. Bridge still keeps its 4-minute gap.
+  popupEveryRuns: 2,
   doubleMinSeconds: 30, // the results offer to double the coins only after a run this long, with no ad revive in it
   // When a rewarded ad gives nothing, the screen says why, under the button.
   notes: {
@@ -775,7 +779,9 @@ export const HEAT = {
   // A little easier again (owner, 2026-11-13): fewer police from 2 minutes, a slower build, tough for longer.
   police: [[0, 1], [8, 2], [40, 3], [80, 4], [120, 5], [150, 7], [180, 9], [240, 13], [300, 18], [360, 22], [420, 26]],
   toughness: [[0, 2.1], [90, 1.6], [180, 1.3], [300, 1.1], [360, 1]], // x the police hit that wrecks the player's car (CRASH.playerImpact)
-  propToughness: [[0, 1.25], [120, 1.12], [300, 1]], // the same against walls and props: modest, so a full-speed head-on still ends it
+  // The same against walls and props. More forgiving (owner, 2026-11-15): a clip at speed is a bump, but a
+  // full-speed head-on still ends it (1.35 x 215 = 290, under the Coupe's 300).
+  propToughness: [[0, 1.35], [180, 1.25], [300, 1.12], [420, 1]],
   fragility: [[0, 0.75], [180, 0.9], [240, 1]], // x the hit that wrecks a police car (props and other cars)
   interceptorShare: [[59.99, 0], [60, 0.15], [120, 0.3], [180, 0.45], [240, 0.6]],
   bearcatShare: [[119.99, 0], [120, 0.1], [180, 0.18], [240, 0.26]], // share of new cars that are Bearcats
@@ -1219,31 +1225,46 @@ export const COMBO = {
   window: 1.6, // police wrecked within this many seconds of each other form a combo
 };
 
+// A knocked prop flies on real physics (owner, 2026-11-15: it used to bounce on a fixed pattern, whatever it was):
+// thrown up at `lift` x the car's speed, it falls under gravity, keeps `bounce` of its fall speed on each landing,
+// and loses speed to the ground by its `grip` (like friction: a hard landing costs more, rolling things keep
+// going). Its spin slows as it does. Once still it lies there for restSeconds, then fades. Each kind's numbers say
+// what it is made of: light and bouncy plastic, heavy iron, soft hedge, snow that just crumbles.
 export const CONES = {
   knockSpeed: 0.85, // share of the hitting car's speed given to the cone
-  flySeconds: 1.1,
-  hop: 26,
+  lift: 0.75, // upward speed, as a share of the car's speed: light things fly up, heavy ones barely leave the ground
+  bounce: 0.4, // share of its fall speed kept on landing (rubber and plastic bounce)
+  grip: 0.5, // friction with the road: a slide loses grip x gravity a second, and grip x the landing speed per landing
+  gravity: 900, // as the tumbleweeds and wreckage: the world drawn at arcade scale
+  airDrag: 0.3, // a second, in the air
+  settleSpeed: 30, // a landing slower than this does not bounce
+  stillSpeed: 8, // slower than this on the ground, it has stopped
+  restSeconds: 0.5, // lying still before it fades ...
+  fadeSeconds: 0.35, // ... over this long
+  maxSeconds: 4, // gone by then, whatever happens
   respawnSeconds: 25,
   slowdown: 0.97, // a cone barely slows the car down
   spin: 18, // how fast a knocked cone can spin (radians per second)
-  // Other breakable props: how they differ from a cone (a wooden crate behaves like one).
+  // Other breakable props: how they differ from a cone.
   // 'crushed' is for solid props flattened by the Giant car.
   kinds: {
-    crushed: { knockSpeed: 0.9, slowdown: 1, spin: 3, sideKick: 240, flySeconds: 1.6, hop: 60 },
-    lamp: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 }, // a long post tips over rather than whirls
-    pole: { knockSpeed: 0.85, slowdown: 0.88, spin: 5 },
-    log: { knockSpeed: 0.8, slowdown: 0.92, spin: 6 },
-    civilian: { knockSpeed: 0.8, slowdown: 0.82, spin: 2.5, sideKick: 190, flySeconds: 2.2, hop: 46 }, // a parked car bounces aside, and costs real speed
+    crushed: { knockSpeed: 0.9, slowdown: 1, spin: 3, sideKick: 240, lift: 0.55, bounce: 0.15, grip: 0.8 },
+    lamp: { knockSpeed: 0.85, slowdown: 0.88, spin: 5, lift: 0.25, bounce: 0.12, grip: 0.7 }, // a long metal post tips over rather than whirls
+    pole: { knockSpeed: 0.85, slowdown: 0.88, spin: 5, lift: 0.25, bounce: 0.12, grip: 0.7 },
+    log: { knockSpeed: 0.8, slowdown: 0.92, spin: 6, lift: 0.2, bounce: 0.2, grip: 0.25 }, // heavy, but it rolls
+    civilian: { knockSpeed: 0.8, slowdown: 0.82, spin: 2.5, sideKick: 190, lift: 0.45, bounce: 0.2, grip: 0.7 }, // a heavy car: a short hop on its springs, then a slide
     // Suburbs street furniture (STREET_PROPS).
-    hydrant: { knockSpeed: 0.55, slowdown: 0.86, spin: 4, flySeconds: 0.9, hop: 20 }, // heavy, and it bursts
-    mailbox: { knockSpeed: 0.85, slowdown: 0.94, spin: 9 },
-    trashcan: { knockSpeed: 0.9, slowdown: 0.95, spin: 11 },
-    bush: { knockSpeed: 0.55, slowdown: 0.9, spin: 2, flySeconds: 0.7, hop: 10 },
-    fence: { knockSpeed: 0.8, slowdown: 0.95, spin: 8 },
+    hydrant: { knockSpeed: 0.55, slowdown: 0.86, spin: 4, lift: 0.3, bounce: 0.08, grip: 0.9 }, // heavy iron: it thuds down and stops, and bursts
+    mailbox: { knockSpeed: 0.85, slowdown: 0.94, spin: 9, lift: 0.6, bounce: 0.25, grip: 0.6 },
+    trashcan: { knockSpeed: 0.9, slowdown: 0.95, spin: 11, lift: 0.8, bounce: 0.45, grip: 0.3 }, // light plastic: bounces and rolls
+    bush: { knockSpeed: 0.55, slowdown: 0.9, spin: 2, lift: 0.3, bounce: 0, grip: 1.6 }, // soft: no bounce, stops at once
+    fence: { knockSpeed: 0.8, slowdown: 0.95, spin: 8, lift: 0.5, bounce: 0.2, grip: 0.7 }, // wood
+    bench: { knockSpeed: 0.75, slowdown: 0.9, spin: 6, lift: 0.35, bounce: 0.15, grip: 0.75 }, // heavy wood and iron
+    woodcrate: { knockSpeed: 0.85, slowdown: 0.95, spin: 12, lift: 0.6, bounce: 0.25, grip: 0.6 }, // a light crate tumbles, then scrapes to a stop
     // Winter, Desert and Woods.
-    snowman: { knockSpeed: 0.6, slowdown: 0.9, spin: 3, flySeconds: 0.8, hop: 16 },
-    tumbleweed: { knockSpeed: 1.1, slowdown: 0.99, spin: 10, flySeconds: 1.3, hop: 40 },
-    barrel: { knockSpeed: 0.85, slowdown: 0.9, spin: 7 },
+    snowman: { knockSpeed: 0.6, slowdown: 0.9, spin: 3, lift: 0.3, bounce: 0, grip: 2 }, // snow: it crumbles where it lands
+    tumbleweed: { knockSpeed: 1.1, slowdown: 0.99, spin: 10, lift: 1, bounce: 0.55, grip: 0.15 }, // light and springy
+    barrel: { knockSpeed: 0.85, slowdown: 0.9, spin: 7, lift: 0.55, bounce: 0.3, grip: 0.2 }, // a steel drum: it rolls on
   },
 };
 

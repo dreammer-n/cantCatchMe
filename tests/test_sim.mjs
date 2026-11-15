@@ -274,7 +274,7 @@ const noSpawns = (s) => {
   const { events, slowest } = stepTier(s, 1);
   check('hitting a lamp post head-on knocks it away, no crash', s.state === 'running' && s.cones[0].state !== 'standing' && events.some((e) => e.type === 'cone' && e.player));
   check('a lamp post costs a small amount of speed', slowest > 250 && slowest < 285, `slowest ${slowest.toFixed(0)}`);
-  for (let t = 0; t < T.CONES.respawnSeconds + T.CONES.flySeconds + 1; t += 1 / 60) s.updateCones(1 / 60, quietView);
+  for (let t = 0; t < T.CONES.respawnSeconds + T.CONES.maxSeconds + 1; t += 1 / 60) s.updateCones(1 / 60, quietView);
   check('a knocked lamp post returns while off screen', s.cones[0].state === 'standing', s.cones[0].state);
 }
 

@@ -582,8 +582,16 @@ export class GameScene extends Phaser.Scene {
     // A car won by surviving (the Hypercar): normal runs count toward its normal time, HARD START runs toward both.
     const carWon = Garage.checkChallenges(Records.best.time, Records.hardBest)[0] || null;
     const goal = this.nextGoal(runNumber);
-    // A natural pause: the platform decides whether an advert is due; never after a quick crash (ADS).
-    if (summary.time >= ADS.minRunSeconds) PlatformManager.showInterstitial();
+    // A natural pause: the platform decides whether an advert is due; never after a quick crash, and only every few
+    // runs since the last one that really showed (ADS).
+    if (PlatformManager.interstitialsShown !== this.popupsSeen) {
+      this.popupsSeen = PlatformManager.interstitialsShown;
+      this.runsSincePopup = 0;
+    }
+    if (summary.time >= ADS.minRunSeconds) {
+      this.runsSincePopup = (this.runsSincePopup || 0) + 1;
+      if (this.runsSincePopup >= ADS.popupEveryRuns) PlatformManager.showInterstitial();
+    }
     // Once, after a few runs: what spoiled it? (FEEDBACK; counted as asked as soon as it is shown.)
     const askFeedback = !Tips.has('feedback') && runNumber >= FEEDBACK.afterRuns && !this.coach.firstDrive;
     if (askFeedback) Tips.mark('feedback');

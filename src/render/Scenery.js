@@ -351,12 +351,10 @@ export class Scenery {
         prop.shadow.setVisible(false);
         continue;
       }
-      // Flying: bounces that get smaller, and a spin, fading out at the end.
-      const t = Math.min(1, cone.timer / cone.flySeconds);
-      const bounces = Math.abs(Math.sin(Math.PI * t * 3)) * (1 - t) * cone.hop;
-      this.place(prop, cone.x, cone.y, bounces);
-      prop.body.setRotation(cone.angle).setAlpha(Math.min(1, (1 - t) * 3)).setDepth(depthAt(cone.x, cone.y));
-      prop.shadow.setAlpha(RENDER.shadowAlpha * Math.min(1, (1 - t) * 3));
+      // Flying, on the simulation's physics (CONES): its height, its spin, and its fade once it has lain still.
+      this.place(prop, cone.x, cone.y, cone.z);
+      prop.body.setRotation(cone.angle).setAlpha(cone.alpha).setDepth(depthAt(cone.x, cone.y));
+      prop.shadow.setAlpha(RENDER.shadowAlpha * cone.alpha);
     }
   }
 

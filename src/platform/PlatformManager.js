@@ -63,6 +63,7 @@ const state = {
   saveTimer: null,
   adOpen: false,
   interstitialOpen: false,
+  interstitialsShown: 0, // pop-ups that really opened this session (the game asks only every few runs: ADS)
   adOpenedAt: 0,
   pauseFromAdvert: false, // the platform's pause / mute came with an advert (Bridge pauses and mutes while one shows)
   muteFromAdvert: false,
@@ -172,6 +173,7 @@ async function connectBridge() {
         const open = adState === 'opened';
         if (open && !state.interstitialOpen) {
           state.adOpenedAt = Date.now();
+          state.interstitialsShown += 1;
           holdCameWithAdvert();
         }
         const closing = state.interstitialOpen && !open;
@@ -401,6 +403,10 @@ export const PlatformManager = {
   // How a rewarded ad works here: 'platform' (a real one), 'none' (the platform has none: offer no button) or
   // 'simulated' (no platform at all: local testing, including the SDK's own 'mock' platform).
   // How the last rewarded ad went, so the screen can say why nothing came of it: 'rewarded', 'closed' or 'unavailable'.
+  get interstitialsShown() {
+    return state.interstitialsShown;
+  },
+
   get rewardedOutcome() {
     return state.rewardedOutcome;
   },

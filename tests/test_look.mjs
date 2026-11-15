@@ -109,8 +109,8 @@ const handling = T.HANDLING_PRESETS.balanced;
     s.player.launch(300);
     return s.player;
   });
-  // A hard hit, head on, crashes the car like a wall (owner, 2026-11-13: PARKED_CARS); a slow bump shoves it aside.
-  check('the player hitting one head on at full speed crashes', head.s.state === 'crashed' && head.s.crash.cause === 'obstacle', head.s.state);
+  // Even a hard hit, head on, shoves it aside (owner, 2026-11-15: PARKED_CARS.crash off; it had crashed the car).
+  check('the player hitting one head on at full speed drives on', head.s.state === 'running' && head.s.cones[0].state !== 'standing', head.s.state);
   const bump = smash(parked, (s) => {
     s.player.reset(1000, 1070, 0); // close by, so it is still slow when it touches
     s.player.launch(140);

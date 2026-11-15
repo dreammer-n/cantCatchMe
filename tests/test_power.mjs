@@ -4,6 +4,7 @@ import { DoubleTap } from '../src/systems/InputManager.js';
 import { ThreatRadar } from '../src/systems/ThreatRadar.js';
 import * as props from '../src/render/propModels.js';
 import { buildLayout, propCatalogue } from '../src/systems/WorldLayout.js';
+import { flyCone } from '../src/systems/ChaseSimulation.js';
 
 let pass = 0;
 let fail = 0;
@@ -460,7 +461,7 @@ const lock = (p) => {
   check('a wreck on the fire doesn\'t catch light again', wreck.burning === 0);
 }
 
-// ---- A knocked prop flies for its own time -------------------------------------------------
+// ---- A knocked prop flies on physics, by what it is made of (CONES) ------------------------
 {
   const car = { kind: 'civilian', x: 1000, y: 800, heading: 0, model: 'c', params: {}, collider: { type: 'box', hw: 22, hl: 42 }, breakable: true };
   const s = quiet([car]);
@@ -468,8 +469,31 @@ const lock = (p) => {
   run(s, 0.8);
   const cone = s.cones[0];
   check('a parked car is knocked', cone.state === 'flying', cone.state);
-  run(s, 1);
-  check('it keeps flying for its full time, not just a cone\'s', cone.state === 'flying' && cone.flySeconds === CONES.kinds.civilian.flySeconds, `${cone.state} at ${cone.timer.toFixed(1)} s`);
+  let lay = false;
+  for (let t = 0; t < CONES.maxSeconds + 0.5 && cone.state === 'flying'; t += 1 / 60) {
+    run(s, 1 / 60);
+    if (cone.still > 0 && cone.z === 0 && cone.alpha === 1) lay = true;
+  }
+  check('it comes down, slides to a stop and lies still before it fades', lay && cone.state === 'gone', cone.state);
+
+  // The same hit, different stuff.
+  const fly = (kind) => {
+    const feel = CONES.kinds[kind] || CONES;
+    const c = { feel, x: 0, y: 0, z: 0, vx: 300 * feel.knockSpeed, vy: 0, vz: (feel.lift ?? CONES.lift) * 300, spin: 5, angle: 0, still: 0, alpha: 1, timer: 0 };
+    let peak = 0;
+    for (let t = 0; c.alpha > 0 && t < 6; t += 1 / 60) {
+      flyCone(c, 1 / 60);
+      c.timer = t;
+      peak = Math.max(peak, c.z);
+    }
+    return { peak, far: c.x, spin: c.spin };
+  };
+  const [plain, hydrant, bush, barrel, bin] = ['cone', 'hydrant', 'bush', 'barrel', 'trashcan'].map(fly);
+  check('a light cone flies higher and further than a heavy hydrant', plain.peak > hydrant.peak * 3 && plain.far > hydrant.far * 2, `${plain.peak.toFixed(0)} / ${hydrant.peak.toFixed(0)} high`);
+  check('a steel drum rolls on further than a bush', barrel.far > bush.far * 4, `${barrel.far.toFixed(0)} / ${bush.far.toFixed(0)}`);
+  check('a plastic bin bounces higher than a steel drum', bin.peak > barrel.peak);
+  check('its spin stops when it does', Math.abs(plain.spin) < 0.5, plain.spin.toFixed(2));
+  check('every kind says what it is made of', Object.values(CONES.kinds).every((f) => f.lift !== undefined && f.bounce !== undefined && f.grip !== undefined));
 }
 
 // ---- Double tap -----------------------------------------------------------------------------
