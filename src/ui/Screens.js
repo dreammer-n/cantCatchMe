@@ -413,7 +413,7 @@ const CAUSES = {
 };
 
 export class GameOverScreen extends Screen {
-  constructor({ onRetry, onMenu, onGarage, onDouble, onFeedback }) {
+  constructor({ onRetry, onMenu, onGarage, onDouble, onFeedback, onPrize }) {
     let garageButton = null;
     // One question, once (FEEDBACK): a tap on an answer sends it and says thanks.
     const feedbackText = dt('over-feedback-text', FEEDBACK.question);
@@ -426,6 +426,10 @@ export class GameOverScreen extends Screen {
     const badge = dt('over-badge', '');
     const next = dt('over-next', '');
     const advice = dt('over-tip', ''); // a new player's tip on why the crash happened
+    // The Hypercar until it is won (PRIZE): what it takes and the best so far; a tap shows it in the garage.
+    const prizeText = dt('', '');
+    const prize = button('over-prize', '', () => onPrize(), 'See the Hypercar in the garage');
+    prize.append(prizeText);
     const rows = el('div', 'over-rows', '');
     // Missions done in this run, and the level bar filling (LEVEL UP! when it gets there).
     const doneList = el('div', 'over-missions', '');
@@ -438,7 +442,7 @@ export class GameOverScreen extends Screen {
     const adLine = adNote();
     // Two groups: stacked on a tall screen, side by side on a phone held sideways.
     super('over', [
-      el('div', 'over-group', [el('h2', 'screen-title over-title', [dt('', 'BUSTED!')]), cause, time, el('div', 'over-stars', stars), badge, next, advice]),
+      el('div', 'over-group', [el('h2', 'screen-title over-title', [dt('', 'BUSTED!')]), cause, time, el('div', 'over-stars', stars), badge, prize, next, advice]),
       el('div', 'over-group', [
         doneList,
         level,
@@ -455,7 +459,7 @@ export class GameOverScreen extends Screen {
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, next, advice, rows, earned, breakdown, double, adLine, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
+    Object.assign(this, { cause, time, stars, badge, prize, prizeText, next, advice, rows, earned, breakdown, double, adLine, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
   }
 
   thankFeedback() {
@@ -489,8 +493,10 @@ export class GameOverScreen extends Screen {
   }
 
   // Minimal: BUSTED!, the time and stars, ONE line, the coins (and doubling them), RETRY, then GARAGE and MENU small.
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, canDouble = true, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, garagePointer = false }) {
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, canDouble = true, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, prize = null, garagePointer = false }) {
     this.feedback.hidden = !askFeedback;
+    this.prize.hidden = !prize;
+    if (prize) setDisplay(this.prizeText, prize);
     this.feedbackChoices.hidden = false;
     setDisplay(this.feedbackText, FEEDBACK.question);
     // Kept short: one highlight line, the coins (missions folded in), the level bar, the buttons.
@@ -583,8 +589,13 @@ function arrows(onPrev, onNext) {
 // One car at a time, small and still on plain road, with its name, how to get it and how it drives. Drawn live
 // on a canvas, so no drawing sheets are needed to browse.
 export class GarageScreen extends Screen {
-  constructor({ onPrev, onNext, onAction, onBack, onUpgrade, onHardStart, onToggle = null }) {
+  constructor({ onPrev, onNext, onAction, onBack, onUpgrade, onHardStart, onToggle = null, onPrize = null }) {
     const canvas = el('canvas', 'garage-canvas');
+    // The Hypercar not yet won (PRIZE): a line that jumps to it.
+    const prizeText = dt('', '');
+    const prize = button('garage-prize', '', () => onPrize && onPrize(), 'Show the Hypercar');
+    prize.append(prizeText);
+    prize.hidden = true;
     const name = dt('garage-name', '');
     const count = dt('garage-count', '');
     const lock = el('span', 'garage-lock');
@@ -616,7 +627,7 @@ export class GarageScreen extends Screen {
     const carPanel = el('div', 'garage-car-panel', [status, specs, action, hard]);
     const toggle = textButton('btn-secondary garage-toggle', 'UPGRADES', () => this.toggleUpgrades(), 'Show upgrades or cars');
     const step = dt('step-label', '');
-    super('garage car-screen', [step, el('div', 'garage-heading', [name, count]), stage, el('div', 'garage-details', [toggle, carPanel, upgrades])]);
+    super('garage car-screen', [step, el('div', 'garage-heading', [name, count, prize]), stage, el('div', 'garage-details', [toggle, carPanel, upgrades])]);
     Object.assign(this, { upgrades, upgradeRows, level, carPanel, toggle, hard, step, nextArrow: browse[1], onToggle });
     // The map you are about to drive, close up round the car: the same place as the map screen, nearer.
     const backdrop = el('canvas', 'map-canvas');
@@ -627,7 +638,7 @@ export class GarageScreen extends Screen {
     this.back = textButton('btn-secondary garage-back', 'BACK', onBack, 'Back');
     this.balance = coinBadge();
     this.node.append(this.back, this.balance);
-    Object.assign(this, { canvas, name, count, status, statusText, lock, action, specs });
+    Object.assign(this, { canvas, name, count, status, statusText, lock, action, specs, prize, prizeText });
     this.ctx = canvas.getContext('2d');
     this.drawn = '';
   }
@@ -671,6 +682,12 @@ export class GarageScreen extends Screen {
     this.showSpecs(car);
     this.showUpgrades();
     this.drawCar();
+  }
+
+  // text: the line about the Hypercar, or null to hide it.
+  setPrize(text) {
+    this.prize.hidden = !text;
+    if (text) setDisplay(this.prizeText, text);
   }
 
   showCarsPanel() {

@@ -7,6 +7,7 @@ import {
   CARS,
   FEEDBACK,
   GOALS,
+  PRIZE,
   GUIDE,
   MENU_CAMERA,
   TITLE_PATROL,
@@ -448,6 +449,7 @@ export class GameScene extends Phaser.Scene {
     if (!firstDrive) PlatformManager.runStarted(); // the first drive's run starts at the first touch (beginDriving)
     Missions.startRun(Maps.selected);
     this.wantedLevel = 1;
+    this.prizeCalls = 0; // the Hypercar's calls made this run: halfway, then won (PRIZE)
     this.game.events.emit('run-started');
     this.game.events.emit('wanted', 1, null);
     this.game.events.emit('shields', this.sim.player.armor, this.sim.maxArmor);
@@ -476,6 +478,23 @@ export class GameScene extends Phaser.Scene {
       // During a lesson of the first drive only the star lights: its call-out would talk over the lesson.
       const quiet = Boolean(this.coach.lesson);
       this.game.events.emit('wanted', level, quiet ? null : wantedCall(level, this.sim.pace.hard)); // the radio is the helicopter's
+    }
+    this.callPrize();
+  }
+
+  // The Hypercar not yet won: a call at halfway to its time, and one when this run reaches it (PRIZE). The car is
+  // given when the run ends (finishRun), so the results can show it and open the garage on it.
+  callPrize() {
+    const prize = Garage.prize;
+    if (!prize || this.coach.lesson || this.prizeCalls >= 2) return;
+    const target = this.sim.pace.hard ? prize.challenge.hard : prize.challenge.normal;
+    const time = this.sim.stats.time;
+    if (this.prizeCalls === 0 && time >= target / 2 && time < target) {
+      this.prizeCalls = 1;
+      this.coach.announce({ head: PRIZE.halfway.head, body: PRIZE.halfway.body.replace('{t}', clock(target)) });
+    } else if (time >= target) {
+      this.prizeCalls = 2;
+      this.coach.announce(PRIZE.won);
     }
   }
 
@@ -582,13 +601,14 @@ export class GameScene extends Phaser.Scene {
     // A car won by surviving (the Hypercar): normal runs count toward its normal time, HARD START runs toward both.
     const carWon = Garage.checkChallenges(Records.best.time, Records.hardBest)[0] || null;
     const goal = this.nextGoal(runNumber);
+    const prize = carWon ? null : this.prizeLine();
     // A natural pause: the platform decides whether an advert is due; never after a quick crash, and only every few
     // runs since the last one that really showed (ADS).
     if (PlatformManager.interstitialsShown !== this.popupsSeen) {
       this.popupsSeen = PlatformManager.interstitialsShown;
       this.runsSincePopup = 0;
     }
-    if (summary.time >= ADS.minRunSeconds) {
+    if (summary.time >= ADS.minRunSeconds && !carWon) { // no advert over the Hypercar being handed over
       this.runsSincePopup = (this.runsSincePopup || 0) + 1;
       if (this.runsSincePopup >= ADS.popupEveryRuns) PlatformManager.showInterstitial();
     }
@@ -598,7 +618,7 @@ export class GameScene extends Phaser.Scene {
     // A new player's first results point at the garage (an arrow on its button) until they have been in it.
     const garagePointer = !Tips.has('garage-visit') && runNumber <= GUIDE.garageRuns;
     const canDouble = summary.time >= ADS.doubleMinSeconds && !this.adRevive;
-    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, canDouble, cause, crashTip, missions, progress, askFeedback, runNumber, goal, carWon: carWon && carWon.name, garagePointer };
+    const data = { summary, best, newBest, coins, mapUnlocks, nextMap, doubled: false, canDouble, cause, crashTip, missions, progress, askFeedback, runNumber, goal, carWon: carWon && carWon.name, carWonId: carWon && carWon.id, prize, garagePointer };
     this.game.events.emit('run-over', data);
     this.scene.launch('GameOverScene', data);
   }
@@ -927,12 +947,16 @@ export class GameScene extends Phaser.Scene {
       const short = nextCar.price - Garage.coins;
       goals.push(short > 0 ? `NEXT: ${short.toLocaleString('en-US')} MORE COINS FOR THE ${nextCar.name.toUpperCase()}` : `YOU CAN BUY THE ${nextCar.name.toUpperCase()} IN THE GARAGE!`);
     }
-    const prize = CARS.find((car) => car.challenge && !Garage.owns(car.id));
-    if (prize) {
-      const mins = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-      goals.push(`SURVIVE ${mins(prize.challenge.normal)} TO WIN THE ${prize.name.toUpperCase()} · BEST ${mins(Math.max(Records.best.time, Records.hardBest))}`);
-    }
-    return goals.length ? goals[runNumber % goals.length] : null;
+    return goals.length ? goals[runNumber % goals.length] : null; // the Hypercar has its own line (prizeLine)
+  }
+
+  // On every results screen until it is won: what the Hypercar takes, in the mode just played, and the best so far.
+  prizeLine() {
+    const prize = Garage.prize;
+    if (!prize) return null;
+    const hard = this.sim.pace.hard;
+    const text = hard ? PRIZE.resultsHard : PRIZE.results;
+    return text.replace('{t}', clock(hard ? prize.challenge.hard : prize.challenge.normal)).replace('{b}', clock(hard ? Records.hardBest : Records.best.time));
   }
 
   // The sound of a knock-over thing being hit, if it has one (AUDIO.propSounds).
@@ -1480,4 +1504,10 @@ function comboText(count) {
   if (count === 2) return 'DOUBLE WRECK!';
   if (count === 3) return 'TRIPLE WRECK!';
   return `${count}× PILE-UP!`;
+}
+
+// Whole minutes and seconds, as 6:00.
+function clock(seconds) {
+  const s = Math.floor(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

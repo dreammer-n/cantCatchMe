@@ -1191,9 +1191,15 @@ body {
   .garage-heading {
     grid-column: 1 / -1;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: center;
-    gap: 10px;
+    gap: 6px 10px;
+  }
+  /* The Hypercar line on a row of its own, under the name, so the name stays in the middle. */
+  .garage-heading .garage-prize {
+    flex-basis: 100%;
+    padding: 0 12px;
   }
   .garage-stage {
     min-height: 0;
@@ -1986,4 +1992,30 @@ body {
   45% {
     transform: translateY(0) scale(1.18);
   }
+}
+
+/* The Hypercar until it is won (PRIZE): a line on the results and on the car screen; a tap shows the car. */
+.over-prize,
+.garage-prize {
+  appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 6px 12px;
+  font-size: clamp(11px, 2.9vmin, 14px);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+  touch-action: manipulation;
+}
+
+.over-prize:active,
+.garage-prize:active {
+  color: var(--amber);
+}
+
+.over-prize[hidden],
+.garage-prize[hidden] {
+  display: none;
 }

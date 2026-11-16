@@ -219,6 +219,11 @@ export const Garage = {
     return true;
   },
 
+  // The car still to be won by surviving (the Hypercar), or null once it is owned.
+  get prize() {
+    return CARS.find((car) => car.challenge && !this.owns(car.id)) || null;
+  },
+
   // Cars won by surviving long enough (CARS challenge): the ones this run's best times have just won.
   checkChallenges(bestNormal, bestHard) {
     const won = [];

@@ -33,19 +33,20 @@ function policeAt(x, y, headingDeg, role, options = {}) {
 // ---- Heat curve -----------------------------------------------------------------------------
 {
   const at = difficultyAt;
-  // Busy but forgiving (owner, 2026-11-11): a chase from the start, then it builds.
-  check('a chase from the start: one police car, a second within 10 s, at most three by 30 s', at(0).targetPolice === 1 && at(10).targetPolice === 2 && at(29.9).targetPolice <= 3, `${at(0).targetPolice}, ${at(10).targetPolice}, ${at(29.9).targetPolice}`);
+  // Busy but forgiving (owner, 2026-11-11; busier start 2026-11-16): a chase from the start, then it builds.
+  check('a chase from the start that builds: never more than five before 1:30', at(0).targetPolice >= 2 && at(60).targetPolice > at(0).targetPolice && at(89.9).targetPolice <= 5, `${at(0).targetPolice}, ${at(60).targetPolice}, ${at(89.9).targetPolice}`);
   check('walls and trees are forgiven less than police knocks', toughnessAt(0, undefined, 'prop') > 1 && toughnessAt(0, undefined, 'prop') < toughnessAt(0));
-  check('early on the car takes harder knocks and police wreck more easily; by 6 minutes both are back to normal', toughnessAt(0) > 1.2 && fragilityAt(0) < 0.85 && toughnessAt(360) === 1 && fragilityAt(360) === 1 && toughnessAt(0, { hard: true }) === 1, `${toughnessAt(0)} / ${fragilityAt(0)}`);
-  check('the first minute: chasers only', at(0).interceptorShare === 0 && at(59.9).interceptorShare === 0);
-  check('from 1 minute: interceptors appear', at(60).interceptorShare > 0.1, `${at(60).interceptorShare}`);
-  check('early on, police are slower than the player; about as fast by 2 minutes, faster later', at(0).speedFactor < 0.95 && at(120).speedFactor >= 0.97 && at(300).speedFactor > at(120).speedFactor + 0.05, `${at(0).speedFactor} / ${at(120).speedFactor} / ${at(300).speedFactor}`);
+  check('early on the car takes harder knocks and police wreck more easily; by 6:30 both are back to normal', toughnessAt(0) > 1.2 && fragilityAt(0) < 0.85 && toughnessAt(390) === 1 && fragilityAt(390) === 1 && toughnessAt(0, { hard: true }) === 1, `${toughnessAt(0)} / ${fragilityAt(0)}`);
+  check('until 1:30: chasers only', at(0).interceptorShare === 0 && at(89.9).interceptorShare === 0);
+  check('from 1:30: interceptors appear', at(90).interceptorShare > 0.1, `${at(90).interceptorShare}`);
+  check('the start is busy: two police at once, three by 20 s', at(0).targetPolice === 2 && at(20).targetPolice === 3);
+  check('early on, police are slower than the player; about as fast by 2:30, faster later', at(0).speedFactor < 0.95 && at(150).speedFactor >= 0.97 && at(330).speedFactor > at(150).speedFactor + 0.05, `${at(0).speedFactor} / ${at(150).speedFactor} / ${at(330).speedFactor}`);
   check('no more than 5 police in the first 90 s', at(90).targetPolice <= 5, `${at(90).targetPolice}`);
   check('after 3 minutes: a swarm, with more interceptors reacting faster', at(300).targetPolice > at(180).targetPolice && at(240).interceptorShare > at(90).interceptorShare && at(240).reaction < at(120).reaction, `${at(180).targetPolice} -> ${at(300).targetPolice} police`);
   // HARD START: the old, harder start; and the challenge map's extra police.
   const hard = { hard: true, policeScale: 1 };
-  check('HARD START: two police at once, plain cars only in the first minute, then one new kind at a time', at(0, hard).targetPolice === 2 && at(59, hard).interceptorShare === 0 && at(60, hard).interceptorShare > 0.2 && at(119, hard).bearcatShare === 0 && at(120, hard).bearcatShare > 0 && at(0, hard).speedFactor >= 1, `${at(0, hard).targetPolice}, ${at(0, hard).speedFactor}`);
-  check('HARD START: clearly more police by 1 minute than a normal run', at(60, hard).targetPolice >= at(60).targetPolice * 1.5, `${at(60, hard).targetPolice} against ${at(60).targetPolice}`);
+  check('HARD START: two police at once, plain cars only until 1:30, then one new kind at a time', at(0, hard).targetPolice === 2 && at(89, hard).interceptorShare === 0 && at(90, hard).interceptorShare > 0.2 && at(149, hard).bearcatShare === 0 && at(150, hard).bearcatShare > 0 && at(0, hard).speedFactor >= 1, `${at(0, hard).targetPolice}, ${at(0, hard).speedFactor}`);
+  check('HARD START: clearly more police by 1 minute than a normal run', at(60, hard).targetPolice >= at(60).targetPolice * 1.3, `${at(60, hard).targetPolice} against ${at(60).targetPolice}`);
   const blacktop = T.MAPS.find((m) => m.bare);
   check('the challenge map has more police than the others', at(120, { hard: false, policeScale: blacktop.policeScale }).targetPolice > at(120).targetPolice, `${at(120, { hard: false, policeScale: blacktop.policeScale }).targetPolice} against ${at(120).targetPolice}`);
   let rising = true;
@@ -166,7 +167,7 @@ function policeAt(x, y, headingDeg, role, options = {}) {
   check('they spawn in a lane of a road', offRoad === 0, `${offRoad} off road`);
   check('nothing spawns on screen', onScreen === 0, `${onScreen}`);
   check('nothing spawns on an unloaded chunk', unloaded === 0, `${unloaded}`);
-  check('no interceptors before 1 minute', early === 0);
+  check('no interceptors before 1:30', early === 0);
   check('interceptors do appear in normal runs', seen.some((s) => s.role === 'interceptor'), `${seen.filter((s) => s.role === 'interceptor').length} of ${seen.length}`);
   check('roadblocks appear, and only from 1:30', parked.length > 0 && parked.every((b) => b.time >= T.ROADBLOCK.firstAt), `${parked.length} parked cars`);
 }

@@ -144,20 +144,20 @@ export const STORAGE_KEYS = {
 // [TUNE] The WANTED level during a run: stars that fill as new kinds of trouble join the chase, with a call-out
 // each time. The times follow the pace of a run (HEAT, HEAT_HARD, AIRSTRIKE), so each star means something new.
 export const WANTED = {
-  // One new kind of trouble every 30 s from 1 minute, the same in both modes (the jets at 3:00 have their hint).
+  // One new kind of trouble every 30 s from 1:30, the same in both modes (the jets at 3:30 have their hint).
   normal: [
     { at: 0, call: null },
-    { at: 60, call: 'INTERCEPTORS!' },
-    { at: 90, call: 'ROADBLOCKS!' },
-    { at: 120, call: 'SWAT TRUCKS!' },
-    { at: 150, call: 'CHOPPER!' },
+    { at: 90, call: 'INTERCEPTORS!' },
+    { at: 120, call: 'ROADBLOCKS!' },
+    { at: 150, call: 'SWAT TRUCKS!' },
+    { at: 180, call: 'CHOPPER!' },
   ],
   hard: [
     { at: 0, call: null },
-    { at: 60, call: 'INTERCEPTORS!' },
-    { at: 90, call: 'ROADBLOCKS!' },
-    { at: 120, call: 'SWAT TRUCKS!' },
-    { at: 150, call: 'CHOPPER!' },
+    { at: 90, call: 'INTERCEPTORS!' },
+    { at: 120, call: 'ROADBLOCKS!' },
+    { at: 150, call: 'SWAT TRUCKS!' },
+    { at: 180, call: 'CHOPPER!' },
   ],
 };
 
@@ -269,6 +269,20 @@ export const GUIDE = {
 export const GOALS = {
   firstRun: 2,
   lastRun: 12,
+};
+
+// [TUNE] The Hypercar, won by surviving (CARS challenge), told to the player (owner, 2026-11-16): a line on every
+// results screen until it is won (a tap opens the garage on it), a call at halfway and when it is won during a run,
+// and a line on the car step that jumps to it. Won, the results show HYPERCAR WON! for a moment, then the garage
+// opens on it, chosen, its DRIVE button pointed at. {t}: the time to survive; {b}: the player's best.
+export const PRIZE = {
+  results: 'HYPERCAR: SURVIVE {t} · BEST {b}',
+  resultsHard: 'HYPERCAR: SURVIVE {t} ON HARD · BEST {b}',
+  carStep: 'WIN THE HYPERCAR: SURVIVE {t}',
+  halfway: { head: 'HALFWAY!', body: 'HYPERCAR AT {t} · KEEP GOING' },
+  won: { head: 'HYPERCAR WON!', body: "IT'S YOURS · KEEP GOING" },
+  garageWon: 'YOU WON THE HYPERCAR!',
+  revealSeconds: 1.4, // the results' HYPERCAR WON! before the garage opens on it
 };
 
 // [TUNE] One question, once, to a player who has played a few runs: what spoiled it? Sent to Playgama's stats
@@ -727,7 +741,7 @@ export const INTERCEPTOR = {
 // [TUNE] Roadblocks: parked cruisers across a crossing ahead. They don't chase and don't count
 // toward HEAT.police. Hit one hard and the run is over; lure police into one and they pile up.
 export const ROADBLOCK = {
-  firstAt: 90, // seconds into the run: one new kind of trouble every 30 s from 1 minute (WANTED)
+  firstAt: 120, // seconds into the run: one new kind of trouble every 30 s from 1:30 (WANTED)
   everyMin: 12, // seconds between roadblocks, random in this range
   everyMax: 18,
   retrySeconds: 1, // no suitable crossing right now: look again this soon
@@ -777,17 +791,19 @@ export const HEAT = {
   // chase, but they are slower than the player at first and wreck easily, and the player's car takes harder knocks
   // early on (toughness); interceptors from 1 minute, Bearcats from 2; the full pressure of before by 5 minutes.
   // A little easier again (owner, 2026-11-13): fewer police from 2 minutes, a slower build, tough for longer.
-  police: [[0, 1], [8, 2], [40, 3], [80, 4], [120, 5], [150, 7], [180, 9], [240, 13], [300, 18], [360, 22], [420, 26]],
-  toughness: [[0, 2.1], [90, 1.6], [180, 1.3], [300, 1.1], [360, 1]], // x the police hit that wrecks the player's car (CRASH.playerImpact)
+  // Later trouble, a busier start (owner, 2026-11-16): plain police only until 1:30 but more of them, so the start
+  // is never slow; each new kind 30 s later than before, and the whole build-up after 1:30 30 s later too.
+  police: [[0, 2], [20, 3], [45, 4], [90, 5], [150, 6], [180, 7], [210, 9], [270, 13], [330, 18], [390, 22], [450, 26]],
+  toughness: [[0, 2.1], [120, 1.6], [210, 1.3], [330, 1.1], [390, 1]], // x the police hit that wrecks the player's car (CRASH.playerImpact)
   // The same against walls and props. More forgiving (owner, 2026-11-15): a clip at speed is a bump, but a
   // full-speed head-on still ends it (1.35 x 215 = 290, under the Coupe's 300).
-  propToughness: [[0, 1.35], [180, 1.25], [300, 1.12], [420, 1]],
-  fragility: [[0, 0.75], [180, 0.9], [240, 1]], // x the hit that wrecks a police car (props and other cars)
-  interceptorShare: [[59.99, 0], [60, 0.15], [120, 0.3], [180, 0.45], [240, 0.6]],
-  bearcatShare: [[119.99, 0], [120, 0.1], [180, 0.18], [240, 0.26]], // share of new cars that are Bearcats
-  speedFactor: [[0, 0.86], [60, 0.92], [120, 0.98], [180, 1.02], [240, 1.06], [300, 1.1], [360, 1.13]], // x the player's top speed of 300
-  turnDeg: [[0, 88], [150, 118], [270, 136]],
-  reaction: [[150, 1], [210, 0.65]], // interceptors' reaction time, x normal
+  propToughness: [[0, 1.35], [210, 1.25], [330, 1.12], [450, 1]],
+  fragility: [[0, 0.75], [210, 0.9], [270, 1]], // x the hit that wrecks a police car (props and other cars)
+  interceptorShare: [[89.99, 0], [90, 0.15], [150, 0.3], [210, 0.45], [270, 0.6]],
+  bearcatShare: [[149.99, 0], [150, 0.1], [210, 0.18], [270, 0.26]], // share of new cars that are Bearcats
+  speedFactor: [[0, 0.86], [90, 0.92], [150, 0.98], [210, 1.02], [270, 1.06], [330, 1.1], [390, 1.13]], // x the player's top speed of 300
+  turnDeg: [[0, 88], [180, 118], [300, 136]],
+  reaction: [[180, 1], [240, 0.65]], // interceptors' reaction time, x normal
 };
 
 // HARD START (a switch on the title screen): the run starts as hard as it used to, before the gentle start of
@@ -795,15 +811,17 @@ export const HEAT = {
 // A bit easier (owner, 2026-11-13): plain police cars only in the first minute, then one new kind of trouble every
 // 30 s, as in a normal run (interceptors 1:00, roadblocks and spikes 1:30, SWAT 2:00, helicopter 2:30, jets 3:00);
 // HARD START stays harder by having more police, and faster ones.
+// Later trouble, a busier start (owner, 2026-11-16): as a normal run, each new kind 30 s later (interceptors 1:30,
+// roadblocks 2:00, SWAT 2:30, helicopter 3:00, jets 3:30) and more plain police before 1:30.
 export const HEAT_HARD = {
-  police: [[0, 2], [20, 3], [40, 5], [60, 7], [90, 11], [130, 16], [180, 22], [240, 26]],
-  interceptorShare: [[59.99, 0], [60, 0.3], [90, 0.4], [120, 0.5], [180, 0.6]],
-  bearcatShare: [[119.99, 0], [120, 0.12], [150, 0.18], [190, 0.24]],
-  speedFactor: [[0, 1.0], [45, 1.04], [90, 1.08], [160, 1.12]],
-  turnDeg: [[0, 110], [150, 132]],
-  reaction: [[90, 1], [130, 0.65]],
-  roadblockAt: 90, // seconds: the first roadblock ...
-  helicopterAt: 150, // ... and the helicopter: the same times as a normal run, one new kind every 30 s
+  police: [[0, 2], [15, 3], [35, 5], [60, 6], [90, 8], [120, 11], [160, 16], [210, 22], [270, 26]],
+  interceptorShare: [[89.99, 0], [90, 0.3], [120, 0.4], [150, 0.5], [210, 0.6]],
+  bearcatShare: [[149.99, 0], [150, 0.12], [180, 0.18], [220, 0.24]],
+  speedFactor: [[0, 1.0], [75, 1.04], [120, 1.08], [190, 1.12]],
+  turnDeg: [[0, 110], [180, 132]],
+  reaction: [[120, 1], [160, 0.65]],
+  roadblockAt: 120, // seconds: the first roadblock ...
+  helicopterAt: 180, // ... and the helicopter: the same times as a normal run, one new kind every 30 s
   toughness: [[0, 1]],
   propToughness: [[0, 1]],
   fragility: [[0, 1]],
@@ -990,7 +1008,7 @@ export const WOODS_MAP = {
 // [TUNE] The jet airstrike: from 3 minutes in, a jet bombs a line across the road ahead of the car. Red circles
 // mark every spot first; the line runs at a slant, beside the car's path, so there is always a way out.
 export const AIRSTRIKE = {
-  firstAt: 180, // seconds into the run
+  firstAt: 210, // seconds into the run: the last new kind of trouble, at 3:30
   everyMin: 22, // then again every 22 to 32 seconds
   everyMax: 32,
   bombs: 5,
@@ -1019,7 +1037,7 @@ export const HELICOPTER = {
   shadowWidth: 78, // its soft shadow on the road
   shadowLength: 190,
   shadowAlpha: 0.55,
-  firstAt: 150, // the fifth kind of trouble (WANTED); HARD START the same (HEAT_HARD.helicopterAt)
+  firstAt: 180, // the fifth kind of trouble (WANTED); HARD START the same (HEAT_HARD.helicopterAt)
   arriveDistance: 1500,
   height: 250,
   swoopHeight: 120,
@@ -1427,8 +1445,8 @@ export const HELICOPTER_COVER = { trees: 3, treeReach: 75 };
 // Spike strips lying on their own across a road ahead, now and then, at odd spots and angles: always laid out of
 // sight, so they are seen coming. [TUNE]
 export const LOOSE_SPIKES = {
-  firstAt: 90, // seconds into a run, with the roadblocks (HARD START: hardFirstAt)
-  hardFirstAt: 90,
+  firstAt: 120, // seconds into a run, with the roadblocks (HARD START: hardFirstAt)
+  hardFirstAt: 120,
   everyMin: 14,
   everyMax: 24,
   ahead: [900, 1400], // how far ahead of the car, along its way

@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { PRIZE } from '../config/tuning.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { Garage } from '../systems/ScoreSystem.js';
 import { Guide } from '../ui/Guide.js';
@@ -26,6 +27,7 @@ export class GameOverScene extends Phaser.Scene {
         onGarage: () => this.openGarage(),
         onDouble: () => this.doubleCoins(),
         onFeedback: (choice) => this.feedback(choice),
+        onPrize: () => this.openGarage({ show: Garage.prize && Garage.prize.id }),
       });
     }
     this.adBusy = false;
@@ -33,6 +35,12 @@ export class GameOverScene extends Phaser.Scene {
     // A short delay, so a key or tap meant for steering doesn't skip the results by accident.
     this.readyAt = this.time.now + 600;
     this.pointAtGarage();
+    // The Hypercar just won: HYPERCAR WON! for a moment, then straight to it in the garage, chosen (PRIZE).
+    // BACK there comes back here, to the coins and RETRY.
+    if (this.result.carWonId && !this.result.handedOver) {
+      this.result.handedOver = true;
+      this.time.delayedCall(PRIZE.revealSeconds * 1000, () => this.openGarage({ show: this.result.carWonId, won: true }));
+    }
     this.events.once('shutdown', () => {
       Guide.hide();
       this.screen.hide();
@@ -77,13 +85,14 @@ export class GameOverScene extends Phaser.Scene {
     this.screen.thankFeedback();
   }
 
-  openGarage() {
-    if (this.adBusy) return;
+  // options: show (a car to open on), won (it has just been won).
+  openGarage(options = {}) {
+    if (this.adBusy || !this.scene.isActive()) return;
     this.audio.play('click');
     Guide.hide();
     this.result.garagePointer = false;
     this.screen.hide();
-    this.scene.launch('GarageScene', { from: 'GameOverScene' });
+    this.scene.launch('GarageScene', { from: 'GameOverScene', ...options });
     this.scene.pause();
   }
 

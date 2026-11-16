@@ -443,8 +443,13 @@ export class Coach {
     else if (e.type === 'airstrike') this.tip('jets');
   }
 
+  // A call that is not a one-time hint ({ head, body }), queued with the hints so the two never talk over each other.
+  announce(tip) {
+    this.queue.push({ id: null, tip, target: null, markKind: null });
+  }
+
   show(entry) {
-    const tip = TUTORIAL.tips[entry.id];
+    const tip = entry.tip || TUTORIAL.tips[entry.id];
     if (tip.basic) PlatformManager.sendEvent('tutorial_step', { step: entry.id });
     this.scene.game.events.emit('tip', { head: this.touch ? tip.head : tip.keysHead || tip.head, body: this.touch ? tip.body : tip.keysBody || tip.body });
     this.showing = TUTORIAL.tipSeconds + TUTORIAL.tipGap;

@@ -16,8 +16,8 @@ function check(name, ok, detail = '') {
 
 // ---- WANTED ----
 check('a run starts at one star', wantedAt(0) === 1 && wantedAt(0, true) === 1);
-check('a star for each new kind of trouble, one every 30 s from 1 minute', wantedAt(59.9) === 1 && wantedAt(60) === 2 && wantedAt(90) === 3 && wantedAt(120) === 4 && wantedAt(150) === 5 && wantedAt(999) === 5);
-check('HARD START brings them at the same times', [0, 60, 90, 120, 150].every((t) => wantedAt(t, true) === wantedAt(t)));
+check('a star for each new kind of trouble, one every 30 s from 1:30', wantedAt(89.9) === 1 && wantedAt(90) === 2 && wantedAt(120) === 3 && wantedAt(150) === 4 && wantedAt(180) === 5 && wantedAt(999) === 5);
+check('HARD START brings them at the same times', [0, 90, 120, 150, 180].every((t) => wantedAt(t, true) === wantedAt(t)));
 check('each new star says what joins the chase', [2, 3, 4, 5].every((n) => typeof wantedCall(n) === 'string') && wantedCall(1) === null);
 check('there are five stars', WANTED.normal.length === 5 && WANTED.hard.length === 5);
 
@@ -60,11 +60,13 @@ check('with no upgrade nothing is added', coinsForRun({ time: 60, wrecks: 4, com
 
 // ---- The Hypercar challenge ----
 Garage.restore(0, ['coupe'], 'coupe');
+check('the prize to win is the Hypercar, until it is owned', Garage.prize && Garage.prize.id === 'hypercar');
 check('the Hypercar is not won short of the times', Garage.checkChallenges(359, 179).length === 0 && !Garage.owns('hypercar'));
 check('6 minutes on a normal run wins it', Garage.checkChallenges(361, 0).map((c) => c.id).join() === 'hypercar' && Garage.owns('hypercar') && Garage.coins === 0);
 Garage.restore(0, ['coupe'], 'coupe');
 check('3 minutes with HARD START wins it too', Garage.checkChallenges(100, 180).length === 1 && Garage.owns('hypercar'));
 check('and only once', Garage.checkChallenges(999, 999).length === 0);
+check('once won, there is no prize line left', Garage.prize === null);
 
 // ---- Missions ----
 const rng = createRng(7);

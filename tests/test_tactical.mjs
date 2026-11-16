@@ -44,12 +44,12 @@ const cruiser = (s, x, y, heading = 0, launchShare = 0, turnDeg = 0) => s.spawnP
 {
   const at = difficultyAt;
   // The gentle start (owner, 2026-11-06).
-  check('the first minute: patrol cruisers only', at(59.9).interceptorShare === 0 && at(59.9).bearcatShare === 0);
-  check('1-2 minutes: interceptors, no Bearcats', at(60).interceptorShare > 0 && at(119.9).bearcatShare === 0);
-  check('from 2 minutes: Bearcats', at(120).bearcatShare >= 0.1);
+  check('until 1:30: patrol cruisers only', at(89.9).interceptorShare === 0 && at(89.9).bearcatShare === 0);
+  check('1:30-2:30: interceptors, no Bearcats', at(90).interceptorShare > 0 && at(149.9).bearcatShare === 0);
+  check('from 2:30: Bearcats', at(150).bearcatShare >= 0.1);
   // One new kind of trouble every 30 s from 1 minute (owner, 2026-11-13).
-  check('roadblocks from 1:30', ROADBLOCK.firstAt === 90);
-  check('the helicopter from 2:30', HELICOPTER.firstAt === 150);
+  check('roadblocks from 2:00', ROADBLOCK.firstAt === 120);
+  check('the helicopter from 3:00', HELICOPTER.firstAt === 180);
   check('and more Bearcats later on', at(240).bearcatShare > at(120).bearcatShare);
 }
 
@@ -748,7 +748,7 @@ function roadblockSim() {
   // Loose spike strips: on a road ahead, out of sight, at odd spots and angles.
   const sim = newSim();
   sim.reset(11);
-  check('loose spikes from 60 s', sim.spawner.nextSpikes === T.LOOSE_SPIKES.firstAt);
+  check('loose spikes with the roadblocks', sim.spawner.nextSpikes === T.LOOSE_SPIKES.firstAt);
   sim.setPace({ hard: true });
   sim.reset(11);
   check('or 30 s with HARD START', sim.spawner.nextSpikes === T.LOOSE_SPIKES.hardFirstAt);
@@ -899,7 +899,7 @@ check('longer power-ups: TURBO 5 s, PHANTOM 6 s, TITAN 10 s', T.TURBO.seconds ==
   const { readFileSync } = await import('node:fs');
   const font = readFileSync(new URL('../src/ui/displayFont.js', import.meta.url), 'utf8');
   const drawable = (text) => [...text].every((c) => c === ' ' || /[A-Z0-9]/.test(c) || font.includes(`'${c}': [`) || font.includes(`"${c}": [`));
-  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body, tip.keysHead || '', tip.keysBody || '']), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D', 'FREE', ...Object.values(T.ADS.notes)];
+  const texts = [...Object.values(T.TUTORIAL.tips).flatMap((tip) => [tip.head, tip.body, tip.keysHead || '', tip.keysBody || '']), ...Object.values(T.TUTORIAL.crashTips), 'OOPS!', 'TRY AGAIN', 'HOLD LEFT OR RIGHT TO STEER', 'STEER WITH < > OR A / D', 'FREE', ...Object.values(T.ADS.notes), T.PRIZE.results, T.PRIZE.resultsHard, T.PRIZE.carStep, T.PRIZE.halfway.head, T.PRIZE.halfway.body, T.PRIZE.won.head, T.PRIZE.won.body, T.PRIZE.garageWon].map((t) => t.replace(/{[tb]}/g, '6:00'));
   check('every hint can be drawn in the game\'s lettering', texts.every(drawable), texts.filter((t) => !drawable(t)).join(' | '));
   // Fallen into a hole on the road: it comes back on the road, clear of the hole.
   const hole = { kind: 'void', isVoid: true, x: 3000, y: 3000, heading: 0, collider: { type: 'circle', r: 150 }, breakable: false, outline: [] };

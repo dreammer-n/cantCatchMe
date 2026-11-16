@@ -63,6 +63,7 @@ const state = {
   saveTimer: null,
   adOpen: false,
   interstitialOpen: false,
+  bridgeStarting: false, // Bridge was slow to start: the game went on without it, and takes it up when it is ready
   interstitialsShown: 0, // pop-ups that really opened this session (the game asks only every few runs: ADS)
   adOpenedAt: 0,
   pauseFromAdvert: false, // the platform's pause / mute came with an advert (Bridge pauses and mutes while one shows)
@@ -124,15 +125,48 @@ function parseSave(raw) {
 }
 
 async function connectBridge() {
-  let bridge = null;
+  const bridge = window.bridge || null; // index.html loads the SDK before anything else, when it is there
+  if (!bridge) return false;
+  let starting;
   try {
-    bridge = window.bridge || null; // index.html loads the SDK before anything else, when it is there
-    if (!bridge) return false;
-    await withTimeout(bridge.initialize(), SDK_TIMEOUT_MS);
+    starting = Promise.resolve(bridge.initialize());
+    await withTimeout(starting, SDK_TIMEOUT_MS);
   } catch (error) {
-    console.warn('[platform] Playgama Bridge unavailable, running locally:', error?.message || error);
+    if (!starting) {
+      console.warn('[platform] Playgama Bridge unavailable, running locally:', error?.message || error);
+      return false;
+    }
+    // Slow to start (seen: about 15 s when the game page is opened outside Playgama's own page). The game goes on
+    // without it rather than keep the player waiting, and takes it up the moment it is ready: adverts and platform
+    // events from then on. Progress stays where this visit began saving it. Until then no ad is ever faked here.
+    console.warn('[platform] Playgama Bridge slow to start, carrying on and taking it up when ready:', error?.message || error);
+    state.bridgeStarting = true;
+    starting.then(
+      () => {
+        state.bridgeStarting = false;
+        attachBridge(bridge);
+        if (state.readySent) sendMessage('game_ready');
+        updatePaused();
+      },
+      () => {
+        state.bridgeStarting = false;
+      },
+    );
     return false;
   }
+  attachBridge(bridge);
+  try {
+    const saved = parseSave(await withTimeout(bridge.storage.get(SAVE_KEY), SDK_TIMEOUT_MS));
+    if (saved) state.save = saved;
+    state.storageKind = 'bridge';
+  } catch (error) {
+    console.warn('[platform] Bridge storage unavailable, keeping progress for this visit only:', error?.message || error);
+  }
+  return true;
+}
+
+// The platform's details, events and adverts, once Bridge has started.
+function attachBridge(bridge) {
   state.bridge = bridge;
   state.platformId = bridge.platform?.id || 'unknown';
   const events = bridge.EVENT_NAME || {};
@@ -188,14 +222,6 @@ async function connectBridge() {
   } catch (error) {
     console.warn('[platform] Bridge adverts unavailable:', error?.message || error);
   }
-  try {
-    const saved = parseSave(await withTimeout(bridge.storage.get(SAVE_KEY), SDK_TIMEOUT_MS));
-    if (saved) state.save = saved;
-    state.storageKind = 'bridge';
-  } catch (error) {
-    console.warn('[platform] Bridge storage unavailable, keeping progress for this visit only:', error?.message || error);
-  }
-  return true;
 }
 
 // Safety net. The game sleeps while an advert is open and wakes when the platform says it has closed; if that word
@@ -259,7 +285,8 @@ function watchForStuckAdverts() {
 function watchPageVisibility() {
   state.pageHidden = document.hidden;
   document.addEventListener('visibilitychange', () => {
-    state.pageHidden = document.hidden;
+    // Bridge came late, on a real platform: its own pause covers a hidden page from then on (YouTube's rule).
+    state.pageHidden = state.bridge && state.platformId !== 'mock' ? false : document.hidden;
     updatePaused();
     if (document.hidden && state.saveTimer) {
       clearTimeout(state.saveTimer);
@@ -281,7 +308,7 @@ function sendMessage(message) {
 function writeSave() {
   state.saveTimer = null;
   const raw = JSON.stringify(state.save);
-  if (localStore && !state.bridge) {
+  if (localStore && state.storageKind !== 'bridge') {
     try {
       localStore.setItem(LOCAL_PREFIX + SAVE_KEY, raw);
     } catch {
@@ -400,19 +427,22 @@ export const PlatformManager = {
     state.saveTimer = setTimeout(writeSave, SAVE_DELAY_MS);
   },
 
-  // How a rewarded ad works here: 'platform' (a real one), 'none' (the platform has none: offer no button) or
-  // 'simulated' (no platform at all: local testing, including the SDK's own 'mock' platform).
-  // How the last rewarded ad went, so the screen can say why nothing came of it: 'rewarded', 'closed' or 'unavailable'.
+  // Pop-ups that really opened this session (ADS.popupEveryRuns counts runs since the last one).
   get interstitialsShown() {
     return state.interstitialsShown;
   },
 
+  // How the last rewarded ad went, so the screen can say why nothing came of it: 'rewarded', 'closed' or 'unavailable'.
   get rewardedOutcome() {
     return state.rewardedOutcome;
   },
 
+  // How a rewarded ad works here: 'platform' (a real one), 'none' (the platform has none: offer no button) or
+  // 'simulated' (no platform at all: local testing, including the SDK's own 'mock' platform). While Bridge is still
+  // starting it counts as 'platform': a real platform never gets the stand-in (the ad, if asked for, says none yet).
   rewardedAdMode() {
-    if (!state.bridge || state.platformId === 'mock') return 'simulated';
+    if (!state.bridge) return state.bridgeStarting ? 'platform' : 'simulated';
+    if (state.platformId === 'mock') return 'simulated';
     return state.bridge.advertisement?.isRewardedSupported ? 'platform' : 'none';
   },
 
@@ -421,6 +451,10 @@ export const PlatformManager = {
   showRewardedAd(placement = AD_PLACEMENT) {
     if (state.pendingAd) return state.pendingAd;
     if (this.rewardedAdMode() !== 'platform') return Promise.resolve(false);
+    if (!state.bridge) {
+      state.rewardedOutcome = 'unavailable'; // Bridge is still starting: NO AD RIGHT NOW
+      return Promise.resolve(false);
+    }
     state.pendingAd = new Promise((resolve) => {
       let earned = false;
       let opened = false;

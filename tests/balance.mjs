@@ -26,8 +26,11 @@ if (carChoice === 'all') {
 const sim = newSim();
 sim.setCar(T.carById(carChoice));
 sim.chunks.setLayout(buildLayout(undefined, map));
+// HARD=1: HARD START's pace. MAXS: how long a run may last (default 240 s).
+if (process.env.HARD) sim.setPace({ hard: true });
+const maxSeconds = Number(process.env.MAXS || 240);
 const results = [];
-for (let i = 0; i < runs; i += 1) results.push(playRun(sim, { seed: 100 + i, screen: SCREENS[screenName], skill }));
+for (let i = 0; i < runs; i += 1) results.push(playRun(sim, { seed: 100 + i, screen: SCREENS[screenName], skill, maxSeconds }));
 
 const times = results.map((r) => r.time).sort((a, b) => a - b);
 const q = (p) => times[Math.min(times.length - 1, Math.floor(p * times.length))];

@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { CARS } from '../config/tuning.js';
+import { CARS, PRIZE } from '../config/tuning.js';
 import { PlatformManager } from '../platform/PlatformManager.js';
 import { Progress } from '../systems/Progress.js';
 import { Garage } from '../systems/ScoreSystem.js';
@@ -21,6 +21,8 @@ export class GarageScene extends Phaser.Scene {
     this.from = data.from;
     this.flow = Boolean(data.flow);
     this.hint = data.hint || null;
+    this.openOn = data.show || null; // open on this car (the Hypercar, from the results)
+    this.won = Boolean(data.won); // ... just won: chosen, and its DRIVE pointed at
   }
 
   create() {
@@ -35,12 +37,15 @@ export class GarageScene extends Phaser.Scene {
         onUpgrade: (kind) => this.upgrade(kind),
         onHardStart: () => this.toggleHardStart(),
         onToggle: () => this.guide(),
+        onPrize: () => this.showPrize(),
       });
     }
-    this.screen.setFlow(this.flow, Settings.hardStart, this.hint);
+    if (this.won) Garage.select(this.openOn); // the car just won is the one to drive
+    this.screen.setFlow(this.flow, Settings.hardStart, this.won ? PRIZE.garageWon : this.hint);
     this.screen.showCarsPanel(); // opens on the car, not the upgrades left open last time
     Tips.mark('garage-visit');
-    this.index = CARS.findIndex((car) => car.id === Garage.selected);
+    this.index = CARS.findIndex((car) => car.id === (this.openOn || Garage.selected));
+    if (this.index < 0) this.index = CARS.findIndex((car) => car.id === Garage.selected);
     this.lastSteer = 0;
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     this.driving = false;
@@ -70,7 +75,20 @@ export class GarageScene extends Phaser.Scene {
   }
 
   showCar() {
-    this.screen.showCar(CARS[this.index], this.index, CARS.length);
+    const car = CARS[this.index];
+    this.screen.showCar(car, this.index, CARS.length);
+    // The Hypercar not yet won: a line that jumps to it, while another car is on show (PRIZE).
+    const prize = Garage.prize;
+    const hard = Settings.hardStart;
+    const time = prize && (hard ? `${clock(prize.challenge.hard)} ON HARD` : clock(prize.challenge.normal));
+    this.screen.setPrize(prize && prize.id !== car.id ? PRIZE.carStep.replace('{t}', time) : null);
+  }
+
+  // The line about the Hypercar: straight to it.
+  showPrize() {
+    const prize = Garage.prize;
+    if (!prize) return;
+    this.browse(CARS.indexOf(prize) - this.index);
   }
 
   // One-time pointers (GUIDE), each staying until what it points at is pressed: the free upgrade (UPGRADES, then
@@ -80,6 +98,12 @@ export class GarageScene extends Phaser.Scene {
   guide() {
     const screen = this.screen;
     const car = CARS[this.index];
+    // The Hypercar just won: its DRIVE button, while it is on show.
+    if (this.won) {
+      if (car.id === this.openOn && !screen.carPanel.hidden) Guide.point(screen.action);
+      else Guide.hide();
+      return;
+    }
     if (!Tips.has('guide-garage')) {
       if (!Garage.owns(car.id)) {
         Guide.hide(); // browsing a car not owned: the pointer comes back on one that is
@@ -141,6 +165,7 @@ export class GarageScene extends Phaser.Scene {
   driveToMaps() {
     if (this.screen.leaving) return;
     Guide.hide();
+    this.won = false;
     Tips.mark('guide-garage');
     this.audio.unlock();
     this.audio.play('click');
@@ -202,4 +227,10 @@ export class GarageScene extends Phaser.Scene {
     this.scene.resume(this.from);
     parent.onGarageClosed();
   }
+}
+
+// Whole minutes and seconds, as 6:00.
+function clock(seconds) {
+  const s = Math.floor(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
