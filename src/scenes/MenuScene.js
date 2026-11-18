@@ -1,10 +1,10 @@
 import * as Phaser from 'phaser';
 import { PlatformManager } from '../platform/PlatformManager.js';
-import { LEADERBOARD } from '../config/tuning.js';
-import { Garage, Records } from '../systems/ScoreSystem.js';
+import { Garage } from '../systems/ScoreSystem.js';
 import { Settings } from '../systems/Settings.js';
 import { Tips } from '../systems/Tips.js';
-import { LeaderboardScreen, MenuScreen } from '../ui/Screens.js';
+import { MenuScreen } from '../ui/Screens.js';
+import { boardAvailable, openLeaderboard } from '../ui/Leaderboard.js';
 
 // Title screen (HTML) over the world, where the player's car waits on the road. PLAY (or Enter / Space /
 // gamepad A) leads on to choosing a map (MapScene), then a car (GarageScene), then the run.
@@ -29,8 +29,7 @@ export class MenuScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.game.events.off('run-started', close));
     // Under PLAY's steps, unseen (DRIVE from the results' garage): ready for BACK, as if PLAY had been pressed.
     if (this.scene.settings.data && this.scene.settings.data.behind) {
-      const boardMode = PlatformManager.leaderboardMode();
-      this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, coins: Garage.coins, boardShown: boardMode === 'in_game' || boardMode === 'native_popup' });
+      this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, coins: Garage.coins, boardShown: boardAvailable() });
       this.screen.hide();
       this.readyAt = Infinity;
       this.scene.pause();
@@ -44,8 +43,7 @@ export class MenuScene extends Phaser.Scene {
       this.scene.get('GameScene').startRun(undefined, { firstDrive: true });
       return;
     }
-    const boardMode = PlatformManager.leaderboardMode();
-    this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, coins: Garage.coins, boardShown: boardMode === 'in_game' || boardMode === 'native_popup' });
+    this.screen.show({ soundOn: Settings.sound, musicOn: Settings.music, coins: Garage.coins, boardShown: boardAvailable() });
     this.readyAt = this.time.now + 250; // ignore a key still held from the previous screen
     hideBootScreen();
     PlatformManager.gameReady(); // first moment the player can interact
@@ -85,41 +83,10 @@ export class MenuScene extends Phaser.Scene {
     this.scene.stop();
   }
 
-  // The HARD START leaderboard: the platform's own window where it has one, otherwise the game's screen.
-  async openBoard() {
+  // The HARD START leaderboard (ui/Leaderboard.js), over the title.
+  openBoard() {
     if (!this.screen || this.screen.node.hidden) return;
-    this.audio.unlock();
-    this.audio.play('click');
-    if (PlatformManager.leaderboardMode() === 'native_popup') {
-      PlatformManager.showLeaderboard(LEADERBOARD.id);
-      return;
-    }
-    if (!this.boardScreen) {
-      this.boardScreen = new LeaderboardScreen({
-        onClose: () => this.closeBoard(),
-        onHardStart: () => {
-          if (!Settings.hardStart) this.toggleHardStart();
-          this.boardScreen.setHardOn(true);
-        },
-      });
-    }
-    this.screen.hide();
-    this.boardScreen.showLoading(Records.hardBest, Settings.hardStart);
-    const entries = await PlatformManager.leaderboardEntries(LEADERBOARD.id);
-    if (!this.boardScreen.node.hidden) this.boardScreen.showEntries(entries, LEADERBOARD.shown);
-  }
-
-  closeBoard() {
-    this.audio.play('click');
-    this.boardScreen.hide();
-    this.screen.node.hidden = false;
-    this.readyAt = this.time.now + 250;
-  }
-
-  toggleHardStart() {
-    this.audio.unlock();
-    Settings.setHardStart(!Settings.hardStart);
-    this.audio.play('click');
+    openLeaderboard({ under: this.screen, audio: this.audio, onClosed: () => (this.readyAt = this.time.now + 250) });
   }
 
   toggleSound() {

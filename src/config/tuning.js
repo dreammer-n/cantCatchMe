@@ -551,7 +551,7 @@ export const MAPS = [
     shop: 'shop',
     marks: { perCell: 1.5, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.6, size: [30, 85], stretch: 1.8 },
     startPreset: 'suburb',
-    tireDust: { tint: [0xe2e4e8, 0xc9ccd2], bits: null }, // light grey tire smoke
+    tireDust: { tint: [0xe2e4e8, 0xc9ccd2] }, // light grey tire smoke
     presets: null, // CHUNKS.presets
   },
   {
@@ -582,7 +582,7 @@ export const MAPS = [
     ice: true, // ice patches, frozen ponds and snowmen (WINTER_MAP)
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.8, size: [110, 300], stretch: 2.2, drifts: 0.6 },
     startPreset: 'snow',
-    tireDust: { tint: [0xffffff, 0xffffff, 0xeef4fa], bits: 'snow' }, // bright powder snow and tiny flecks
+    tireDust: { tint: [0xffffff, 0xffffff, 0xeef4fa] }, // bright powder snow and tiny flecks
     presets: {
       snow: { weight: 1, holeChance: 0.05, roadHoles: [1, 1], landmarks: ['WINTER', 'PARK'], cells: [['parking', 30], ['lawn', 30], ['pond', 10], ['shop', 12], ['booth', 8], ['station', 6], ['barriers', 6], ['open', 4]] },
     },
@@ -618,7 +618,7 @@ export const MAPS = [
     sandstorms: true, // SANDSTORM, TUMBLEWEEDS
     marks: { perCell: 3, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.75, size: [110, 300], stretch: 2.2, drifts: 0.75 },
     startPreset: 'dunes',
-    tireDust: { tint: [0xf6e0b4, 0xe8c994], bits: 'sand' }, // sand dust and grains
+    tireDust: { tint: [0xf6e0b4, 0xe8c994] }, // sand dust and grains
     presets: {
       dunes: { weight: 1, holeChance: 0.08, roadHoles: [1, 1], landmarks: ['DESERT', 'GAS'], cells: [['scrub', 20], ['mesa', 24], ['grove', 18], ['oilfield', 12], ['shop', 9], ['tower', 9], ['barriers', 6], ['station', 5]] },
     },
@@ -650,7 +650,7 @@ export const MAPS = [
     patch: { perCell: 12, colors: ['asphaltPatchDark', 'asphaltPatchLight'], alpha: 0.9, size: [10, 20], lotOnly: true, tuft: true },
     startPreset: 'forest',
     wild: true, // textured grass, roads of asphalt, mud and grass (WOODS_MAP.roads)
-    tireDust: { tint: [0xd8c4a0, 0xc0a985], bits: 'mud' }, // dirt dust and clods
+    tireDust: { tint: [0xd8c4a0, 0xc0a985] }, // dirt dust and clods
     presets: {
       forest: { weight: 1, holeChance: 0.04, roadHoles: [1, 1], landmarks: ['WOODS'], cells: [['grove', 30], ['logs', 22], ['thicket', 12], ['lumber', 10], ['scrub', 12], ['open', 7], ['shop', 6], ['station', 5]] },
     },
@@ -673,7 +673,7 @@ export const MAPS = [
     presets: {
       bare: { weight: 1, holeChance: 0, roadHoles: [0, 0], landmarks: [], cells: [['open', 1]] },
     },
-    tireDust: { tint: [0xe2e4e8, 0xc9ccd2], bits: null },
+    tireDust: { tint: [0xe2e4e8, 0xc9ccd2] },
     bareGround: { patches: 7, patchSize: [[70, 180], [40, 110]], patchAlpha: 0.3, cracks: 9 }, // a chunk
   },
 ];
@@ -1014,6 +1014,7 @@ export const AIRSTRIKE = {
   bombs: 5,
   spacing: 150, // between bombs along the line
   warningSeconds: 2.6, // the circles show this long before the first bomb lands
+  whistleSeconds: 1.3, // the bomb's falling sound starts this long before the first one lands (its file is 1.36 s)
   bombGap: 0.14, // seconds between one bomb landing and the next
   aheadSeconds: 0.2, // the line crosses where the car would be this long after the first bomb
   sideMin: 170, // ... and this far to one side of it (with the slant below, a car driving straight on is never under a
@@ -1313,7 +1314,7 @@ export const POWERUP = {
   // What the player sees.
   names: { shockwave: 'KABOOM', giant: 'TITAN', freeze: 'COLD SNAP', pillars: 'STONEWALL', flamer: 'SCORCHER', turbo: 'TURBO', slick: 'SLICK', decoy: 'DECOY', blackout: 'BLACKOUT', phantom: 'PHANTOM' },
   // See AUDIO.files. The five newer items are silent until their files arrive: nothing is made up in code.
-  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'], turbo: [], slick: [], decoy: [], blackout: ['blackout'], phantom: [] },
+  sounds: { shockwave: ['shockwave', 'kaboom'], giant: ['titan'], freeze: ['cold_snap'], pillars: ['stone_wall'], flamer: ['scorcher'], turbo: ['nitro'], slick: [], decoy: [], blackout: ['blackout'], phantom: [] },
   autoSeconds: Infinity, // a held item waits for the player's double tap (players didn't want it going off by itself)
   homingSpeed: 150, // it goes this much faster than the car, so it always catches up
   hopMs: 400, // each bounce (drawing only)
@@ -1852,7 +1853,8 @@ export const AUDIO = {
   chaseAfter: ['menu', 'click'],
   // The sound of each knock-over thing hit (owner, 2026-11-12: the cone sound only for cones). A kind not listed
   // is silent until its own file comes: add it to `files` and name it here.
-  propSounds: { cone: 'cone', bush: 'bump', snowman: 'bump', tumbleweed: 'bump' },
+  // Barrels (owner's file, 2026-11-17): the desert's oil barrels and the helicopter's traffic barrels.
+  propSounds: { cone: 'cone', bush: 'bump', snowman: 'bump', tumbleweed: 'bump', barrel: 'barrel' },
   menuOverlap: 1.2, // seconds the menu track overlaps itself where it repeats
   musicLookAhead: 2, // seconds ahead that its next pass is prepared
   loopTrim: 0.06, // seconds skipped at each end of a looping effect: the silence an MP3 adds
@@ -1878,10 +1880,29 @@ export const AUDIO = {
     tire_squeal: { path: 'sound_effects/tire_squeal.mp3' },
     siren: { path: 'sound_effects/siren.mp3' },
     helicopter_loop: { path: 'sound_effects/helicopter_loop.mp3' },
+    // The owner's newer files (2026-11-17): TURBO, a barrel knocked, a bomb falling before the airstrike lands.
+    nitro: { path: 'sound_effects/nitro.mp3', volume: 0.9 },
+    barrel: { path: 'sound_effects/barrel.mp3', volume: 0.8, cooldown: 0.08, vary: 0.1 },
+    jet_bomb_falling: { path: 'sound_effects/jet_bomb_falling.mp3', volume: 0.9 },
   },
 };
 
 // [TUNE] Visual effects budget (particles are capped so phones stay smooth).
+// [TUNE] What a drifting tire throws up, by the ground under it (owner, 2026-11-18): very small grains, kicked out
+// behind the wheel and a little up, that fall back to the ground (groundKindAt in WorldLayout.js; Effects.driftSpray).
+// tints: picked at random for each grain; count: grains from each wheel at each puff (EFFECTS.smokeEveryMs);
+// size: the grain's scale (its texture is 6 px); speed and gravity in screen pixels a second.
+export const DRIFT_SPRAY = {
+  sand: { tints: [0xc9a26a, 0xa97f4b, 0xdcbb85, 0x8f6a3c], count: 6, size: [0.55, 1], speed: [60, 150], gravity: 520, life: [320, 620] },
+  mud: { tints: [0x4f3a26, 0x6b4f33, 0x3d2e1f, 0x5a4530], count: 3, size: [0.6, 1.05], speed: [50, 130], gravity: 700, life: [280, 520] },
+  snow: { tints: [0xffffff, 0xf3f8ff, 0xe4eef8], count: 5, size: [0.55, 1], speed: [50, 140], gravity: 420, life: [300, 600] },
+  ice: { tints: [0xe8f6ff, 0xc6e6fb, 0xffffff], count: 3, size: [0.35, 0.7], speed: [80, 180], gravity: 520, life: [220, 440] },
+  grass: { tints: [0x5f8f3a, 0x7aa84a, 0x4a6b2c, 0x6b4f33], count: 3, size: [0.5, 0.9], speed: [50, 130], gravity: 600, life: [280, 520] },
+  asphalt: { tints: [0x3a3d42, 0x55595f, 0x2c2e32], count: 2, size: [0.4, 0.7], speed: [40, 110], gravity: 600, life: [200, 380] },
+  upward: 0.6, // how much each grain is kicked up as well as back (0: straight back along the ground)
+  spreadDeg: 40, // either side of straight back
+};
+
 export const EFFECTS = {
   maxSmoke: 140,
   // A crash's pop of smoke: a small, bright, quick burst of white and warm cream round the fireball (minimal and
@@ -1918,8 +1939,8 @@ export const EFFECTS = {
   maxSnow: 60, // snow kicked up by tires on Winter
   ringFlakes: 90, // COLD SNAP: snowflakes carried out on the ring
   ringClouds: 14, // and puffs of powder snow
-  maxGrains: 60, // sand grains and mud clods thrown by tires
-  tireBitsChance: 0.55, // share of tire puffs that throw bits too
+
+  maxSpray: 90, // tiny grains a drifting tire throws up, of each kind (DRIFT_SPRAY)
   maxSparks: 70, // BLACKOUT's electric sparks at once
   maxWater: 90, // a burst hydrant's drops at once
   maxBits: 50, // leaves, paper and splinters at once

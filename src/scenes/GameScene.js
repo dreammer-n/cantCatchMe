@@ -57,7 +57,7 @@ import { HelicopterView } from '../render/HelicopterView.js';
 import { JetView } from '../render/JetView.js';
 import { createLayers, depthAt } from '../render/layers.js';
 import { bakeMesh, cssColor, releaseOtherViews } from '../render/lowpoly.js';
-import { buildLayout } from '../systems/WorldLayout.js';
+import { buildLayout, chunkCoord, groundKindAt } from '../systems/WorldLayout.js';
 import { projection } from '../render/projection.js';
 import { Coach } from './Coach.js';
 import { DIE_ROLLS, luckyDie } from '../render/propModels.js';
@@ -772,6 +772,9 @@ export class GameScene extends Phaser.Scene {
         case 'airstrike':
           this.toast('AIRSTRIKE!', 'near');
           break;
+        case 'bombWhistle':
+          this.audio.play('jet_bomb_falling', 1 - Math.hypot(e.x - player.x, e.y - player.y) / AUDIO.explosionRange);
+          break;
         case 'bomb': {
           const distance = Math.hypot(e.x - player.x, e.y - player.y);
           this.effects.explosion(e.x, e.y, true, PALETTE.bomb);
@@ -1195,12 +1198,21 @@ export class GameScene extends Phaser.Scene {
     if (!skidding) return;
     const clock = (this.smokeClock.get(track) || 0) + ms;
     if (clock >= EFFECTS.smokeEveryMs) {
-      this.effects.tireDust(this.wheels[0].x, this.wheels[0].y);
-      this.effects.tireDust(this.wheels[1].x, this.wheels[1].y);
+      for (const wheel of this.wheels) {
+        this.effects.tireDust(wheel.x, wheel.y);
+        // Grains of whatever it is on: sand, mud, snow, ice chips, grass or grit (DRIFT_SPRAY).
+        this.effects.driftSpray(wheel.x, wheel.y, this.groundKind(wheel.x, wheel.y, model.surface), model.vx, model.vy);
+      }
       this.smokeClock.set(track, 0);
     } else {
       this.smokeClock.set(track, clock);
     }
+  }
+
+  // What the ground at (x, y) is made of, for a drifting tire's spray (groundKindAt).
+  groundKind(x, y, surface) {
+    const entry = this.sim.chunks.active.get(`${chunkCoord(x)},${chunkCoord(y)}`);
+    return groundKindAt(entry ? entry.data : null, this.effects.ground || Maps.current(), x, y, surface);
   }
 
   // onFire: a police car still driving while it burns (SCORCHER), whose flames PowerFx draws.

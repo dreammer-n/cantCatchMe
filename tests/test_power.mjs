@@ -676,6 +676,16 @@ const lock = (p) => {
   const on = run(s, 0.4);
   check('at 3 minutes the jet comes, with a warning', s.airstrike.active && on.filter((e) => e.type === 'airstrike').length === 1);
   const bombs = s.airstrike.bombs;
+  // The bomb's falling sound (owner's file): once a strike, ahead of the first bomb, by the length of the file.
+  const whistles = [];
+  const bangs = [];
+  for (let t = 0; t < AIRSTRIKE.warningSeconds + 2; t += 1 / 60) {
+    for (const e of run(s, 1 / 60)) {
+      if (e.type === 'bombWhistle') whistles.push(s.airstrike.time);
+      if (e.type === 'bomb') bangs.push(s.airstrike.time);
+    }
+  }
+  check('one falling-bomb sound a strike, about 1.3 s before the first bomb lands', whistles.length === 1 && Math.abs(bangs[0] - whistles[0] - AIRSTRIKE.whistleSeconds) < 0.1, `${whistles.length} at ${whistles[0] && whistles[0].toFixed(2)}, first bomb ${bangs[0] && bangs[0].toFixed(2)}`);
   check('every bomb lands at least 2.5 s after its circle appears', bombs.every((b) => b.landAt >= 2.5));
   // Driving straight on, the car is never where a bomb lands: the line runs beside its way.
   const p = s.player;

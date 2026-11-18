@@ -51,6 +51,40 @@ export function pointOnRoad(x, y, northSouth, out) {
   return out;
 }
 
+// What the ground at (x, y) is, for what a drifting tire throws up (DRIFT_SPRAY): 'sand', 'mud', 'snow',
+// 'ice', 'grass' or 'asphalt'. chunk: the loaded chunk there (null if none); surface: the car's own (Car.surface).
+export function groundKindAt(chunk, forMap, x, y, surface) {
+  if (surface === 'ice' || surface === 'sand') return surface;
+  if (forMap.bare) return 'asphalt';
+  if (forMap.ice) return 'snow';
+  if (forMap.sand) return 'sand';
+  const { cell, margin } = WORLD;
+  const fx = x - Math.floor(x / cell) * cell;
+  const fy = y - Math.floor(y / cell) * cell;
+  const onNorthSouth = fx < margin || fx > cell - margin;
+  const onEastWest = fy < margin || fy > cell - margin;
+  if (forMap.wild) {
+    if (!onNorthSouth && !onEastWest) return 'grass';
+    if (onNorthSouth && onEastWest) {
+      // A crossing: whichever surface the roads meeting there have most of, as it is drawn (addWildRoads).
+      const L = Math.round(x / cell);
+      const M = Math.round(y / cell);
+      const meeting = [wildRoadType(true, L, M - 1), wildRoadType(true, L, M), wildRoadType(false, M, L - 1), wildRoadType(false, M, L)];
+      const asphalt = meeting.filter((t) => t === 'asphalt').length;
+      const mud = meeting.filter((t) => t === 'mud').length;
+      if (asphalt === 0 && mud === 0) return 'grass';
+      return asphalt >= mud ? 'asphalt' : 'mud';
+    }
+    const northSouth = onNorthSouth;
+    const type = northSouth ? wildRoadType(true, Math.round(x / cell), Math.floor(y / cell)) : wildRoadType(false, Math.round(y / cell), Math.floor(x / cell));
+    return type === 'grass' ? 'grass' : type === 'mud' ? 'mud' : 'asphalt';
+  }
+  if (onNorthSouth || onEastWest || !forMap.streets || !chunk || !chunk.blocks) return 'asphalt';
+  const i = Math.floor((x - chunk.x0) / cell);
+  const j = Math.floor((y - chunk.y0) / cell);
+  return WORLD.street.grassBlocks.includes(chunk.blocks[j * CELLS_PER_CHUNK + i]) ? 'grass' : 'asphalt';
+}
+
 // The nearest point on any road's centre line.
 export function nearestRoadPoint(x, y, out) {
   const toNorthSouth = Math.abs(x - Math.round(x / WORLD.cell) * WORLD.cell);
@@ -72,7 +106,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
   const presets = Object.entries(presetsHere);
   const preset = hasStart ? forMap.startPreset : pickWeighted(rng, presets.map(([name, def]) => [name, def.weight]));
   const def = presetsHere[preset];
-  const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [], surfaces: [] };
+  const chunk = { cx, cy, x0: cx * CHUNKS.size, y0: cy * CHUNKS.size, seed: hash, preset, items: [], paint: [], voids: [], surfaces: [], blocks: [] };
   // The ground has its own random numbers, so it never moves a prop. So do each map's own features.
   const groundRng = createRng(hash + 7919);
   const streetRng = createRng(hash + 104729);
@@ -100,6 +134,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
       let arrangement = 'open';
       if (preset === 'plaza' && isPlazaCell(i, j)) {
         chunk.paint.push(...blockGround(cell, groundRng, arrangement));
+        chunk.blocks[j * CELLS_PER_CHUNK + i] = arrangement;
         continue;
       }
       // The chunk where a run starts has the gas station, in the block ahead and to the right of the start.
@@ -128,6 +163,7 @@ export function buildChunk(cx, cy, seed = WORLD.seed, forMap = MAPS[0]) {
       if (forMap.sand && !riverHere) addTumbleweeds(cell, chunk.items, featureRng);
       // The block's ground goes under everything its arrangement painted.
       chunk.paint.splice(groundAt, 0, ...blockGround(cell, groundRng, arrangement));
+      chunk.blocks[j * CELLS_PER_CHUNK + i] = arrangement; // what its ground is, for the spray off a drifting tire
       if (rng() < WORLD.crosswalkChance && !forMap.wild) addCrosswalk(cell, chunk.paint, rng, i, j);
     }
   }

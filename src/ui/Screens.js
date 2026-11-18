@@ -413,8 +413,10 @@ const CAUSES = {
 };
 
 export class GameOverScreen extends Screen {
-  constructor({ onRetry, onMenu, onGarage, onDouble, onFeedback, onPrize }) {
+  constructor({ onRetry, onMenu, onGarage, onDouble, onFeedback, onPrize, onBoard }) {
     let garageButton = null;
+    // The HARD START leaderboard, here as well as on the title: a new player reaches the results first.
+    const board = button('btn btn-icon btn-board', ICONS.trophy, () => onBoard(), 'Hard start leaderboard');
     // One question, once (FEEDBACK): a tap on an answer sends it and says thanks.
     const feedbackText = dt('over-feedback-text', FEEDBACK.question);
     const feedbackChoices = el('div', 'over-feedback-choices', FEEDBACK.choices.map((c) => textButton('btn-secondary over-feedback-choice', c.text, () => onFeedback(c.id), c.text)));
@@ -454,12 +456,12 @@ export class GameOverScreen extends Screen {
         adLine,
         feedback,
         textButton('btn-primary', 'RETRY', onRetry, 'Retry', ICONS.retry),
-        el('div', 'menu-row over-small-row', [(garageButton = textButton('btn-secondary', 'GARAGE', onGarage, 'Garage')), textButton('btn-secondary', 'MENU', onMenu, 'Main menu')]),
+        el('div', 'menu-row over-small-row', [(garageButton = textButton('btn-secondary', 'GARAGE', onGarage, 'Garage')), textButton('btn-secondary', 'MENU', onMenu, 'Main menu'), board]),
       ]),
     ]);
     this.balance = coinBadge();
     this.node.append(this.balance);
-    Object.assign(this, { cause, time, stars, badge, prize, prizeText, next, advice, rows, earned, breakdown, double, adLine, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
+    Object.assign(this, { board, cause, time, stars, badge, prize, prizeText, next, advice, rows, earned, breakdown, double, adLine, doneList, level, levelUp, feedback, feedbackText, feedbackChoices, garageButton });
   }
 
   thankFeedback() {
@@ -493,7 +495,8 @@ export class GameOverScreen extends Screen {
   }
 
   // Minimal: BUSTED!, the time and stars, ONE line, the coins (and doubling them), RETRY, then GARAGE and MENU small.
-  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, canDouble = true, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, prize = null, garagePointer = false }) {
+  show({ summary, best, newBest, cause, coins, mapUnlocks, nextMap, doubled, balance, adMode, canDouble = true, crashTip, missions = [], progress = null, askFeedback = false, goal = null, carWon = null, prize = null, garagePointer = false, boardShown = false }) {
+    this.board.hidden = !boardShown;
     this.feedback.hidden = !askFeedback;
     this.prize.hidden = !prize;
     if (prize) setDisplay(this.prizeText, prize);

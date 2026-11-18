@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { DEPTH, EFFECTS, FLAMER, FREEZE, MAPS, PALETTE, RENDER } from '../config/tuning.js';
+import { DEPTH, DRIFT_SPRAY, EFFECTS, FLAMER, FREEZE, MAPS, PALETTE, RENDER } from '../config/tuning.js';
 import { chunkPose, stepChunk, stepChunkTurn } from './Tumble.js';
 import { DEBRIS, DEBRIS_KINDS, frameName, makeDebrisSheet, shardFrames } from './debrisModels.js';
 import { lerp } from '../utils/math.js';
@@ -33,6 +33,19 @@ export function makeEffectTextures(scene) {
   make('fx-blob', 128, paintBlob); // soft patches on the ground: oil, ice (Scenery uses it too)
   makeDebrisSheet(scene);
   makeCloudSheet(scene);
+  // A grain of sand, a fleck of snow or mud: a tiny crisp dot, a little uneven. White, tinted when used.
+  make('fx-grain', 6, (ctx) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(1, 2);
+    ctx.lineTo(3, 0.5);
+    ctx.lineTo(5.5, 2);
+    ctx.lineTo(5, 4.5);
+    ctx.lineTo(2.5, 5.5);
+    ctx.lineTo(0.5, 4);
+    ctx.closePath();
+    ctx.fill();
+  });
   // Frost: a small four-pointed sparkle. White, tinted when used.
   make('fx-star', 28, (ctx) => {
     ctx.fillStyle = '#ffffff';
@@ -130,33 +143,24 @@ export class Effects {
           .setDepth(DEPTH.effects),
       ]),
     );
-    const grains = (tint) =>
-      scene.add
-        .particles(0, 0, 'fx-ember', {
+    // What a drifting tire throws up, one emitter for each kind of ground (DRIFT_SPRAY).
+    this.spray = {};
+    for (const [kind, def] of Object.entries(DRIFT_SPRAY)) {
+      if (!def || !def.tints) continue;
+      this.spray[kind] = scene.add
+        .particles(0, 0, 'fx-grain', {
           ...base,
-          lifespan: { min: 300, max: 600 },
-          speed: { min: 60, max: 170 },
-          angle: { min: 200, max: 340 },
-          gravityY: 700,
-          scale: { start: 0.4, end: 0.25 },
-          tint,
-          maxAliveParticles: EFFECTS.maxGrains,
+          lifespan: { min: def.life[0], max: def.life[1] },
+          speed: { min: def.speed[0], max: def.speed[1] },
+          gravityY: def.gravity,
+          scale: { min: def.size[0], max: def.size[1] },
+          alpha: { start: 1, end: 0.6 },
+          rotate: { min: 0, max: 360 },
+          tint: def.tints,
+          maxAliveParticles: EFFECTS.maxSpray,
         })
         .setDepth(DEPTH.effects + 1);
-    this.grains = { sand: grains([0xd8b27a, 0xb88a52]), mud: grains([0x5f4630, 0x7a5b3b, 0x4a3a28]) };
-    // Tiny flecks of snow thrown up by tires on Winter.
-    this.snowBits = scene.add
-      .particles(0, 0, 'fx-ember', {
-        ...base,
-        lifespan: { min: 260, max: 520 },
-        speed: { min: 40, max: 140 },
-        angle: { min: 200, max: 340 },
-        gravityY: 520,
-        scale: { start: 0.32, end: 0.12 },
-        tint: [0xffffff, 0xf2f8ff],
-        maxAliveParticles: EFFECTS.maxGrains,
-      })
-      .setDepth(DEPTH.effects + 1);
+    }
     this.ground = null;
     // A crash's burst: crisp white cartoon puffs that pop out round the fireball, swell and are gone in half a
     // second. Not turned, so the grey underside stays underneath.
@@ -437,15 +441,32 @@ export class Effects {
     this.ground = map;
   }
 
-  // Smoke and bits off a skidding tire, the colour of the ground.
+  // Smoke off a skidding tire, the colour of the map's ground (the grains it throws are driftSpray).
   tireDust(x, y) {
     const map = this.ground || MAPS[0];
     projection.toScreen(x, y, 4, screen);
     this.tireSmokes.get(map.id).emitParticleAt(screen.x, screen.y, 1);
-    const bits = map.tireDust.bits;
-    if (!bits || Math.random() > EFFECTS.tireBitsChance) return;
-    if (bits === 'snow') this.snowBits.emitParticleAt(screen.x, screen.y - 2, 3);
-    else this.grains[bits].emitParticleAt(screen.x, screen.y, 2);
+  }
+
+  // Grains a drifting tire throws up (DRIFT_SPRAY): kicked out behind the wheel, against the way the car is going
+  // (vx, vy), and a little up, then they fall back. kind: the ground under it (groundKindAt).
+  driftSpray(x, y, kind, vx, vy) {
+    const emitter = this.spray[kind];
+    if (!emitter) return;
+    const def = DRIFT_SPRAY[kind];
+    projection.toScreen(x, y, 2, screen);
+    const sx = screen.x;
+    const sy = screen.y;
+    const speed = Math.hypot(vx, vy) || 1;
+    projection.toScreen(x - (vx / speed) * 40, y - (vy / speed) * 40, 2, screen);
+    let dx = screen.x - sx;
+    let dy = screen.y - sy;
+    const length = Math.hypot(dx, dy) || 1;
+    dx /= length;
+    dy = dy / length - DRIFT_SPRAY.upward; // up the screen is up in the air
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    emitter.setEmitterAngle({ min: angle - DRIFT_SPRAY.spreadDeg, max: angle + DRIFT_SPRAY.spreadDeg });
+    emitter.emitParticleAt(sx, sy, def.count);
   }
 
   smokePuff(x, y, z = 4, dark = false) {
@@ -892,7 +913,7 @@ export class Effects {
   }
 
   clear() {
-    for (const emitter of [this.smoke, this.darkSmoke, this.chunkSmoke, this.fireball, this.fire, this.debris, this.flames, this.frost, this.snow, ...this.tireSmokes.values(), this.grains.sand, this.grains.mud, this.sparks, this.rocks, this.water, this.bits, this.snowBits]) emitter.killAll();
+    for (const emitter of [this.smoke, this.darkSmoke, this.chunkSmoke, this.fireball, this.fire, this.debris, this.flames, this.frost, this.snow, ...this.tireSmokes.values(), ...Object.values(this.spray), this.sparks, this.rocks, this.water, this.bits]) emitter.killAll();
     this.sprays.length = 0;
     this.snowBlast = null;
     for (const flake of this.ringSnow) flake.image.setVisible(false);

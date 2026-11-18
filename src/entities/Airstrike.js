@@ -17,6 +17,7 @@ export class Airstrike {
     this.active = false;
     this.time = 0;
     this.nextAt = AIRSTRIKE.firstAt;
+    this.whistled = false; // the bombs' falling sound has been asked for
     this.dirX = 1; // the jet's line, as a unit vector
     this.dirY = 0;
     this.heading = 0;
@@ -39,6 +40,11 @@ export class Airstrike {
       return;
     }
     this.time += dt;
+    if (!this.whistled && this.time >= this.bombs[0].landAt - AIRSTRIKE.whistleSeconds) {
+      this.whistled = true;
+      const middle = this.bombs[Math.floor(this.bombs.length / 2)];
+      sim.emit('bombWhistle', { x: middle.x, y: middle.y });
+    }
     for (const bomb of this.bombs) {
       if (!bomb.landed && this.time >= bomb.landAt) {
         bomb.landed = true;
@@ -78,6 +84,7 @@ export class Airstrike {
     });
     this.active = true;
     this.time = 0;
+    this.whistled = false;
     sim.emit('airstrike', { x: cx, y: cy });
   }
 }

@@ -1,7 +1,7 @@
 // Checks for the endless world: chunk layouts, streaming, holes and falling, police recycling.
 import { Camera, Car, CS, ChaseSimulation, SCREENS, T, buildLayout, fixedMap, isOnScreen, newSim, playRun, projection } from './simkit.mjs';
 import { ChunkManager } from '../src/systems/ChunkManager.js';
-import { buildChunk, chunkCoord, propCatalogue } from '../src/systems/WorldLayout.js';
+import { buildChunk, chunkCoord, groundKindAt, propCatalogue } from '../src/systems/WorldLayout.js';
 
 let pass = 0;
 let fail = 0;
@@ -360,6 +360,35 @@ check('wrecks are gone within a few seconds', T.WRECK.lifetime <= 4, `${T.WRECK.
   check('police never spawn on screen', onScreen === 0, `${onScreen} of ${spawns}`);
   check('police never spawn on an unloaded chunk', unloaded === 0);
   check('cars and police pools stay within their limits', maxBodies <= T.POLICE.maxCars + 1 && maxPool <= T.POLICE.maxCars + 1, `most cars ${maxBodies}, pool ${maxPool}; run endings ${JSON.stringify(causes)}`);
+}
+
+// What a drifting tire throws up comes from the ground under it (DRIFT_SPRAY, groundKindAt).
+{
+  const mapOf = (id) => T.MAPS.find((m) => m.id === id);
+  const kinds = (id) => {
+    const map = mapOf(id);
+    const seen = new Set();
+    for (let cx = -1; cx <= 1; cx += 1) {
+      for (let cy = -1; cy <= 1; cy += 1) {
+        const chunk = buildChunk(cx, cy, T.WORLD.seed, map);
+        for (let k = 0; k < 400; k += 1) {
+          const x = chunk.x0 + ((k * 97) % 40) * 60 + 7;
+          const y = chunk.y0 + Math.floor(k / 40) * 240 + ((k * 31) % 7) * 30 + 5;
+          seen.add(groundKindAt(chunk, map, x, y, null));
+        }
+      }
+    }
+    return seen;
+  };
+  const desert = kinds('desert');
+  const winter = kinds('winter');
+  const suburbs = kinds('suburb');
+  const woods = kinds('woods');
+  check('drifting on the desert throws sand, on winter snow', [...desert].join() === 'sand' && [...winter].join() === 'snow', `${[...desert]} / ${[...winter]}`);
+  check('on Suburbs: grit on the asphalt, grass on the lawns', suburbs.has('asphalt') && suburbs.has('grass') && suburbs.size === 2, [...suburbs].join());
+  check('in the woods: grass off the road, and mud or asphalt on it', woods.has('grass') && woods.has('mud') && woods.has('asphalt'), [...woods].join());
+  check('ice and soft sand under the car win over the map', groundKindAt(null, mapOf('winter'), 0, 0, 'ice') === 'ice' && groundKindAt(null, mapOf('suburb'), 0, 0, 'sand') === 'sand');
+  check('every kind of ground has its spray', ['sand', 'mud', 'snow', 'ice', 'grass', 'asphalt'].every((k) => T.DRIFT_SPRAY[k] && T.DRIFT_SPRAY[k].tints.length > 0));
 }
 
 console.log(`\n${pass}/${pass + fail} passed`);

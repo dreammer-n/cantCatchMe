@@ -2019,3 +2019,14 @@ body {
 .garage-prize[hidden] {
   display: none;
 }
+
+/* The leaderboard's trophy on the results, beside GARAGE and MENU: as small as they are. */
+.over-small-row .btn-board {
+  width: 50px;
+  min-width: 50px;
+  padding: 0 12px;
+}
+
+.over-small-row .btn-board[hidden] {
+  display: none;
+}
